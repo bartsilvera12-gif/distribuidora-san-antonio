@@ -110,9 +110,18 @@ export async function crearEmpresa(data: CrearEmpresaData): Promise<{ empresa_id
   return json;
 }
 
+export interface UsuarioEmpresa {
+  id: string;
+  nombre: string;
+  email: string;
+  rol: string;
+  estado?: string;
+  created_at: string;
+}
+
 export interface EmpresaDetalle {
   empresa: Empresa;
-  usuarios: { id: string; nombre: string; email: string; rol: string; created_at: string }[];
+  usuarios: UsuarioEmpresa[];
   modulos: { id: string; nombre: string; slug: string }[];
 }
 
@@ -144,6 +153,42 @@ export async function actualizarEmpresa(id: string, data: ActualizarEmpresaData)
   if (!res.ok) {
     throw new Error(
       typeof json.error === "string" ? json.error : json.error?.message || "Error actualizando empresa"
+    );
+  }
+}
+
+export interface ActualizarUsuarioData {
+  nombre?: string;
+  email?: string;
+  estado?: "activo" | "inactivo";
+}
+
+export async function actualizarUsuario(id: string, data: ActualizarUsuarioData): Promise<void> {
+  const res = await fetch(`/api/admin/usuarios/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+
+  const json = await res.json();
+  if (!res.ok) {
+    throw new Error(
+      typeof json.error === "string" ? json.error : json.error?.message || "Error actualizando usuario"
+    );
+  }
+}
+
+export async function resetearPasswordUsuario(id: string, password: string): Promise<void> {
+  const res = await fetch(`/api/admin/usuarios/${id}/reset-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+
+  const json = await res.json();
+  if (!res.ok) {
+    throw new Error(
+      typeof json.error === "string" ? json.error : json.error?.message || "Error reseteando contraseña"
     );
   }
 }

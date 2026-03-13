@@ -31,7 +31,7 @@ function BadgeEstado({ estado }: { estado: string }) {
 
 export default function VerEmpresaPage() {
   const params = useParams();
-  const id = params.id as string;
+  const id = String(params?.id ?? "");
   const [data, setData] = useState<EmpresaDetalle | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);

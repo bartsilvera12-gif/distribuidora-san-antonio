@@ -7,22 +7,47 @@ import {
   getEmpresaById,
   getModulos,
   actualizarEmpresa,
+  actualizarUsuario,
+  resetearPasswordUsuario,
 } from "@/lib/empresas/actions";
-import type { Modulo } from "@/lib/empresas/actions";
+import type { Modulo, UsuarioEmpresa } from "@/lib/empresas/actions";
 
 const fLabel = "block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1";
 const fInput =
   "w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0EA5E9] bg-white";
 
+function BadgeEstado({ estado }: { estado: string }) {
+  const activo = estado === "activo";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${
+        activo ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
+      }`}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${activo ? "bg-green-500" : "bg-gray-400"}`} />
+      {activo ? "Activo" : "Inactivo"}
+    </span>
+  );
+}
+
 export default function EditarEmpresaPage() {
   const params = useParams();
   const router = useRouter();
-  const id = params.id as string;
+  const id = String(params?.id ?? "");
   const [modulos, setModulos] = useState<Modulo[]>([]);
   const [cargandoModulos, setCargandoModulos] = useState(true);
   const [cargandoEmpresa, setCargandoEmpresa] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [admin, setAdmin] = useState<UsuarioEmpresa | null>(null);
+  const [adminForm, setAdminForm] = useState({ nombre: "", email: "", estado: "activo" as "activo" | "inactivo" });
+  const [editandoAdmin, setEditandoAdmin] = useState(false);
+  const [guardandoAdmin, setGuardandoAdmin] = useState(false);
+  const [errorAdmin, setErrorAdmin] = useState<string | null>(null);
+  const [mostrarResetPassword, setMostrarResetPassword] = useState(false);
+  const [nuevaPassword, setNuevaPassword] = useState("");
+  const [guardandoPassword, setGuardandoPassword] = useState(false);
 
   const [form, setForm] = useState({
     nombre_empresa: "",
@@ -43,6 +68,15 @@ export default function EditarEmpresaPage() {
           estado: (detalle.empresa.estado as "activo" | "inactivo") ?? "activo",
           modulo_ids: detalle.modulos.map((m) => m.id),
         });
+        const adminUser = detalle.usuarios.find((u) => u.rol === "admin") ?? null;
+        setAdmin(adminUser);
+        if (adminUser) {
+          setAdminForm({
+            nombre: adminUser.nombre ?? "",
+            email: adminUser.email ?? "",
+            estado: (adminUser.estado as "activo" | "inactivo") ?? "activo",
+          });
+        }
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Error"))
       .finally(() => {
@@ -91,6 +125,45 @@ export default function EditarEmpresaPage() {
       setError(msg);
     } finally {
       setGuardando(false);
+    }
+  }
+
+  async function handleGuardarAdmin(e: React.FormEvent) {
+    e.preventDefault();
+    if (!admin) return;
+    setErrorAdmin(null);
+    setGuardandoAdmin(true);
+    try {
+      await actualizarUsuario(admin.id, {
+        nombre: adminForm.nombre.trim(),
+        email: adminForm.email.trim() || undefined,
+        estado: adminForm.estado,
+      });
+      setAdmin({ ...admin, ...adminForm });
+      setEditandoAdmin(false);
+    } catch (err: unknown) {
+      setErrorAdmin(err instanceof Error ? err.message : "Error");
+    } finally {
+      setGuardandoAdmin(false);
+    }
+  }
+
+  async function handleResetPassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (!admin || !nuevaPassword.trim() || nuevaPassword.length < 6) {
+      setErrorAdmin("La contraseña debe tener al menos 6 caracteres");
+      return;
+    }
+    setErrorAdmin(null);
+    setGuardandoPassword(true);
+    try {
+      await resetearPasswordUsuario(admin.id, nuevaPassword);
+      setNuevaPassword("");
+      setMostrarResetPassword(false);
+    } catch (err: unknown) {
+      setErrorAdmin(err instanceof Error ? err.message : "Error");
+    } finally {
+      setGuardandoPassword(false);
     }
   }
 
@@ -219,6 +292,186 @@ export default function EditarEmpresaPage() {
               </select>
             </div>
           </div>
+        </section>
+
+        {/* Administrador de la empresa */}
+        <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+          <div className="flex items-center gap-2 mb-5 pb-2 border-b border-gray-100">
+            <span className="text-base">👤</span>
+            <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider">
+              Administrador de la empresa
+            </h3>
+          </div>
+          {!admin ? (
+            <p className="text-sm text-gray-500">No hay administrador asociado a esta empresa.</p>
+          ) : editandoAdmin ? (
+            <form onSubmit={handleGuardarAdmin} className="space-y-4">
+              {errorAdmin && (
+                <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">
+                  {errorAdmin}
+                </div>
+              )}
+              <div>
+                <label className={fLabel}>Nombre</label>
+                <input
+                  type="text"
+                  value={adminForm.nombre}
+                  onChange={(e) => setAdminForm((p) => ({ ...p, nombre: e.target.value }))}
+                  className={`${fInput} uppercase`}
+                  placeholder="Nombre completo"
+                />
+              </div>
+              <div>
+                <label className={fLabel}>Email</label>
+                <input
+                  type="email"
+                  value={adminForm.email}
+                  onChange={(e) => setAdminForm((p) => ({ ...p, email: e.target.value }))}
+                  className={fInput}
+                  placeholder="admin@empresa.com"
+                />
+              </div>
+              <div>
+                <label className={fLabel}>Estado</label>
+                <select
+                  value={adminForm.estado}
+                  onChange={(e) =>
+                    setAdminForm((p) => ({ ...p, estado: e.target.value as "activo" | "inactivo" }))
+                  }
+                  className={fInput}
+                >
+                  <option value="activo">Activo</option>
+                  <option value="inactivo">Inactivo</option>
+                </select>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  disabled={guardandoAdmin}
+                  className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {guardandoAdmin ? "Guardando…" : "Guardar"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditandoAdmin(false);
+                    setAdminForm({
+                      nombre: admin.nombre ?? "",
+                      email: admin.email ?? "",
+                      estado: (admin.estado as "activo" | "inactivo") ?? "activo",
+                    });
+                  }}
+                  className="border border-slate-200 text-sm px-4 py-2 rounded-lg hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="space-y-4">
+              {errorAdmin && (
+                <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">
+                  {errorAdmin}
+                </div>
+              )}
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-0.5">
+                    Nombre
+                  </p>
+                  <p className="text-sm font-medium text-gray-800">{admin.nombre}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-0.5">
+                    Email
+                  </p>
+                  <p className="text-sm text-gray-700">{admin.email}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-0.5">
+                    Rol
+                  </p>
+                  <p className="text-sm text-gray-700">{admin.rol}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-0.5">
+                    Estado
+                  </p>
+                  <BadgeEstado estado={admin.estado ?? "activo"} />
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setEditandoAdmin(true)}
+                  className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+                >
+                  Editar nombre / email
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMostrarResetPassword(!mostrarResetPassword)}
+                  className="border border-slate-200 text-sm px-4 py-2 rounded-lg hover:bg-slate-50"
+                >
+                  Resetear contraseña
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const nuevoEstado = admin.estado === "activo" ? "inactivo" : "activo";
+                    setErrorAdmin(null);
+                    try {
+                      await actualizarUsuario(admin.id, {
+                        estado: nuevoEstado as "activo" | "inactivo",
+                      });
+                      setAdmin({ ...admin, estado: nuevoEstado });
+                    } catch (err: unknown) {
+                      setErrorAdmin(err instanceof Error ? err.message : "Error");
+                    }
+                  }}
+                  className="border border-slate-200 text-sm px-4 py-2 rounded-lg hover:bg-slate-50"
+                >
+                  {admin.estado === "activo" ? "Desactivar" : "Activar"} usuario
+                </button>
+              </div>
+              {mostrarResetPassword && (
+                <form
+                  onSubmit={handleResetPassword}
+                  className="mt-4 p-4 bg-slate-50 rounded-lg border border-slate-200"
+                >
+                  <label className={fLabel}>Nueva contraseña (mín. 6 caracteres)</label>
+                  <div className="flex gap-2 mt-2">
+                    <input
+                      type="password"
+                      value={nuevaPassword}
+                      onChange={(e) => setNuevaPassword(e.target.value)}
+                      className={fInput}
+                      placeholder="••••••••"
+                      minLength={6}
+                    />
+                    <button
+                      type="submit"
+                      disabled={guardandoPassword || nuevaPassword.length < 6}
+                      className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold px-4 py-2 rounded-lg disabled:opacity-50 shrink-0"
+                    >
+                      {guardandoPassword ? "Guardando…" : "Aplicar"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMostrarResetPassword(false);
+                        setNuevaPassword("");
+                      }}
+                      className="border border-slate-200 text-sm px-4 py-2 rounded-lg hover:bg-slate-50"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          )}
         </section>
 
         <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">

@@ -28,10 +28,10 @@ export async function GET(
       return NextResponse.json({ error: "Empresa no encontrada" }, { status: 404 });
     }
 
-    // 2. Usuarios de la empresa
+    // 2. Usuarios de la empresa (incluye estado si existe)
     const { data: usuarios } = await supabase
       .from("usuarios")
-      .select("id, nombre, email, rol, created_at")
+      .select("id, nombre, email, rol, estado, created_at")
       .eq("empresa_id", id)
       .order("created_at", { ascending: false });
 
