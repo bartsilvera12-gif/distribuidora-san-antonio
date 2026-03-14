@@ -121,7 +121,7 @@ export default function EditProspectoPage() {
   ) {
     setErrorForm(null);
     const { name, value } = e.target;
-    const upper = ["empresa", "contacto", "responsable", "creado_por"];
+    const upper = ["empresa", "contacto", "responsable"];
     setForm((prev) => ({
       ...prev,
       [name]: upper.includes(name) ? value.toUpperCase() : value,
@@ -168,7 +168,6 @@ export default function EditProspectoPage() {
       valor_estimado:       valorEstimado,
       proxima_accion:       form.proxima_accion.trim()       || undefined,
       fecha_proxima_accion: form.fecha_proxima_accion        || undefined,
-      creado_por:           form.creado_por.trim().toUpperCase()  || undefined,
       responsable:          form.responsable.trim().toUpperCase() || undefined,
     });
 
@@ -442,12 +441,11 @@ export default function EditProspectoPage() {
               <label className={labelClass}>Creado por</label>
               <input
                 type="text"
-                name="creado_por"
-                value={form.creado_por}
-                onChange={handleChange}
-                placeholder="Ej: MARIA LOPEZ"
-                className={`${inputClass} uppercase`}
+                readOnly
+                value={form.creado_por || "—"}
+                className={`${inputClass} bg-slate-50 cursor-not-allowed`}
               />
+              <p className="text-xs text-gray-500 mt-1">Registro inmutable del creador del lead</p>
             </div>
           </div>
 

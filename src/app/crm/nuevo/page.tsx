@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { saveProspecto } from "@/lib/crm/storage";
+import { getCurrentUser } from "@/lib/auth";
 import { getPlanes } from "@/lib/planes/storage";
 import PlanSelector from "@/components/crm/PlanSelector";
 import type { EtapaFunnel } from "@/lib/crm/types";
@@ -44,12 +45,12 @@ export default function NuevoProspectoPage() {
     proxima_accion:        "",
     fecha_proxima_accion:  "",
     responsable:           "",
-    creado_por:            "",
   });
 
   const [error, setError] = useState<string | null>(null);
   const [planes, setPlanes] = useState<Plan[]>([]);
   const [cargandoPlanes, setCargandoPlanes] = useState(true);
+  const [usuarioActual, setUsuarioActual] = useState<{ nombre?: string; email?: string } | null>(null);
 
   useEffect(() => {
     getPlanes()
@@ -58,12 +59,18 @@ export default function NuevoProspectoPage() {
       .finally(() => setCargandoPlanes(false));
   }, []);
 
+  useEffect(() => {
+    getCurrentUser()
+      .then((u) => u ? setUsuarioActual({ nombre: (u as { nombre?: string }).nombre, email: (u as { email?: string }).email }) : null)
+      .catch(() => setUsuarioActual(null));
+  }, []);
+
   function handleChange(
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) {
     setError(null);
     const { name, value } = e.target;
-    const upper = ["empresa", "contacto", "responsable", "creado_por"];
+    const upper = ["empresa", "contacto", "responsable"];
     setForm((prev) => ({
       ...prev,
       [name]: upper.includes(name) ? value.toUpperCase() : value,
@@ -108,7 +115,6 @@ export default function NuevoProspectoPage() {
       proxima_accion:       form.proxima_accion.trim()       || undefined,
       fecha_proxima_accion: form.fecha_proxima_accion        || undefined,
       responsable:          form.responsable.trim().toUpperCase() || undefined,
-      creado_por:           form.creado_por.trim().toUpperCase()  || undefined,
     });
 
     if (guardado) router.push("/crm");
@@ -294,12 +300,13 @@ export default function NuevoProspectoPage() {
                 <label className={labelClass}>Creado por</label>
                 <input
                   type="text"
-                  name="creado_por"
-                  value={form.creado_por}
-                  onChange={handleChange}
-                  placeholder="Ej: MARIA LOPEZ"
-                  className={`${inputClass} uppercase`}
+                  readOnly
+                  value={usuarioActual?.nombre?.trim() || usuarioActual?.email || "Cargando…"}
+                  className={`${inputClass} bg-slate-50 cursor-not-allowed`}
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  Se registra automáticamente con tu usuario
+                </p>
               </div>
             </div>
           </section>

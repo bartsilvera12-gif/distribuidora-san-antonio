@@ -18,6 +18,7 @@ interface ProspectoRow {
   proxima_accion: string | null;
   fecha_proxima_accion: string | null;
   creado_por: string | null;
+  origen_creacion?: string | null;
   responsable: string | null;
   cliente_creado: boolean;
   fecha_creacion: string;
@@ -56,6 +57,7 @@ function rowToProspecto(row: ProspectoRow, notas: Nota[]): Prospecto {
     proxima_accion: row.proxima_accion ?? undefined,
     fecha_proxima_accion: row.fecha_proxima_accion ?? undefined,
     creado_por: row.creado_por ?? undefined,
+    origen_creacion: (row.origen_creacion === "whatsapp" ? "whatsapp" : "manual") as "manual" | "whatsapp",
     responsable: row.responsable ?? undefined,
     notas,
     fecha_creacion: row.fecha_creacion,
@@ -155,6 +157,9 @@ export async function saveProspecto(
   if (!usuario?.empresa_id) throw new Error("Usuario no autenticado o sin empresa");
 
   const numeroControl = await generarNumeroControl();
+  const creadoPor = (usuario as { nombre?: string; email?: string }).nombre?.trim()
+    || (usuario as { email?: string }).email
+    || null;
 
   const insert = {
     empresa_id: usuario.empresa_id,
@@ -168,7 +173,8 @@ export async function saveProspecto(
     etapa: datos.etapa ?? "LEAD",
     proxima_accion: datos.proxima_accion ?? null,
     fecha_proxima_accion: datos.fecha_proxima_accion ?? null,
-    creado_por: datos.creado_por ?? null,
+    creado_por: creadoPor,
+    origen_creacion: "manual",
     responsable: datos.responsable ?? null,
   };
 
@@ -201,7 +207,7 @@ export async function updateProspecto(
   if (datos.etapa !== undefined) patch.etapa = datos.etapa;
   if (datos.proxima_accion !== undefined) patch.proxima_accion = datos.proxima_accion ?? null;
   if (datos.fecha_proxima_accion !== undefined) patch.fecha_proxima_accion = datos.fecha_proxima_accion ?? null;
-  if (datos.creado_por !== undefined) patch.creado_por = datos.creado_por ?? null;
+  // creado_por no se actualiza: queda fijo con quien creó el lead
   if (datos.responsable !== undefined) patch.responsable = datos.responsable ?? null;
   if (datos.cliente_creado !== undefined) patch.cliente_creado = datos.cliente_creado;
 
