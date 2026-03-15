@@ -1,4 +1,4 @@
-import { queryEmpresa } from "@/lib/db/empresa";
+import { supabase } from "@/lib/supabase";
 import { getProspectos } from "@/lib/crm/storage";
 
 // ── Tipos de salida (estructura esperada por el Dashboard en page.tsx) ────────
@@ -151,14 +151,13 @@ async function fetchProspectos(): Promise<ProspectoRaw[]> {
 
 /**
  * Obtiene todos los datos necesarios para el Dashboard desde Supabase.
- * Prospectos se obtienen siempre desde getProspectos (CRM) — si el resto falla, prospectos se mantienen.
- * RLS filtra por empresa_id del usuario actual en tablas con queryEmpresa.
+ * RLS filtra por empresa_id automáticamente (igual que getFacturas, getClientes, etc.).
+ * No usa queryEmpresa para evitar fallos con usuarios sin empresa_id (ej. super_admin).
  */
 export async function getDashboardData(): Promise<DashboardData> {
-  // 1. Prospectos SIEMPRE desde el CRM (misma fuente que el Funnel). No depende de getEmpresaId.
+  // 1. Prospectos desde el CRM
   const prospectos = await fetchProspectos();
 
-  // 2. Resto de tablas — si queryEmpresa falla (ej. usuario sin empresa_id), usamos arrays vacíos
   let clientes: ClienteRaw[] = [];
   let facturas: FacturaRaw[] = [];
   let pagos: PagoRaw[] = [];
@@ -171,15 +170,15 @@ export async function getDashboardData(): Promise<DashboardData> {
   try {
     const [clientesQ, facturasQ, pagosQ, tipificacionesQ, productosQ, ventasQ, ventasItemsQ, comprasQ, gastosQ] =
       await Promise.all([
-        (await queryEmpresa("clientes")).select("*"),
-        (await queryEmpresa("facturas")).select("*"),
-        (await queryEmpresa("pagos")).select("id, factura_id, monto, fecha_pago"),
-        (await queryEmpresa("tipificaciones")).select("*"),
-        (await queryEmpresa("productos")).select("*"),
-        (await queryEmpresa("ventas")).select("*"),
-        (await queryEmpresa("ventas_items")).select("*"),
-        (await queryEmpresa("compras")).select("*"),
-        (await queryEmpresa("gastos")).select("id, monto, fecha"),
+        supabase.from("clientes").select("*"),
+        supabase.from("facturas").select("*"),
+        supabase.from("pagos").select("id, factura_id, monto, fecha_pago"),
+        supabase.from("tipificaciones").select("*"),
+        supabase.from("productos").select("*"),
+        supabase.from("ventas").select("*"),
+        supabase.from("ventas_items").select("*"),
+        supabase.from("compras").select("*"),
+        supabase.from("gastos").select("id, monto, fecha"),
       ]);
 
     if (clientesQ.error) throw new Error(clientesQ.error.message);

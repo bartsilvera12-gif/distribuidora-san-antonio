@@ -12,6 +12,7 @@ import {
   updateCliente,
 } from "@/lib/clientes/storage";
 import {
+  crearFacturaContado,
   getFacturas,
   getSuscripciones,
   savePago,
@@ -125,6 +126,11 @@ export default function ClienteDetailPage() {
     plan_id: "", precio: "", duracion_meses: "12", dia_facturacion: "1", dia_vencimiento: "10", generar_factura: false,
   });
 
+  // Campos factura Contado (edición)
+  const [formContadoEdit, setFormContadoEdit] = useState({
+    emitir_factura: false, monto: "", descripcion: "Venta al contado",
+  });
+
   // Estados de notas
   const [nuevaNota,     setNuevaNota]     = useState("");
   const [guardandoNota, setGuardandoNota] = useState(false);
@@ -195,6 +201,9 @@ export default function ClienteDetailPage() {
       getPlanes().then(setPlanes);
       getSuscripciones(id).then(setSuscripciones);
     }
+    if (form.condicion_pago === "CONTADO") {
+      getFacturas(id).then(setFacturas);
+    }
   }, [form.condicion_pago, id]);
 
   const upper = ["empresa", "nombre_contacto", "ciudad", "pais", "categoria_cliente", "industria", "vendedor_asignado", "condicion_pago"];
@@ -227,6 +236,11 @@ export default function ClienteDetailPage() {
       if (precio <= 0) return setFormError("El precio debe ser mayor a 0.");
     }
 
+    if (form.condicion_pago === "CONTADO" && formContadoEdit.emitir_factura) {
+      const monto = parseFloat(formContadoEdit.monto) || 0;
+      if (monto <= 0) return setFormError("El monto de la factura debe ser mayor a 0.");
+    }
+
     await updateCliente(id, {
       tipo_cliente:        form.tipo_cliente,
       empresa:             form.tipo_cliente === "empresa" ? form.empresa.trim().toUpperCase() : undefined,
@@ -251,6 +265,20 @@ export default function ClienteDetailPage() {
       vendedor_asignado:   form.vendedor_asignado.trim().toUpperCase() || undefined,
       estado:              form.estado,
     });
+
+    // Crear factura si condicion_pago = CONTADO y Emitir factura
+    if (form.condicion_pago === "CONTADO" && formContadoEdit.emitir_factura) {
+      const monto = parseFloat(formContadoEdit.monto) || 0;
+      if (monto > 0) {
+        await crearFacturaContado(
+          id,
+          monto,
+          formContadoEdit.descripcion.trim() || "Venta al contado",
+          form.moneda_preferida
+        );
+        getFacturas(id).then(setFacturas);
+      }
+    }
 
     // Crear suscripción si condicion_pago = MENSUAL y no existe
     if (form.condicion_pago === "MENSUAL" && suscripciones.length === 0) {
@@ -620,6 +648,53 @@ export default function ClienteDetailPage() {
                     </select>
                   </div>
                 </div>
+
+                {/* Campos factura Contado */}
+                {form.condicion_pago === "CONTADO" && (
+                  <div className="mt-6 p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4">
+                    <SectionTitle>Facturación al contado</SectionTitle>
+                    {facturas.length > 0 ? (
+                      <p className="text-sm text-slate-600">Este cliente ya tiene {facturas.length} factura(s).</p>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            id="emitir_contado_edit"
+                            checked={formContadoEdit.emitir_factura}
+                            onChange={(e) => setFormContadoEdit((p) => ({ ...p, emitir_factura: e.target.checked }))}
+                          />
+                          <label htmlFor="emitir_contado_edit" className="text-sm text-slate-600">Emitir factura inicial</label>
+                        </div>
+                        {formContadoEdit.emitir_factura && (
+                          <>
+                            <div>
+                              <label className={labelClass}>Monto (Gs.)</label>
+                              <input
+                                type="number"
+                                value={formContadoEdit.monto}
+                                onChange={(e) => setFormContadoEdit((p) => ({ ...p, monto: e.target.value }))}
+                                className={inputClass}
+                                min={0}
+                                placeholder="Monto de la factura"
+                              />
+                            </div>
+                            <div>
+                              <label className={labelClass}>Descripción</label>
+                              <input
+                                type="text"
+                                value={formContadoEdit.descripcion}
+                                onChange={(e) => setFormContadoEdit((p) => ({ ...p, descripcion: e.target.value }))}
+                                className={inputClass}
+                                placeholder="Venta al contado"
+                              />
+                            </div>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
 
                 {/* Campos de suscripción (solo cuando condicion_pago = MENSUAL y no tiene suscripciones) */}
                 {form.condicion_pago === "MENSUAL" && (

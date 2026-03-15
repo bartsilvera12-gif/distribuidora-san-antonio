@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { saveCliente } from "@/lib/clientes/storage";
 import { getProspecto, updateProspecto } from "@/lib/crm/storage";
-import { saveSuscripcion } from "@/lib/facturacion/storage";
+import { crearFacturaContado, saveSuscripcion } from "@/lib/facturacion/storage";
 import { getPlanes } from "@/lib/planes/storage";
 import type { TipoCliente, OrigenCliente } from "@/lib/clientes/types";
 import type { Plan } from "@/lib/planes/types";
@@ -72,6 +72,13 @@ function NuevoClienteForm() {
     generar_factura:   false,
   });
 
+  // Campos factura inicial Contado
+  const [formContado, setFormContado] = useState({
+    emitir_factura: false,
+    monto:         "",
+    descripcion:   "Venta al contado",
+  });
+
   useEffect(() => {
     if (form.condicion_pago === "MENSUAL") getPlanes().then(setPlanes);
   }, [form.condicion_pago]);
@@ -130,6 +137,11 @@ function NuevoClienteForm() {
       if (precio <= 0) return setError("El precio debe ser mayor a 0.");
     }
 
+    if (form.condicion_pago === "CONTADO" && formContado.emitir_factura) {
+      const monto = parseFloat(formContado.monto) || 0;
+      if (monto <= 0) return setError("El monto de la factura debe ser mayor a 0.");
+    }
+
     setGuardando(true);
 
     const nuevo = await saveCliente({
@@ -182,6 +194,19 @@ function NuevoClienteForm() {
         },
         plan?.nombre
       );
+    }
+
+    // Crear factura inicial si condicion_pago = CONTADO y Emitir factura
+    if (form.condicion_pago === "CONTADO" && formContado.emitir_factura) {
+      const monto = parseFloat(formContado.monto) || 0;
+      if (monto > 0) {
+        await crearFacturaContado(
+          nuevo.id,
+          monto,
+          formContado.descripcion.trim() || "Venta al contado",
+          form.moneda_preferida
+        );
+      }
     }
 
     // Marcar prospecto CRM como cliente_creado
@@ -496,6 +521,47 @@ function NuevoClienteForm() {
                 </select>
               </div>
             </div>
+
+            {/* Campos factura inicial Contado */}
+            {form.condicion_pago === "CONTADO" && (
+              <div className="mt-6 p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4">
+                <SectionTitle>Facturación al contado</SectionTitle>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="emitir_contado"
+                    checked={formContado.emitir_factura}
+                    onChange={(e) => setFormContado((p) => ({ ...p, emitir_factura: e.target.checked }))}
+                  />
+                  <label htmlFor="emitir_contado" className="text-sm text-slate-600">Emitir factura inicial</label>
+                </div>
+                {formContado.emitir_factura && (
+                  <>
+                    <div>
+                      <label className={labelClass}>Monto (Gs.)</label>
+                      <input
+                        type="number"
+                        value={formContado.monto}
+                        onChange={(e) => setFormContado((p) => ({ ...p, monto: e.target.value }))}
+                        className={inputClass}
+                        min={0}
+                        placeholder="Monto de la factura"
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Descripción</label>
+                      <input
+                        type="text"
+                        value={formContado.descripcion}
+                        onChange={(e) => setFormContado((p) => ({ ...p, descripcion: e.target.value }))}
+                        className={inputClass}
+                        placeholder="Venta al contado"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
             {/* Campos de suscripción (solo cuando condicion_pago = MENSUAL) */}
             {form.condicion_pago === "MENSUAL" && (

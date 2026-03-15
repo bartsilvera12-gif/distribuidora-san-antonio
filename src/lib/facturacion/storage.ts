@@ -202,6 +202,51 @@ function saveConfigNumeracion(nuevo: number) {
   saveConfig({ ...config, numeracion_inicial: nuevo });
 }
 
+/** Crea factura inicial para cliente Contado (venta al contado). */
+export async function crearFacturaContado(
+  clienteId: string,
+  monto: number,
+  descripcion: string,
+  moneda: "GS" | "USD" = "GS"
+): Promise<Factura | null> {
+  const usuario = await getCurrentUser();
+  if (!usuario?.empresa_id) return null;
+
+  const config = getConfig();
+  const hoy = new Date().toISOString().slice(0, 10);
+  const numeroFactura = `${config.prefijo_factura}${String(config.numeracion_inicial).padStart(6, "0")}`;
+
+  const factura = await saveFactura({
+    cliente_id: clienteId,
+    numero_factura: numeroFactura,
+    fecha: hoy,
+    fecha_vencimiento: hoy,
+    monto,
+    saldo: monto,
+    estado: "Pendiente",
+    tipo: "contado",
+    moneda,
+  });
+
+  if (!factura) return null;
+
+  const { error: errItem } = await supabase.from("factura_items").insert({
+    factura_id: factura.id,
+    empresa_id: usuario.empresa_id,
+    descripcion: descripcion || "Venta al contado",
+    cantidad: 1,
+    precio_unitario: monto,
+    subtotal: monto,
+    iva: 0,
+    total: monto,
+  });
+
+  if (errItem) console.error("[facturacion] factura_items contado:", errItem.message);
+
+  saveConfigNumeracion(config.numeracion_inicial + 1);
+  return factura;
+}
+
 // ─── Facturas (re-export + get por cliente) ──────────────────────────────────
 
 export { getFacturas } from "@/lib/gestion-clientes/storage";
