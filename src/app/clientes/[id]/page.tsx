@@ -11,7 +11,17 @@ import {
   toggleEstado,
   updateCliente,
 } from "@/lib/clientes/storage";
+import {
+  getFacturas,
+  getSuscripciones,
+  savePago,
+  saveSuscripcion,
+} from "@/lib/facturacion/storage";
+import { getPlanes } from "@/lib/planes/storage";
 import type { Cliente, NotaCliente } from "@/lib/clientes/types";
+import type { Factura } from "@/lib/gestion-clientes/types";
+import type { Suscripcion } from "@/lib/facturacion/types";
+import type { Plan } from "@/lib/planes/types";
 
 // ── Estilos ────────────────────────────────────────────────────────────────────
 
@@ -115,6 +125,22 @@ export default function ClienteDetailPage() {
   const [guardandoNota, setGuardandoNota] = useState(false);
   const notaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Suscripciones
+  const [suscripciones, setSuscripciones] = useState<Suscripcion[]>([]);
+  const [planes, setPlanes] = useState<Plan[]>([]);
+  const [modalSuscripcion, setModalSuscripcion] = useState(false);
+  const [formSusc, setFormSusc] = useState({
+    plan_id: "", precio: "", duracion_meses: "12", dia_facturacion: "1", dia_vencimiento: "10", generar_factura_este_mes: false,
+  });
+  const [guardandoSusc, setGuardandoSusc] = useState(false);
+
+  // Estado de cuenta
+  const [facturas, setFacturas] = useState<Factura[]>([]);
+  const [modalPago, setModalPago] = useState(false);
+  const [facturaPago, setFacturaPago] = useState<Factura | null>(null);
+  const [formPago, setFormPago] = useState({ factura_id: "" as string, monto: "", fecha_pago: "", metodo_pago: "efectivo" as const, referencia: "" });
+  const [guardandoPago, setGuardandoPago] = useState(false);
+
   async function cargar() {
     const c = await getCliente(id);
     if (!c) { setNotFound(true); return; }
@@ -147,6 +173,17 @@ export default function ClienteDetailPage() {
   }
 
   useEffect(() => { if (id) cargar(); else setNotFound(true); }, [id]);
+
+  useEffect(() => {
+    if (id && (activeTab === "suscripciones" || activeTab === "estado_cuenta")) {
+      if (activeTab === "suscripciones") {
+        getSuscripciones(id).then(setSuscripciones);
+        getPlanes().then(setPlanes);
+      } else {
+        getFacturas(id).then(setFacturas);
+      }
+    }
+  }, [id, activeTab]);
 
   const upper = ["empresa", "nombre_contacto", "ciudad", "pais", "categoria_cliente", "industria", "vendedor_asignado", "condicion_pago"];
 
@@ -547,20 +584,121 @@ export default function ClienteDetailPage() {
 
           {/* ── ESTADO DE CUENTA ─────────────────────────────────────────── */}
           {activeTab === "estado_cuenta" && (
-            <PlaceholderTab
-              icon="📊"
-              title="Estado de cuenta"
-              desc="Aquí se mostrarán las facturas, compras y el historial de pagos del cliente."
-            />
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <SectionTitle>Facturas del cliente</SectionTitle>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const conSaldo = facturas.filter((f) => f.saldo > 0);
+                    const primera = conSaldo[0];
+                    setFacturaPago(null);
+                    setFormPago({
+                      factura_id: primera?.id ?? "",
+                      monto: primera ? String(primera.saldo) : "",
+                      fecha_pago: new Date().toISOString().slice(0, 10),
+                      metodo_pago: "efectivo",
+                      referencia: "",
+                    });
+                    setModalPago(true);
+                  }}
+                  className="text-sm font-medium text-[#0EA5E9] hover:text-[#0284C7]"
+                >
+                  Registrar pago
+                </button>
+              </div>
+              {facturas.length === 0 ? (
+                <p className="text-sm text-gray-400 py-8 text-center">No hay facturas registradas.</p>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border border-slate-200">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        {["Número", "Fecha", "Vencimiento", "Total", "Estado"].map((h) => (
+                          <th key={h} className="text-left text-xs font-semibold text-slate-600 px-4 py-3">{h}</th>
+                        ))}
+                        <th className="text-right text-xs font-semibold text-slate-600 px-4 py-3">Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {facturas.map((f) => (
+                        <tr key={f.id} className="hover:bg-slate-50">
+                          <td className="px-4 py-3 font-mono text-slate-800">{f.numero_factura}</td>
+                          <td className="px-4 py-3 text-slate-600">{formatFecha(f.fecha)}</td>
+                          <td className="px-4 py-3 text-slate-600">{formatFecha(f.fecha_vencimiento)}</td>
+                          <td className="px-4 py-3 font-semibold text-slate-800">Gs. {f.monto.toLocaleString("es-PY")}</td>
+                          <td className="px-4 py-3">
+                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                              f.estado === "Pagado" ? "bg-green-100 text-green-700" :
+                              f.estado === "Vencido" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
+                            }`}>{f.estado}</span>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            {f.saldo > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => { setFacturaPago(f); setFormPago({ factura_id: f.id, monto: String(f.saldo), fecha_pago: new Date().toISOString().slice(0, 10), metodo_pago: "efectivo", referencia: "" }); setModalPago(true); }}
+                                className="text-xs font-medium text-[#0EA5E9] hover:underline"
+                              >
+                                Registrar pago
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           )}
 
           {/* ── SUSCRIPCIONES ────────────────────────────────────────────── */}
           {activeTab === "suscripciones" && (
-            <PlaceholderTab
-              icon="🔄"
-              title="Suscripciones"
-              desc="Planes y suscripciones activas del cliente, fechas de renovación y estados de pago."
-            />
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <SectionTitle>Suscripciones activas</SectionTitle>
+                <button
+                  type="button"
+                  onClick={() => { setFormSusc({ plan_id: "", precio: "", duracion_meses: "12", dia_facturacion: "1", dia_vencimiento: "10", generar_factura_este_mes: false }); setModalSuscripcion(true); }}
+                  className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2 rounded-lg text-sm font-medium"
+                >
+                  Nueva suscripción
+                </button>
+              </div>
+              {suscripciones.length === 0 ? (
+                <p className="text-sm text-gray-400 py-8 text-center">No hay suscripciones.</p>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border border-slate-200">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        {["Plan", "Precio", "Fecha inicio", "Duración", "Estado"].map((h) => (
+                          <th key={h} className="text-left text-xs font-semibold text-slate-600 px-4 py-3">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {suscripciones.map((s) => (
+                        <tr key={s.id} className="hover:bg-slate-50">
+                          <td className="px-4 py-3 font-medium text-slate-800">
+                            {planes.find((p) => p.id === s.plan_id)?.nombre ?? s.plan_nombre ?? "—"}
+                          </td>
+                          <td className="px-4 py-3 text-slate-600">Gs. {s.precio.toLocaleString("es-PY")}</td>
+                          <td className="px-4 py-3 text-slate-600">{formatFecha(s.fecha_inicio)}</td>
+                          <td className="px-4 py-3 text-slate-600">{s.duracion_meses} meses</td>
+                          <td className="px-4 py-3">
+                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                              s.estado === "activa" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"
+                            }`}>{s.estado}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           )}
 
           {/* ── PROYECTOS ────────────────────────────────────────────────── */}
@@ -626,6 +764,158 @@ export default function ClienteDetailPage() {
 
         </div>
       </div>
+
+      {/* Modal Nueva suscripción */}
+      {modalSuscripcion && cliente && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setModalSuscripcion(false)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-800 mb-4">Nueva suscripción</h3>
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              setGuardandoSusc(true);
+              const plan = planes.find((p) => p.id === formSusc.plan_id);
+              await saveSuscripcion({
+                cliente_id: id,
+                plan_id: formSusc.plan_id || null,
+                precio: parseFloat(formSusc.precio) || (plan?.precio ?? 0),
+                moneda: "GS",
+                fecha_inicio: new Date().toISOString().slice(0, 10),
+                duracion_meses: parseInt(formSusc.duracion_meses, 10) || 12,
+                dia_facturacion: parseInt(formSusc.dia_facturacion, 10) || 1,
+                dia_vencimiento: parseInt(formSusc.dia_vencimiento, 10) || 10,
+                generar_factura_este_mes: formSusc.generar_factura_este_mes,
+              }, plan?.nombre);
+              setModalSuscripcion(false);
+              getSuscripciones(id).then(setSuscripciones);
+              getFacturas(id).then(setFacturas);
+              setGuardandoSusc(false);
+            }} className="space-y-4">
+              <div>
+                <label className={labelClass}>Plan</label>
+                <select
+                  value={formSusc.plan_id}
+                  onChange={(e) => {
+                    const p = planes.find((x) => x.id === e.target.value);
+                    setFormSusc((prev) => ({ ...prev, plan_id: e.target.value, precio: p ? String(p.precio) : prev.precio }));
+                  }}
+                  className={inputClass}
+                >
+                  <option value="">— Seleccionar —</option>
+                  {planes.filter((p) => p.estado === "activo").map((p) => (
+                    <option key={p.id} value={p.id}>{p.nombre} — Gs. {p.precio.toLocaleString("es-PY")}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>Precio</label>
+                <input type="number" value={formSusc.precio} onChange={(e) => setFormSusc((p) => ({ ...p, precio: e.target.value }))} className={inputClass} min={0} required />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className={labelClass}>Duración (meses)</label>
+                  <input type="number" value={formSusc.duracion_meses} onChange={(e) => setFormSusc((p) => ({ ...p, duracion_meses: e.target.value }))} className={inputClass} min={1} />
+                </div>
+                <div>
+                  <label className={labelClass}>Día facturación</label>
+                  <input type="number" value={formSusc.dia_facturacion} onChange={(e) => setFormSusc((p) => ({ ...p, dia_facturacion: e.target.value }))} className={inputClass} min={1} max={28} />
+                </div>
+              </div>
+              <div>
+                <label className={labelClass}>Día vencimiento</label>
+                <input type="number" value={formSusc.dia_vencimiento} onChange={(e) => setFormSusc((p) => ({ ...p, dia_vencimiento: e.target.value }))} className={inputClass} min={1} max={31} />
+              </div>
+              <div className="flex items-center gap-2">
+                <input type="checkbox" id="gen_fact" checked={formSusc.generar_factura_este_mes} onChange={(e) => setFormSusc((p) => ({ ...p, generar_factura_este_mes: e.target.checked }))} />
+                <label htmlFor="gen_fact" className="text-sm text-slate-600">Emitir factura este mes</label>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="submit" disabled={guardandoSusc} className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
+                  Guardar
+                </button>
+                <button type="button" onClick={() => setModalSuscripcion(false)} className="border border-slate-200 px-4 py-2 rounded-lg text-sm hover:bg-slate-50">
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Registrar pago */}
+      {modalPago && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setModalPago(false)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-800 mb-4">Registrar pago</h3>
+            {facturaPago && <p className="text-sm text-slate-600 mb-4">Factura {facturaPago.numero_factura} — Saldo: Gs. {facturaPago.saldo.toLocaleString("es-PY")}</p>}
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              const fid = facturaPago?.id ?? formPago.factura_id;
+              if (!fid) return;
+              setGuardandoPago(true);
+              await savePago({
+                factura_id: fid,
+                monto: parseFloat(formPago.monto) || 0,
+                fecha_pago: formPago.fecha_pago,
+                metodo_pago: formPago.metodo_pago,
+                referencia: formPago.referencia || undefined,
+              });
+              setModalPago(false);
+              getFacturas(id).then(setFacturas);
+              setGuardandoPago(false);
+            }} className="space-y-4">
+              {!facturaPago && facturas.filter((f) => f.saldo > 0).length > 0 && (
+                <div>
+                  <label className={labelClass}>Factura</label>
+                  <select
+                    value={formPago.factura_id}
+                    onChange={(e) => {
+                      const f = facturas.find((x) => x.id === e.target.value);
+                      if (f) setFormPago((p) => ({ ...p, factura_id: f.id, monto: String(f.saldo) }));
+                    }}
+                    className={inputClass}
+                    required
+                  >
+                    <option value="">— Seleccionar —</option>
+                    {facturas.filter((f) => f.saldo > 0).map((f) => (
+                      <option key={f.id} value={f.id}>{f.numero_factura} — Saldo Gs. {f.saldo.toLocaleString("es-PY")}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div>
+                <label className={labelClass}>Monto</label>
+                <input type="number" value={formPago.monto} onChange={(e) => setFormPago((p) => ({ ...p, monto: e.target.value }))} className={inputClass} min={0} step={0.01} required />
+              </div>
+              <div>
+                <label className={labelClass}>Fecha pago</label>
+                <input type="date" value={formPago.fecha_pago} onChange={(e) => setFormPago((p) => ({ ...p, fecha_pago: e.target.value }))} className={inputClass} required />
+              </div>
+              <div>
+                <label className={labelClass}>Método de pago</label>
+                <select value={formPago.metodo_pago} onChange={(e) => setFormPago((p) => ({ ...p, metodo_pago: e.target.value as "efectivo" }))} className={inputClass}>
+                  <option value="efectivo">Efectivo</option>
+                  <option value="transferencia">Transferencia</option>
+                  <option value="cheque">Cheque</option>
+                  <option value="tarjeta">Tarjeta</option>
+                  <option value="otro">Otro</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>Referencia</label>
+                <input type="text" value={formPago.referencia} onChange={(e) => setFormPago((p) => ({ ...p, referencia: e.target.value }))} className={inputClass} placeholder="Nº de comprobante" />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="submit" disabled={guardandoPago} className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
+                  Guardar
+                </button>
+                <button type="button" onClick={() => setModalPago(false)} className="border border-slate-200 px-4 py-2 rounded-lg text-sm hover:bg-slate-50">
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
     </div>
   );
