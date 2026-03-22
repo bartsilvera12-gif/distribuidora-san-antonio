@@ -5,12 +5,12 @@ import { useEffect, useRef, useState } from "react";
 import {
   addNotaCliente,
   clienteNombre,
-  deleteCliente,
   getCliente,
   getNotasCliente,
   toggleEstado,
   updateCliente,
 } from "@/lib/clientes/storage";
+import { apiDeleteCliente } from "@/lib/api/client";
 import { getFacturas, getSuscripciones } from "@/lib/facturacion/storage";
 import { apiCreateFactura, apiCreatePago, apiCreateSuscripcion } from "@/lib/api/client";
 import { getConfig, saveConfig } from "@/lib/config/storage";
@@ -18,7 +18,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import MontoInput from "@/components/ui/MontoInput";
 import { getPlanes } from "@/lib/planes/storage";
-import type { Cliente, NotaCliente } from "@/lib/clientes/types";
+import type { Cliente, NotaCliente, TipoServicioCliente } from "@/lib/clientes/types";
+import { TIPOS_SERVICIO_CLIENTE } from "@/lib/clientes/types";
 import type { Factura } from "@/lib/gestion-clientes/types";
 import type { Suscripcion } from "@/lib/facturacion/types";
 import type { Plan } from "@/lib/planes/types";
@@ -90,7 +91,11 @@ export default function ClienteDetailPage() {
   const [cliente,   setCliente]   = useState<Cliente | null>(null);
   const [notFound,  setNotFound]  = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>("informacion");
+  const [esAdmin, setEsAdmin] = useState(false);
   const [confirmarEliminar, setConfirmarEliminar] = useState(false);
+  const [deletionReason, setDeletionReason] = useState("");
+  const [eliminando, setEliminando] = useState(false);
+  const [errorEliminar, setErrorEliminar] = useState<string | null>(null);
 
   // Estados del formulario de información
   const [form, setForm] = useState({
@@ -113,9 +118,10 @@ export default function ClienteDetailPage() {
     industria:           "",
     valor_cliente:       "",
     condicion_pago:      "",
-    moneda_preferida:    "GS" as "GS" | "USD",
-    vendedor_asignado:   "",
-    estado:              "activo" as Cliente["estado"],
+    moneda_preferida:      "GS" as "GS" | "USD",
+    vendedor_asignado:     "",
+    tipo_servicio_cliente: "" as TipoServicioCliente | "",
+    estado:                "activo" as Cliente["estado"],
   });
 
   const [formError, setFormError] = useState<string | null>(null);
@@ -175,14 +181,22 @@ export default function ClienteDetailPage() {
       categoria_cliente:   c.categoria_cliente   ?? "",
       industria:           c.industria           ?? "",
       valor_cliente:       c.valor_cliente != null ? String(c.valor_cliente) : "",
-      condicion_pago:      c.condicion_pago      ?? "",
-      moneda_preferida:    c.moneda_preferida    ?? "GS",
-      vendedor_asignado:   c.vendedor_asignado   ?? "",
-      estado:              c.estado,
+      condicion_pago:       c.condicion_pago      ?? "",
+      moneda_preferida:     c.moneda_preferida    ?? "GS",
+      vendedor_asignado:    c.vendedor_asignado   ?? "",
+      tipo_servicio_cliente: c.tipo_servicio_cliente ?? "",
+      estado:               c.estado,
     });
   }
 
   useEffect(() => { if (id) cargar(); else setNotFound(true); }, [id]);
+
+  useEffect(() => {
+    getCurrentUser().then((u) => {
+      const rol = (u as { rol?: string })?.rol;
+      setEsAdmin(rol === "admin" || rol === "administrador" || rol === "super_admin");
+    });
+  }, []);
 
   useEffect(() => {
     if (id && (activeTab === "suscripciones" || activeTab === "estado_cuenta")) {
@@ -263,8 +277,9 @@ export default function ClienteDetailPage() {
       valor_cliente:       parseFloat(form.valor_cliente) || undefined,
       condicion_pago:      form.condicion_pago.trim().toUpperCase()    || undefined,
       moneda_preferida:    form.moneda_preferida,
-      vendedor_asignado:   form.vendedor_asignado.trim().toUpperCase() || undefined,
-      estado:              form.estado,
+      vendedor_asignado:    form.vendedor_asignado.trim().toUpperCase() || undefined,
+      tipo_servicio_cliente: form.tipo_servicio_cliente || undefined,
+      estado:               form.estado,
     });
 
     // Crear factura si condicion_pago = CONTADO y Emitir factura
@@ -330,7 +345,20 @@ export default function ClienteDetailPage() {
   }
 
   async function handleEliminar() {
-    await deleteCliente(id);
+    if (!deletionReason.trim()) {
+      setErrorEliminar("El motivo es obligatorio");
+      return;
+    }
+    setEliminando(true);
+    setErrorEliminar(null);
+    const res = await apiDeleteCliente(id, deletionReason.trim());
+    setEliminando(false);
+    if (!res.ok) {
+      setErrorEliminar(res.error ?? "Error al eliminar");
+      return;
+    }
+    setConfirmarEliminar(false);
+    setDeletionReason("");
     router.push("/clientes");
   }
 
@@ -410,26 +438,30 @@ export default function ClienteDetailPage() {
               >
                 {cliente.estado === "activo" ? "Desactivar" : "Activar"}
               </button>
-              <button
-                onClick={() => setConfirmarEliminar(true)}
-                className="text-red-300 hover:text-red-200 hover:bg-red-900/30 p-1.5 rounded-lg transition-colors"
-                title="Eliminar cliente"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                  <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 0-1.5.06l.3 7.5a.75.75 0 1 0 1.5-.06l-.3-7.5Zm4.34.06a.75.75 0 1 0-1.5-.06l-.3 7.5a.75.75 0 1 0 1.5.06l.3-7.5Z" clipRule="evenodd" />
-                </svg>
-              </button>
+              {esAdmin && (
+                <button
+                  onClick={() => setConfirmarEliminar(true)}
+                  className="text-red-300 hover:text-red-200 hover:bg-red-900/30 p-1.5 rounded-lg transition-colors"
+                  title="Eliminar cliente (administrativo)"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                    <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 0-1.5.06l.3 7.5a.75.75 0 1 0 1.5-.06l-.3-7.5Zm4.34.06a.75.75 0 1 0-1.5-.06l-.3 7.5a.75.75 0 1 0 1.5.06l.3-7.5Z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              )}
             </div>
           </div>
         </div>
 
         {/* Estadísticas rápidas */}
-        <div className="grid grid-cols-4 divide-x divide-gray-100 border-t border-gray-100">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 divide-x divide-gray-100 border-t border-gray-100">
           {[
-            { label: "Origen",      value: cliente.origen                                   },
-            { label: "Condición",   value: cliente.condicion_pago  ?? "—"                   },
-            { label: "Moneda",      value: cliente.moneda_preferida ?? "GS"                 },
-            { label: "Vendedor",    value: cliente.vendedor_asignado ?? "—"                 },
+            { label: "Origen",        value: cliente.origen                                     },
+            { label: "Tipo servicio", value: cliente.tipo_servicio_cliente ? cliente.tipo_servicio_cliente.charAt(0).toUpperCase() + cliente.tipo_servicio_cliente.slice(1) : "—" },
+            { label: "Condición",    value: cliente.condicion_pago  ?? "—"                     },
+            { label: "Moneda",       value: cliente.moneda_preferida ?? "GS"                    },
+            { label: "Vendedor",     value: cliente.vendedor_asignado ?? "—"                   },
+            { label: "Creado por",   value: cliente.created_by_nombre ?? cliente.created_by_user_id ?? "—" },
           ].map((item) => (
             <div key={item.label} className="px-5 py-3">
               <p className="text-xs text-gray-400">{item.label}</p>
@@ -439,20 +471,33 @@ export default function ClienteDetailPage() {
         </div>
       </div>
 
-      {/* Confirmación de eliminación */}
+      {/* Confirmación de eliminación (baja administrativa) */}
       {confirmarEliminar && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center justify-between gap-4">
-          <p className="text-sm text-red-700 font-medium">¿Eliminar permanentemente este cliente?</p>
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-3">
+          <p className="text-sm text-red-700 font-medium">Eliminación administrativa (baja lógica). El cliente no aparecerá en listados pero se conserva el registro.</p>
+          <div>
+            <label className="block text-xs font-medium text-red-800 mb-1">Motivo obligatorio</label>
+            <textarea
+              value={deletionReason}
+              onChange={(e) => { setDeletionReason(e.target.value); setErrorEliminar(null); }}
+              placeholder="Ej: Cliente duplicado, solicitud del interesado..."
+              className="w-full border border-red-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-red-400 min-h-[60px]"
+              rows={2}
+            />
+            {errorEliminar && <p className="text-xs text-red-600 mt-1">{errorEliminar}</p>}
+          </div>
           <div className="flex gap-2 shrink-0">
             <button
               onClick={handleEliminar}
-              className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-red-700"
+              disabled={eliminando}
+              className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-red-700 disabled:opacity-50"
             >
-              Sí, eliminar
+              {eliminando ? "Eliminando…" : "Confirmar baja"}
             </button>
             <button
-              onClick={() => setConfirmarEliminar(false)}
-              className="border border-red-200 text-red-600 px-3 py-1.5 rounded-lg text-xs hover:bg-red-100"
+              onClick={() => { setConfirmarEliminar(false); setDeletionReason(""); setErrorEliminar(null); }}
+              disabled={eliminando}
+              className="border border-red-200 text-red-600 px-3 py-1.5 rounded-lg text-xs hover:bg-red-100 disabled:opacity-50"
             >
               Cancelar
             </button>
@@ -512,6 +557,21 @@ export default function ClienteDetailPage() {
                       </button>
                     ))}
                   </div>
+                </div>
+
+                <div>
+                  <label className={labelClass}>Tipo de servicio</label>
+                  <select
+                    name="tipo_servicio_cliente"
+                    value={form.tipo_servicio_cliente}
+                    onChange={handleChange}
+                    className={inputClass}
+                  >
+                    <option value="">— Ninguno —</option>
+                    {TIPOS_SERVICIO_CLIENTE.map((t) => (
+                      <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                    ))}
+                  </select>
                 </div>
 
                 {form.tipo_cliente === "empresa" && (

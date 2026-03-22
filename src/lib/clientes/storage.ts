@@ -5,9 +5,15 @@ import type { Cliente, EstadoCliente, NotaCliente } from "./types";
 // ─── Tipo de fila Supabase ────────────────────────────────────────────────────
 // RLS maneja empresa_id automáticamente; no filtrar manualmente en SELECT
 interface SupabaseRow {
-  id:                 string;
-  empresa_id:         string | null;
-  tipo_cliente:       string | null;
+  id:                      string;
+  empresa_id:              string | null;
+  tipo_cliente:            string | null;
+  tipo_servicio_cliente:   string | null;
+  created_by_user_id:      string | null;
+  created_by_nombre:       string | null;
+  deleted_at:              string | null;
+  deleted_by_user_id:      string | null;
+  deletion_reason:         string | null;
   empresa:            string | null;
   nombre:             string | null;
   nombre_contacto:    string | null;
@@ -81,6 +87,12 @@ function rowToCliente(row: SupabaseRow): Cliente {
     prospecto_id:        row.prospecto_id ?? undefined,
     estado:              (row.estado === "inactivo" ? "inactivo" : "activo") as EstadoCliente,
     notas:               parseNotas(row.notas),
+    tipo_servicio_cliente: (row.tipo_servicio_cliente as Cliente["tipo_servicio_cliente"]) ?? undefined,
+    created_by_user_id:  row.created_by_user_id ?? undefined,
+    created_by_nombre:   row.created_by_nombre ?? undefined,
+    deleted_at:          row.deleted_at ?? undefined,
+    deleted_by_user_id:  row.deleted_by_user_id ?? undefined,
+    deletion_reason:     row.deletion_reason ?? undefined,
     created_at:          row.created_at ?? now,
     updated_at:          row.updated_at ?? row.created_at ?? now,
   };
@@ -88,12 +100,16 @@ function rowToCliente(row: SupabaseRow): Cliente {
 
 // ─── API pública ──────────────────────────────────────────────────────────────
 
-/** Lista clientes. RLS filtra por empresa automáticamente. */
-export async function getClientes(): Promise<Cliente[]> {
-  const { data, error } = await supabase
+/** Lista clientes. RLS filtra por empresa. Excluye eliminados (soft delete). */
+export async function getClientes(opts?: { incluirEliminados?: boolean }): Promise<Cliente[]> {
+  let q = supabase
     .from("clientes")
     .select("*")
     .order("created_at", { ascending: false });
+  if (!opts?.incluirEliminados) {
+    q = q.is("deleted_at", null);
+  }
+  const { data, error } = await q;
 
   if (error) {
     console.error("[clientes] getClientes:", error.message);
@@ -102,13 +118,16 @@ export async function getClientes(): Promise<Cliente[]> {
   return (data as SupabaseRow[]).map(rowToCliente);
 }
 
-/** Obtiene un cliente por ID. RLS filtra por empresa. */
-export async function getCliente(id: string): Promise<Cliente | null> {
-  const { data, error } = await supabase
+/** Obtiene un cliente por ID. RLS filtra por empresa. Por defecto excluye eliminados. */
+export async function getCliente(id: string, opts?: { incluirEliminados?: boolean }): Promise<Cliente | null> {
+  let q = supabase
     .from("clientes")
     .select("*")
-    .eq("id", id)
-    .single();
+    .eq("id", id);
+  if (!opts?.incluirEliminados) {
+    q = q.is("deleted_at", null);
+  }
+  const { data, error } = await q.single();
 
   if (error) {
     console.error("[clientes] getCliente:", error.message);
@@ -128,14 +147,18 @@ export type NuevoClienteData = Omit<
   "id" | "codigo_cliente" | "notas" | "created_at" | "updated_at"
 >;
 
-/** Crea cliente. empresa_id se obtiene del usuario; RLS valida acceso. */
+/** Crea cliente. empresa_id y created_by se obtienen del usuario; RLS valida acceso. */
 export async function saveCliente(datos: NuevoClienteData): Promise<Cliente | null> {
   const usuario = await getCurrentUser();
   if (!usuario?.empresa_id) throw new Error("Usuario no autenticado o sin empresa");
 
+  const { data: { user } } = await supabase.auth.getUser();
   const insert: Record<string, unknown> = {
-    empresa_id:         usuario.empresa_id,
-    tipo_cliente:       datos.tipo_cliente ?? "empresa",
+    empresa_id:           usuario.empresa_id,
+    tipo_cliente:         datos.tipo_cliente ?? "empresa",
+    tipo_servicio_cliente: datos.tipo_servicio_cliente ?? null,
+    created_by_user_id:   user?.id ?? null,
+    created_by_nombre:    (usuario as { nombre?: string })?.nombre ?? null,
     empresa:            datos.empresa ?? null,
     nombre:             datos.nombre_contacto ?? null,
     nombre_contacto:    datos.nombre_contacto ?? null,
@@ -206,6 +229,7 @@ export async function updateCliente(
   if (datos.moneda_preferida !== undefined) patch.moneda_preferida = datos.moneda_preferida ?? null;
   if (datos.vendedor_asignado !== undefined) patch.vendedor_asignado = datos.vendedor_asignado ?? null;
   if (datos.estado !== undefined) patch.estado = datos.estado ?? null;
+  if (datos.tipo_servicio_cliente !== undefined) patch.tipo_servicio_cliente = datos.tipo_servicio_cliente ?? null;
   patch.updated_at = new Date().toISOString();
 
   const { data, error } = await supabase
@@ -222,7 +246,38 @@ export async function updateCliente(
   return rowToCliente(data as SupabaseRow);
 }
 
-/** Elimina cliente. RLS valida que pertenezca a la empresa del usuario. */
+/**
+ * Eliminación lógica (soft delete) de cliente.
+ * Solo debe llamarse tras validar: 1) usuario admin, 2) sin relaciones bloqueantes, 3) motivo obligatorio.
+ * Para uso desde API; el cliente no debe llamar deleteCliente directamente.
+ */
+export async function softDeleteCliente(
+  id: string,
+  userId: string,
+  reason: string
+): Promise<{ ok: boolean; error?: string }> {
+  const { error } = await supabase
+    .from("clientes")
+    .update({
+      deleted_at:         new Date().toISOString(),
+      deleted_by_user_id: userId,
+      deletion_reason:    reason.trim() || null,
+      updated_at:        new Date().toISOString(),
+    })
+    .eq("id", id)
+    .is("deleted_at", null);
+
+  if (error) {
+    console.error("[clientes] softDeleteCliente:", error.message);
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
+}
+
+/**
+ * @deprecated No usar: la eliminación debe hacerse vía API con validación admin.
+ * Mantenido para compatibilidad; en producción usar DELETE /api/clientes/[id].
+ */
 export async function deleteCliente(id: string): Promise<void> {
   const { error } = await supabase.from("clientes").delete().eq("id", id);
   if (error) console.error("[clientes] deleteCliente:", error.message);

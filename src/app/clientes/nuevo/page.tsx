@@ -9,7 +9,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import MontoInput from "@/components/ui/MontoInput";
 import { getPlanes } from "@/lib/planes/storage";
-import type { TipoCliente, OrigenCliente } from "@/lib/clientes/types";
+import type { TipoCliente, OrigenCliente, TipoServicioCliente } from "@/lib/clientes/types";
+import { TIPOS_SERVICIO_CLIENTE } from "@/lib/clientes/types";
 import type { Plan } from "@/lib/planes/types";
 
 // ── Estilos ────────────────────────────────────────────────────────────────────
@@ -61,8 +62,9 @@ function NuevoClienteForm() {
     moneda_preferida:    "GS" as "GS" | "USD",
     vendedor_asignado:   "",
     origen:              "MANUAL" as OrigenCliente,
-    prospecto_id:        null as string | null,
-    estado:              "activo" as "activo" | "inactivo",
+    prospecto_id:          null as string | null,
+    tipo_servicio_cliente: "" as TipoServicioCliente | "",
+    estado:                "activo" as "activo" | "inactivo",
   });
 
   // Campos de suscripción (solo cuando condicion_pago = MENSUAL)
@@ -151,6 +153,7 @@ function NuevoClienteForm() {
 
     const nuevo = await apiCreateCliente({
       tipo_cliente: form.tipo_cliente,
+      tipo_servicio_cliente: form.tipo_servicio_cliente || undefined,
       empresa: form.tipo_cliente === "empresa" ? form.empresa.trim().toUpperCase() : undefined,
       nombre_contacto: form.nombre_contacto.trim().toUpperCase(),
       ruc: form.ruc.trim() || undefined,
@@ -299,6 +302,21 @@ function NuevoClienteForm() {
                 />
               </div>
             )}
+
+            <div>
+              <label className={labelClass}>Tipo de servicio</label>
+              <select
+                name="tipo_servicio_cliente"
+                value={form.tipo_servicio_cliente}
+                onChange={(e) => setForm((prev) => ({ ...prev, tipo_servicio_cliente: e.target.value as TipoServicioCliente | "" }))}
+                className={inputClass}
+              >
+                <option value="">— Ninguno —</option>
+                {TIPOS_SERVICIO_CLIENTE.map((t) => (
+                  <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                ))}
+              </select>
+            </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>

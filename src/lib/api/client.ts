@@ -18,6 +18,7 @@ async function apiPost<T>(path: string, data: Record<string, unknown>): Promise<
 
 export async function apiCreateCliente(data: {
   tipo_cliente?: string;
+  tipo_servicio_cliente?: string;
   empresa?: string;
   nombre_contacto: string;
   ruc?: string;
@@ -34,6 +35,21 @@ export async function apiCreateCliente(data: {
   const result = await apiPost<{ id: string; [key: string]: unknown }>("/api/clientes", data);
   return result.success ? result.data : null;
 }
+
+/** Eliminación lógica del cliente. Solo admin. Requiere motivo. */
+export async function apiDeleteCliente(id: string, deletionReason: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`/api/clientes/${id}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deletion_reason: deletionReason }),
+  });
+  const json = await res.json();
+  if (!res.ok) {
+    return { ok: false, error: json?.error ?? `Error ${res.status}` };
+  }
+  return { ok: true };
+}
+
 
 export async function apiCreateFactura(data: {
   cliente_id: string;

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getClientes, clienteNombre } from "@/lib/clientes/storage";
 import type { Cliente } from "@/lib/clientes/types";
+import { TIPOS_SERVICIO_CLIENTE } from "@/lib/clientes/types";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -51,6 +52,7 @@ export default function ClientesPage() {
   const [filtroEstado, setFiltroEstado] = useState<"" | "activo" | "inactivo">("");
   const [filtroOrigen, setFiltroOrigen] = useState<"" | "CRM" | "VENTA" | "MANUAL">("");
   const [filtroTipo,   setFiltroTipo]   = useState<"" | "empresa" | "persona">("");
+  const [filtroTipoServicio, setFiltroTipoServicio] = useState<"" | Cliente["tipo_servicio_cliente"]>("");
 
   useEffect(() => {
     getClientes().then((data) => {
@@ -72,13 +74,14 @@ export default function ClientesPage() {
         (c.ciudad         ?? "").toLowerCase().includes(q);
       if (!match) return false;
     }
-    if (filtroEstado && c.estado  !== filtroEstado) return false;
-    if (filtroOrigen && c.origen  !== filtroOrigen) return false;
-    if (filtroTipo   && c.tipo_cliente !== filtroTipo) return false;
+    if (filtroEstado       && c.estado              !== filtroEstado) return false;
+    if (filtroOrigen       && c.origen              !== filtroOrigen) return false;
+    if (filtroTipo         && c.tipo_cliente        !== filtroTipo) return false;
+    if (filtroTipoServicio && c.tipo_servicio_cliente !== filtroTipoServicio) return false;
     return true;
   });
 
-  const hayFiltros = busqueda || filtroEstado || filtroOrigen || filtroTipo;
+  const hayFiltros = busqueda || filtroEstado || filtroOrigen || filtroTipo || filtroTipoServicio;
 
   return (
     <div className="space-y-6">
@@ -137,9 +140,19 @@ export default function ClientesPage() {
           <option value="VENTA">Venta</option>
           <option value="MANUAL">Manual</option>
         </select>
+        <select
+          value={filtroTipoServicio}
+          onChange={(e) => setFiltroTipoServicio(e.target.value as "" | Cliente["tipo_servicio_cliente"])}
+          className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none"
+        >
+          <option value="">Tipo servicio</option>
+          {TIPOS_SERVICIO_CLIENTE.map((t) => (
+            <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+          ))}
+        </select>
         {hayFiltros && (
           <button
-            onClick={() => { setBusqueda(""); setFiltroEstado(""); setFiltroOrigen(""); setFiltroTipo(""); }}
+            onClick={() => { setBusqueda(""); setFiltroEstado(""); setFiltroOrigen(""); setFiltroTipo(""); setFiltroTipoServicio(""); }}
             className="text-xs text-gray-500 hover:text-gray-900 border border-gray-300 rounded-lg px-3 py-2 hover:bg-gray-50 transition-colors"
           >
             Limpiar
@@ -186,7 +199,9 @@ export default function ClientesPage() {
                 <th className="text-left text-xs font-semibold text-slate-600 px-5 py-3">Teléfono</th>
                 <th className="text-left text-xs font-semibold text-slate-600 px-5 py-3">Email</th>
                 <th className="text-left text-xs font-semibold text-slate-600 px-5 py-3">Origen</th>
+                <th className="text-left text-xs font-semibold text-slate-600 px-5 py-3">Tipo servicio</th>
                 <th className="text-left text-xs font-semibold text-slate-600 px-5 py-3">Estado</th>
+                <th className="text-left text-xs font-semibold text-slate-600 px-5 py-3">Creado por</th>
                 <th className="text-left text-xs font-semibold text-slate-600 px-5 py-3">Desde</th>
               </tr>
             </thead>
@@ -227,7 +242,9 @@ export default function ClientesPage() {
                   <td className="px-5 py-3.5 text-sm text-gray-600">{c.telefono ?? "—"}</td>
                   <td className="px-5 py-3.5 text-sm text-gray-600">{c.email ?? "—"}</td>
                   <td className="px-5 py-3.5"><BadgeOrigen origen={c.origen} /></td>
+                  <td className="px-5 py-3.5 text-xs text-gray-600">{c.tipo_servicio_cliente ? c.tipo_servicio_cliente.charAt(0).toUpperCase() + c.tipo_servicio_cliente.slice(1) : "—"}</td>
                   <td className="px-5 py-3.5"><BadgeEstado estado={c.estado} /></td>
+                  <td className="px-5 py-3.5 text-xs text-gray-500">{c.created_by_nombre ?? "—"}</td>
                   <td className="px-5 py-3.5 text-xs text-gray-400">{formatFecha(c.created_at)}</td>
                 </tr>
               ))}

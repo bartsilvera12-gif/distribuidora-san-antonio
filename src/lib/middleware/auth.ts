@@ -8,6 +8,43 @@ export interface UsuarioConEmpresa {
   empresa_id: string;
 }
 
+export interface UsuarioConEmpresaYRol extends UsuarioConEmpresa {
+  rol?: string;
+  nombre?: string;
+}
+
+function esRolAdmin(rol?: string): boolean {
+  return rol === "admin" || rol === "administrador" || rol === "super_admin";
+}
+
+/**
+ * Obtiene el usuario autenticado, empresa_id y rol (para validación admin).
+ */
+export async function getAuthWithRol(): Promise<UsuarioConEmpresaYRol | null> {
+  const base = await getUserAndEmpresa();
+  if (!base) return null;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceKey) return base;
+  const supabase = createClient(url, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const { data } = await supabase
+    .from("usuarios")
+    .select("rol, nombre")
+    .eq("email", base.user.email)
+    .single();
+  return {
+    ...base,
+    rol: (data as { rol?: string })?.rol,
+    nombre: (data as { nombre?: string })?.nombre,
+  };
+}
+
+export function isAdmin(auth: UsuarioConEmpresaYRol | null): boolean {
+  return !!auth && esRolAdmin(auth.rol);
+}
+
 /**
  * Obtiene el usuario autenticado y su empresa_id.
  * Requerido para todas las rutas API multiempresa.

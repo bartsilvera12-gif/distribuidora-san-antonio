@@ -2,6 +2,11 @@ export type TipoCliente = "empresa" | "persona";
 export type OrigenCliente = "CRM" | "VENTA" | "MANUAL";
 export type EstadoCliente = "activo" | "inactivo";
 
+/** Clasificación operativa del cliente (distinto de tipo_cliente) */
+export type TipoServicioCliente = "marketing" | "saas" | "branding" | "web" | "otro";
+
+export const TIPOS_SERVICIO_CLIENTE: TipoServicioCliente[] = ["marketing", "saas", "branding", "web", "otro"];
+
 export interface NotaCliente {
   id:    number;
   texto: string;
@@ -45,6 +50,19 @@ export interface Cliente {
 
   estado:              EstadoCliente;
   notas:               NotaCliente[];
+
+  /** Clasificación operativa (marketing, saas, branding, web, otro) */
+  tipo_servicio_cliente?: TipoServicioCliente;
+
+  /** Usuario que creó el cliente (auth.users.id) */
+  created_by_user_id?:   string | null;
+  /** Nombre del creador para display (denormalizado) */
+  created_by_nombre?:    string | null;
+
+  /** Eliminación lógica */
+  deleted_at?:           string | null;   // ISO string
+  deleted_by_user_id?:   string | null;
+  deletion_reason?:      string | null;
 
   created_at:          string;          // ISO string
   updated_at:          string;          // ISO string
