@@ -32,18 +32,17 @@ function semanaDelMes(fecha: string): number {
   return Math.ceil(dd / 7);
 }
 
-/** Genera fechas para item semanal: cada semana del mes, en los días indicados, hasta cantidad por semana */
+/** Genera fechas para item semanal: cada semana del mes, en EXACTAMENTE los días seleccionados en dias_semana. */
 function fechasParaItemSemanal(
   ano: number,
   mes: number,
   item: PlanMarketingItem
 ): string[] {
   const dias = item.dias_semana ?? [];
-  const cantidad = Math.max(1, item.cantidad ?? 1);
   if (dias.length === 0) return [];
 
   const fechas: string[] = [];
-  const diasUsar = dias.slice(0, cantidad).sort((a, b) => a - b);
+  const diasUsar = [...dias].sort((a, b) => a - b);
 
   const todasLasFechas = fechasDelMes(ano, mes);
   for (const fecha of todasLasFechas) {
