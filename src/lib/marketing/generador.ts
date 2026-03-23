@@ -20,7 +20,12 @@ function fechasDelMes(ano: number, mes: number): string[] {
   return fechas;
 }
 
-/** Obtiene el día de la semana (0=dom, 1=lun, ..., 6=sáb) para una fecha YYYY-MM-DD */
+/**
+ * Obtiene el día de la semana (0=dom, 1=lun, ..., 6=sáb) para una fecha YYYY-MM-DD.
+ * Usa T12:00:00Z + getUTCDay() para evitar bugs de timezone: la hora noon UTC asegura
+ * que el día de la semana sea correcto para la fecha calendario, independiente de
+ * la zona horaria del usuario (ej. America/Asuncion UTC-4).
+ */
 function diaSemana(fecha: string): number {
   const d = new Date(fecha + "T12:00:00Z");
   return d.getUTCDay();
@@ -37,7 +42,7 @@ function semanaDelMes(fecha: string): number {
  * REGLA: dias_semana es la ÚNICA fuente de verdad. Se genera 1 tarea por cada día marcado.
  * cantidad NO se usa para semanal (solo informativa en la plantilla).
  */
-function fechasParaItemSemanal(
+export function fechasParaItemSemanal(
   ano: number,
   mes: number,
   item: PlanMarketingItem

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthWithRol, isAdmin } from "@/lib/middleware/auth";
 import { successResponse, errorResponse } from "@/lib/api/response";
-import { previewSyncMarketing, generarTareasMarketing, sincronizarClientesMarketing } from "@/lib/marketing/generador";
+import { previewSyncMarketing, regenerarMesCompleto, sincronizarClientesMarketing } from "@/lib/marketing/generador";
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -87,10 +87,9 @@ export async function POST(request: NextRequest) {
 
     const supabaseAdmin = getSupabaseAdmin();
     const clientesActualizados = await sincronizarClientesMarketing(empresaId, supabaseAdmin);
-    const resultado = await generarTareasMarketing({
+    const resultado = await regenerarMesCompleto({
       empresa_id: empresaId,
       mes,
-      skipAuthCheck: true,
       supabaseClient: supabaseAdmin,
     });
 
@@ -98,6 +97,7 @@ export async function POST(request: NextRequest) {
       successResponse({
         mes,
         clientes_actualizados: clientesActualizados,
+        tareas_eliminadas: resultado.eliminadas,
         tareas_generadas: resultado.generadas,
         tareas_omitidas: resultado.omitidas,
         errores: resultado.errores,

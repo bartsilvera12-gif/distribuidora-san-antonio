@@ -39,8 +39,6 @@ export default function MarketingOpsPage() {
   const [regenerarCliente, setRegenerarCliente] = useState<Cliente | null>(null);
   const [regenerando, setRegenerando] = useState(false);
 
-  const [regenerarTodoMes, setRegenerarTodoMes] = useState(false);
-  const [regenerandoTodo, setRegenerandoTodo] = useState(false);
 
   const [syncPreview, setSyncPreview] = useState<{
     clientes_a_marcar_count: number;
@@ -159,12 +157,20 @@ export default function MarketingOpsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mes, confirmar: true }),
       });
-      if (res.ok) {
+      const json = await res.json();
+      if (res.ok && json.success) {
         setSyncMostrarPreview(false);
         setSyncPreview(null);
         cargar();
+        const d = json.data;
+        if (d) {
+          const msg = [
+            d.tareas_eliminadas > 0 && `${d.tareas_eliminadas} eliminadas`,
+            `${d.tareas_generadas} generadas`,
+          ].filter(Boolean).join(", ");
+          if (msg) alert(`Listo: ${msg}`);
+        }
       } else {
-        const json = await res.json();
         alert(json.error ?? "Error al sincronizar");
       }
     } catch {
@@ -208,29 +214,6 @@ export default function MarketingOpsPage() {
     }
   }
 
-  async function handleRegenerarTodoElMes() {
-    setRegenerandoTodo(true);
-    try {
-      const res = await fetch("/api/marketing/regenerar-mes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mes, confirmar: true }),
-      });
-      const json = await res.json();
-      if (res.ok && json.success) {
-        setRegenerarTodoMes(false);
-        cargar();
-        const d = json.data;
-        if (d) alert(`Regenerado: ${d.eliminadas} eliminadas, ${d.generadas} generadas.`);
-      } else {
-        alert(json.error ?? "Error al regenerar mes");
-      }
-    } catch {
-      alert("Error al regenerar mes");
-    } finally {
-      setRegenerandoTodo(false);
-    }
-  }
 
   if (cargando && tareas.length === 0) {
     return (
@@ -253,16 +236,9 @@ export default function MarketingOpsPage() {
           <button
             type="button"
             onClick={handlePreviewSync}
-            className="text-sm font-medium px-4 py-2 rounded-lg border border-slate-200 hover:bg-slate-50"
+            className="text-sm font-medium px-4 py-2 rounded-lg bg-[#0EA5E9] hover:bg-[#0284C7] text-white"
           >
-            Sincronizar (preview)
-          </button>
-          <button
-            type="button"
-            onClick={() => setRegenerarTodoMes(true)}
-            className="text-sm font-medium px-4 py-2 rounded-lg border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-800"
-          >
-            Regenerar todo el mes
+            Sincronizar y regenerar mes
           </button>
           <select
             value={mes}
@@ -314,9 +290,10 @@ export default function MarketingOpsPage() {
       {syncMostrarPreview && syncPreview && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setSyncMostrarPreview(false)}>
           <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-gray-800 mb-4">Preview de sincronización — {mes}</h3>
-            <p className="text-sm"><strong>{syncPreview.clientes_a_marcar_count}</strong> clientes a marcar</p>
-            <p className="text-sm"><strong>{syncPreview.tareas_a_generar_count}</strong> tareas a generar</p>
+            <h3 className="text-lg font-bold text-gray-800 mb-4">Sincronizar y regenerar — {MESES[mesNum - 1]} {ano}</h3>
+            <p className="text-sm mb-2">Se eliminarán todas las tareas automáticas del mes y se regenerarán según la plantilla actual de cada plan.</p>
+            <p className="text-sm text-slate-600"><strong>{syncPreview.clientes_a_marcar_count}</strong> clientes a marcar como marketing</p>
+            <p className="text-sm text-slate-600 mb-4">~<strong>{syncPreview.tareas_a_generar_count}</strong> tareas a generar (estimado)</p>
             <div className="flex gap-3 mt-6">
               <button
                 type="button"
@@ -327,37 +304,6 @@ export default function MarketingOpsPage() {
                 {syncEjecutando ? "Ejecutando…" : "Ejecutar"}
               </button>
               <button type="button" onClick={() => setSyncMostrarPreview(false)} className="border border-slate-200 px-4 py-2 rounded-lg text-sm hover:bg-slate-50">
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal regenerar todo el mes */}
-      {regenerarTodoMes && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => !regenerandoTodo && setRegenerarTodoMes(false)}>
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-gray-800 mb-2">Regenerar todo el mes</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Se eliminarán <strong>todas las tareas automáticas</strong> de <strong>todos los clientes marketing</strong> en <strong>{MESES[mesNum - 1]} {ano}</strong> y se regenerarán según la plantilla actual de cada plan.
-            </p>
-            <p className="text-xs text-amber-600 mb-4">Las tareas manuales no se modificarán.</p>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={handleRegenerarTodoElMes}
-                disabled={regenerandoTodo}
-                className="flex-1 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
-              >
-                {regenerandoTodo ? "Regenerando…" : "Confirmar"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setRegenerarTodoMes(false)}
-                disabled={regenerandoTodo}
-                className="border border-slate-200 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 disabled:opacity-50"
-              >
                 Cancelar
               </button>
             </div>
@@ -477,9 +423,9 @@ export default function MarketingOpsPage() {
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); setRegenerarCliente(c); }}
-                        className="text-xs font-medium text-[#0EA5E9] hover:underline"
+                        className="text-sm font-medium px-4 py-2 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-200"
                       >
-                        Regenerar tareas del mes
+                        Regenerar tareas de este cliente
                       </button>
                     </div>
                     <div className="grid grid-cols-7 min-w-[600px] gap-1" style={{ gridTemplateColumns: "repeat(7, minmax(0, 1fr))" }}>
