@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import MontoInput from "@/components/ui/MontoInput";
-import { saveUsuario, emailExiste } from "@/lib/usuarios/storage";
 import { createUser, getCurrentUser } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import type { AreaUsuario, NivelUsuario, TipoContrato } from "@/lib/usuarios/types";
@@ -83,7 +82,6 @@ export default function NuevoUsuarioPage() {
     if (!form.password)                   { setError("La contraseña es obligatoria."); return; }
     if (form.password.length < 6)         { setError("La contraseña debe tener al menos 6 caracteres."); return; }
     if (form.password !== form.password2) { setError("Las contraseñas no coinciden."); return; }
-    if (emailExiste(form.email))          { setError("Ya existe un usuario con ese email."); return; }
 
     setGuardando(true);
 
@@ -91,7 +89,7 @@ export default function NuevoUsuarioPage() {
 
     try {
       // 1 — Crear usuario en Supabase Auth
-      await createUser(form.email.trim().toLowerCase(), form.password);
+      const authUser = await createUser(form.email.trim().toLowerCase(), form.password);
 
       // 2 — Obtener empresa_id del administrador actual
       const admin = await getCurrentUser();
@@ -99,9 +97,13 @@ export default function NuevoUsuarioPage() {
 
       // 3 — Insertar en tabla usuarios de Supabase
       const { error: dbError } = await supabase.from("usuarios").insert([{
-        empresa_id: admin.empresa_id,
-        email:      form.email.trim().toLowerCase(),
-        rol:        form.nivel,
+        empresa_id:       admin.empresa_id,
+        email:            form.email.trim().toLowerCase(),
+        nombre:           form.nombre.trim() || null,
+        telefono:         form.telefono.trim() || null,
+        fecha_nacimiento: form.fecha_nacimiento || null,
+        rol:              form.nivel,
+        auth_user_id:     authUser?.id ?? null,
       }]);
       if (dbError) throw dbError;
 
@@ -115,23 +117,6 @@ export default function NuevoUsuarioPage() {
       setError(`Error al crear usuario: ${msg}`);
       return;
     }
-
-    // 4 — Guardar en localStorage para el ERP (lista local)
-    saveUsuario({
-      nombre:              form.nombre.trim(),
-      email:               form.email.trim().toLowerCase(),
-      telefono:            form.telefono.trim() || undefined,
-      fecha_nacimiento:    form.fecha_nacimiento || undefined,
-      fecha_ingreso:       form.fecha_ingreso    || undefined,
-      tipo_contrato:       form.tipo_contrato,
-      salario_base:        form.salario_base        ? parseFloat(form.salario_base)       : undefined,
-      porcentaje_comision: form.porcentaje_comision ? parseFloat(form.porcentaje_comision): undefined,
-      ips:                 form.ips,
-      nivel:               form.nivel,
-      area:                form.area,
-      estado:              form.estado,
-      password_hash:       form.password,
-    });
 
     setGuardando(false);
     router.push("/usuarios");

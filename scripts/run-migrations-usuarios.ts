@@ -29,6 +29,7 @@ const MIGRATIONS = [
   "20250324000001_usuarios_auth_user_id.sql",
   "20250324000002_usuario_modulos.sql",
   "20250326000001_usuarios_poblar_auth_user_id.sql",
+  "20250326000002_usuarios_telefono_fecha.sql",
 ];
 
 async function main() {

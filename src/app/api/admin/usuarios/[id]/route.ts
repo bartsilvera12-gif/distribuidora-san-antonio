@@ -25,6 +25,28 @@ async function getAuthUserId(supabase: ReturnType<typeof getSupabase>, usuario: 
   return null;
 }
 
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const supabase = getSupabase();
+    const { data: usuario, error } = await supabase
+      .from("usuarios")
+      .select("id, nombre, email, telefono, fecha_nacimiento, rol, estado, created_at")
+      .eq("id", id)
+      .single();
+    if (error || !usuario) {
+      return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
+    }
+    return NextResponse.json(usuario);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Error";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -32,7 +54,7 @@ export async function PATCH(
   try {
     const { id } = await params;
     const body = await req.json();
-    const { nombre, email, estado, modulo_ids } = body;
+    const { nombre, email, telefono, fecha_nacimiento, estado, modulo_ids } = body;
 
     const supabase = getSupabase();
 
@@ -51,6 +73,8 @@ export async function PATCH(
     const updates: Record<string, unknown> = {};
     if (nombre !== undefined) updates.nombre = nombre;
     if (estado !== undefined) updates.estado = estado;
+    if (telefono !== undefined) updates.telefono = telefono || null;
+    if (fecha_nacimiento !== undefined) updates.fecha_nacimiento = fecha_nacimiento || null;
 
     if (estado !== undefined && authUserId) {
       const banDuration = estado === "inactivo" ? "876000h" : "none";
