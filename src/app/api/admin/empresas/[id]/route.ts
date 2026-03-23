@@ -28,12 +28,36 @@ export async function GET(
       return NextResponse.json({ error: "Empresa no encontrada" }, { status: 404 });
     }
 
-    // 2. Usuarios de la empresa (incluye estado si existe)
-    const { data: usuarios } = await supabase
+    // 2. Usuarios de la empresa (incluye estado y módulos si existe)
+    const { data: usuariosRaw } = await supabase
       .from("usuarios")
       .select("id, nombre, email, rol, estado, created_at")
       .eq("empresa_id", id)
       .order("created_at", { ascending: false });
+
+    const usuarios = usuariosRaw ?? [];
+    const userIds = usuarios.map((u) => u.id);
+
+    let usuarioModulosMap: Record<string, string[]> = {};
+    if (userIds.length > 0) {
+      const { data: umData } = await supabase
+        .from("usuario_modulos")
+        .select("usuario_id, modulo_id")
+        .in("usuario_id", userIds);
+      if (umData) {
+        for (const row of umData) {
+          const uid = (row as { usuario_id: string }).usuario_id;
+          const mid = (row as { modulo_id: string }).modulo_id;
+          if (!usuarioModulosMap[uid]) usuarioModulosMap[uid] = [];
+          usuarioModulosMap[uid].push(mid);
+        }
+      }
+    }
+
+    const usuariosConModulos = usuarios.map((u) => ({
+      ...u,
+      modulo_ids: usuarioModulosMap[u.id] ?? [],
+    }));
 
     // 3. Módulos habilitados (empresa_modulos + modulos)
     const { data: emData } = await supabase
@@ -59,7 +83,7 @@ export async function GET(
 
     return NextResponse.json({
       empresa,
-      usuarios: usuarios ?? [],
+      usuarios: usuariosConModulos,
       modulos,
     });
   } catch (err: unknown) {

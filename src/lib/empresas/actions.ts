@@ -117,6 +117,7 @@ export interface UsuarioEmpresa {
   rol: string;
   estado?: string;
   created_at: string;
+  modulo_ids?: string[];
 }
 
 export interface EmpresaDetalle {
@@ -161,6 +162,7 @@ export interface ActualizarUsuarioData {
   nombre?: string;
   email?: string;
   estado?: "activo" | "inactivo";
+  modulo_ids?: string[];
 }
 
 export async function actualizarUsuario(id: string, data: ActualizarUsuarioData): Promise<void> {

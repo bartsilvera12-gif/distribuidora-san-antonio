@@ -41,7 +41,12 @@ export default function EditarEmpresaPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [admin, setAdmin] = useState<UsuarioEmpresa | null>(null);
-  const [adminForm, setAdminForm] = useState({ nombre: "", email: "", estado: "activo" as "activo" | "inactivo" });
+  const [adminForm, setAdminForm] = useState({
+    nombre: "",
+    email: "",
+    estado: "activo" as "activo" | "inactivo",
+    modulo_ids: [] as string[],
+  });
   const [editandoAdmin, setEditandoAdmin] = useState(false);
   const [guardandoAdmin, setGuardandoAdmin] = useState(false);
   const [errorAdmin, setErrorAdmin] = useState<string | null>(null);
@@ -75,6 +80,7 @@ export default function EditarEmpresaPage() {
             nombre: adminUser.nombre ?? "",
             email: adminUser.email ?? "",
             estado: (adminUser.estado as "activo" | "inactivo") ?? "activo",
+            modulo_ids: adminUser.modulo_ids ?? [],
           });
         }
       })
@@ -138,6 +144,7 @@ export default function EditarEmpresaPage() {
         nombre: adminForm.nombre.trim(),
         email: adminForm.email.trim() || undefined,
         estado: adminForm.estado,
+        modulo_ids: adminForm.modulo_ids,
       });
       setAdmin({ ...admin, ...adminForm });
       setEditandoAdmin(false);
@@ -344,6 +351,50 @@ export default function EditarEmpresaPage() {
                   <option value="inactivo">Inactivo</option>
                 </select>
               </div>
+              <div>
+                <label className={fLabel}>Módulos visibles para este usuario</label>
+                <p className="text-xs text-slate-500 mb-2">
+                  Solo se muestran módulos habilitados para la empresa. Sin selección = ve todos los de la empresa.
+                </p>
+                {cargandoModulos ? (
+                  <p className="text-sm text-gray-400">Cargando…</p>
+                ) : (() => {
+                  const modulosEmpresa = modulos.filter((m) => form.modulo_ids.includes(m.id));
+                  return modulosEmpresa.length === 0 ? (
+                    <p className="text-sm text-gray-400">Habilitá módulos de la empresa primero.</p>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {modulosEmpresa.map((m) => (
+                        <label
+                          key={m.id}
+                          className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-gray-50"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={
+                              adminForm.modulo_ids.length === 0 || adminForm.modulo_ids.includes(m.id)
+                            }
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setAdminForm((p) => {
+                                const base = p.modulo_ids.length === 0 ? form.modulo_ids : p.modulo_ids;
+                                return {
+                                  ...p,
+                                  modulo_ids: checked
+                                    ? [...base.filter((id) => id !== m.id), m.id]
+                                    : base.filter((id) => id !== m.id),
+                                };
+                              });
+                            }}
+                            className="rounded border-gray-300"
+                          />
+                          <span className="text-sm">{(m as { nombre?: string; name?: string }).nombre ?? (m as { name?: string }).name ?? m.id}</span>
+                        </label>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
               <div className="flex gap-2">
                 <button
                   type="submit"
@@ -360,6 +411,7 @@ export default function EditarEmpresaPage() {
                       nombre: admin.nombre ?? "",
                       email: admin.email ?? "",
                       estado: (admin.estado as "activo" | "inactivo") ?? "activo",
+                      modulo_ids: admin.modulo_ids ?? [],
                     });
                   }}
                   className="border border-slate-200 text-sm px-4 py-2 rounded-lg hover:bg-slate-50"

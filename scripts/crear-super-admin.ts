@@ -41,12 +41,14 @@ async function main() {
     email_confirm: true,
   });
 
+  let authUserId: string | undefined;
   if (errAuth) {
     if (errAuth.message?.includes("already been registered")) {
       console.log("⚠️ Usuario ya existe en Auth. Actualizando contraseña...");
       const { data: users } = await supabase.auth.admin.listUsers();
       const authUser = users?.users?.find((u) => u.email === EMAIL.toLowerCase());
       if (authUser) {
+        authUserId = authUser.id;
         const { error: errUpdate } = await supabase.auth.admin.updateUserById(authUser.id, {
           password: PASSWORD,
         });
@@ -62,13 +64,16 @@ async function main() {
     }
   } else {
     console.log("✅ Usuario creado en Supabase Auth.");
+    authUserId = authData?.user?.id;
   }
 
-  // 3. Insertar o actualizar en tabla usuarios
   if (existente) {
+    const updateData: Record<string, unknown> = { rol: "super_admin", nombre: NOMBRE, empresa_id: null };
+    if (authUserId) updateData.auth_user_id = authUserId;
+
     const { error: errUpdate } = await supabase
       .from("usuarios")
-      .update({ rol: "super_admin", nombre: NOMBRE, empresa_id: null })
+      .update(updateData)
       .eq("email", EMAIL.toLowerCase());
 
     if (errUpdate) {
@@ -83,6 +88,7 @@ async function main() {
         nombre: NOMBRE,
         rol: "super_admin",
         empresa_id: null,
+        auth_user_id: authUserId ?? null,
       },
     ]);
 

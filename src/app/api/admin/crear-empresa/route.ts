@@ -65,12 +65,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: errAuth.message }, { status: 400 });
     }
 
-    // 3 — Insertar en tabla usuarios (email vincula con auth.users para RLS)
+    // 3 — Insertar en tabla usuarios (auth_user_id para actualización fiable de email)
     const { error: errUsuario } = await supabase.from("usuarios").insert([{
       empresa_id: empresaId,
       nombre: nombre.trim(),
       email: email.trim().toLowerCase(),
       rol: "admin",
+      auth_user_id: authData.user?.id ?? null,
     }]);
 
     if (errUsuario) {

@@ -40,7 +40,7 @@ export async function GET() {
 
     const { data: usuario, error: errUsuario } = await supabase
       .from("usuarios")
-      .select("empresa_id")
+      .select("id, empresa_id")
       .eq("email", user.email)
       .single();
 
@@ -58,7 +58,18 @@ export async function GET() {
       return NextResponse.json({ error: errEm.message }, { status: 400 });
     }
 
-    const moduloIds = (emData ?? []).map((r) => r.modulo_id).filter(Boolean);
+    let moduloIds = (emData ?? []).map((r) => r.modulo_id).filter(Boolean);
+
+    const { data: umData, error: errUm } = await supabase
+      .from("usuario_modulos")
+      .select("modulo_id")
+      .eq("usuario_id", usuario.id);
+
+    if (!errUm && umData && umData.length > 0) {
+      const usuarioModuloIds = umData.map((r) => (r as { modulo_id: string }).modulo_id);
+      moduloIds = moduloIds.filter((id) => usuarioModuloIds.includes(id));
+    }
+
     if (moduloIds.length === 0) {
       return NextResponse.json([]);
     }
