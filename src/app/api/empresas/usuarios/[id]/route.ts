@@ -12,7 +12,7 @@ async function getAuthUserId(supabase: any, usuario: { auth_user_id?: string | n
   while (true) {
     const { data } = await supabase.auth.admin.listUsers({ page, perPage: 500 });
     const users = data?.users ?? [];
-    const found = users.find((u) => (u.email ?? "").toLowerCase() === emailBuscado);
+    const found = users.find((u: { id: string; email?: string }) => (u.email ?? "").toLowerCase() === emailBuscado);
     if (found) return found.id;
     if (users.length < 500) break;
     page++;
