@@ -55,6 +55,8 @@ export type ChatFlowNodeRow = {
   flow_code: string;
   node_code: string;
   message_text: string | null;
+  save_as_field: string | null;
+  next_node_code: string | null;
   node_type: "buttons" | "list" | "text" | "image_input" | "human" | "end";
   is_active: boolean;
   created_at: string;
@@ -81,6 +83,16 @@ export type ChatFlowEventRow = {
   selected_option_id: string | null;
   meta_button_id: string | null;
   payload: Record<string, unknown>;
+  created_at: string;
+};
+
+export type ChatFlowDataRow = {
+  id: string;
+  empresa_id: string;
+  conversation_id: string;
+  flow_code: string;
+  field_name: string;
+  field_value: string;
   created_at: string;
 };
 

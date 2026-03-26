@@ -340,6 +340,21 @@ export async function processInboundWebhookValue(
             `Flow interactive: ${interactiveResult.error ?? interactiveResult.status}`
           );
         }
+      } else if (message_type === "text") {
+        const textResult = await flowEngine.processTextReply({
+          conversationId,
+          empresaId,
+          textValue: content,
+          rawPayload: msg as unknown as Record<string, unknown>,
+        });
+        console.info("[webhook] text flow result", {
+          conversationId,
+          status: textResult.status,
+          nextNodeCode: textResult.nextNodeCode ?? null,
+        });
+        if (!textResult.ok) {
+          errors.push(`Flow text: ${textResult.error ?? textResult.status}`);
+        }
       }
 
       processed += 1;

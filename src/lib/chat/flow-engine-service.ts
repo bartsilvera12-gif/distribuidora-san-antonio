@@ -49,8 +49,17 @@ type FlowNode = {
   flow_code: string;
   node_code: string;
   message_text: string | null;
+  save_as_field: string | null;
+  next_node_code: string | null;
   node_type: "buttons" | "list" | "text" | "image_input" | "human" | "end";
   is_active: boolean;
+};
+
+export type ProcessTextReplyParams = {
+  conversationId: string;
+  empresaId: string;
+  textValue: string;
+  rawPayload: Record<string, unknown>;
 };
 
 export type FlowEngineContext = {
@@ -180,7 +189,9 @@ export function createFlowEngine(ctx: FlowEngineContext) {
   ): Promise<FlowNode | null> {
     const { data, error } = await supabase
       .from("chat_flow_nodes")
-      .select("id, empresa_id, flow_code, node_code, message_text, node_type, is_active")
+      .select(
+        "id, empresa_id, flow_code, node_code, message_text, save_as_field, next_node_code, node_type, is_active"
+      )
       .eq("empresa_id", empresaId)
       .eq("flow_code", flowCode)
       .eq("node_code", nodeCode)
@@ -455,9 +466,113 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     return { ok: true, status: "advanced", nextNodeCode: selected.next_node_code };
   }
 
+  async function processTextReply(
+    params: ProcessTextReplyParams
+  ): Promise<{ ok: boolean; status: string; nextNodeCode?: string; error?: string }> {
+    const textValue = params.textValue.trim();
+    if (!textValue) return { ok: true, status: "empty_text_ignored" };
+
+    const state = await getConversationFlowState(params.conversationId);
+    if (!state || state.empresa_id !== params.empresaId) {
+      return { ok: false, status: "conversation_not_found", error: "Conversación no encontrada" };
+    }
+    if (state.flow_status !== "bot" || state.human_taken_over) {
+      return { ok: true, status: "ignored_not_bot_mode" };
+    }
+    if (!state.flow_code || !state.flow_current_node) {
+      return { ok: true, status: "missing_flow_state" };
+    }
+
+    const currentNode = await getNode(
+      state.empresa_id,
+      state.flow_code,
+      state.flow_current_node
+    );
+    if (!currentNode || currentNode.node_type !== "text") {
+      return { ok: true, status: "ignored_not_text_node" };
+    }
+
+    if (currentNode.save_as_field) {
+      const { error: dataErr } = await supabase
+        .from("chat_flow_data")
+        .upsert(
+          {
+            empresa_id: state.empresa_id,
+            conversation_id: state.id,
+            flow_code: state.flow_code,
+            field_name: currentNode.save_as_field,
+            field_value: textValue,
+          },
+          { onConflict: "conversation_id,field_name" }
+        );
+      if (dataErr) {
+        return { ok: false, status: "save_text_failed", error: dataErr.message };
+      }
+    }
+
+    await insertFlowEvent({
+      empresaId: state.empresa_id,
+      conversationId: state.id,
+      flowCode: state.flow_code,
+      nodeCode: currentNode.node_code,
+      eventType: "text_captured",
+      payload: {
+        save_as_field: currentNode.save_as_field ?? null,
+        text_value: textValue,
+        raw: params.rawPayload,
+      },
+    });
+
+    if (!currentNode.next_node_code) {
+      return { ok: true, status: "captured_no_next_node" };
+    }
+
+    console.info("[flow-engine] text captured advance", {
+      conversationId: state.id,
+      currentNode: currentNode.node_code,
+      saveAsField: currentNode.save_as_field ?? null,
+      nextNodeCode: currentNode.next_node_code,
+    });
+
+    const adv = await advanceConversationToNode({
+      conversationId: state.id,
+      empresaId: state.empresa_id,
+      flowCode: state.flow_code,
+      nextNodeCode: currentNode.next_node_code,
+    });
+    if (!adv.ok) {
+      return {
+        ok: false,
+        status: "advance_failed",
+        error: adv.error ?? "No se pudo avanzar al siguiente nodo",
+      };
+    }
+
+    await insertFlowEvent({
+      empresaId: state.empresa_id,
+      conversationId: state.id,
+      flowCode: state.flow_code,
+      nodeCode: currentNode.next_node_code,
+      eventType: "node_advanced",
+      payload: {
+        from_node: currentNode.node_code,
+        next_node_code: currentNode.next_node_code,
+        reason: "text_captured",
+      },
+    });
+
+    const sent = await sendCurrentFlowNode({ conversationId: state.id });
+    if (!sent.ok) {
+      return { ok: false, status: "send_next_node_failed", error: sent.error };
+    }
+
+    return { ok: true, status: "advanced", nextNodeCode: currentNode.next_node_code };
+  }
+
   return {
     getConversationFlowState,
     processInteractiveReply,
+    processTextReply,
     advanceConversationToNode,
     sendCurrentFlowNode,
   };
@@ -482,6 +597,13 @@ export async function advanceConversationToNode(
   params: AdvanceConversationParams
 ) {
   return createFlowEngine({ supabase }).advanceConversationToNode(params);
+}
+
+export async function processTextReply(
+  supabase: SupabaseAdmin,
+  params: ProcessTextReplyParams
+) {
+  return createFlowEngine({ supabase }).processTextReply(params);
 }
 
 export async function sendCurrentFlowNode(
