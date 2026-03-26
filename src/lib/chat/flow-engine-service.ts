@@ -288,6 +288,10 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     });
 
     if (node.node_type === "human") {
+      console.info("[flow-engine] takeover activated", {
+        conversationId: state.id,
+        nodeCode: node.node_code,
+      });
       await supabase
         .from("chat_conversations")
         .update({
@@ -313,6 +317,11 @@ export function createFlowEngine(ctx: FlowEngineContext) {
   async function processInteractiveReply(
     params: ProcessInteractiveReplyParams
   ): Promise<{ ok: boolean; status: string; nextNodeCode?: string; error?: string }> {
+    console.info("[flow-engine] button received", {
+      conversationId: params.conversationId,
+      empresaId: params.empresaId,
+      metaButtonId: params.metaButtonId,
+    });
     const state = await getConversationFlowState(params.conversationId);
     if (!state || state.empresa_id !== params.empresaId) {
       return { ok: false, status: "conversation_not_found", error: "Conversación no encontrada" };
@@ -345,6 +354,11 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       state.flow_code,
       state.flow_current_node
     );
+    console.info("[flow-engine] current node", {
+      conversationId: state.id,
+      flowCode: state.flow_code,
+      nodeCode: state.flow_current_node,
+    });
     if (!currentNode) {
       await insertFlowEvent({
         empresaId: state.empresa_id,
@@ -397,6 +411,12 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       });
       return { ok: true, status: "no_next_node" };
     }
+    console.info("[flow-engine] next node resolved", {
+      conversationId: state.id,
+      currentNode: currentNode.node_code,
+      nextNodeCode: selected.next_node_code,
+      metaButtonId: params.metaButtonId,
+    });
 
     const adv = await advanceConversationToNode({
       conversationId: state.id,
@@ -427,6 +447,10 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     if (!sent.ok) {
       return { ok: false, status: "send_next_node_failed", error: sent.error };
     }
+    console.info("[flow-engine] message sent for node", {
+      conversationId: state.id,
+      nodeCode: sent.nodeCode ?? selected.next_node_code,
+    });
 
     return { ok: true, status: "advanced", nextNodeCode: selected.next_node_code };
   }

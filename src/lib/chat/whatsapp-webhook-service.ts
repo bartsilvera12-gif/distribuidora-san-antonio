@@ -315,11 +315,25 @@ export async function processInboundWebhookValue(
 
       const metaButtonId = extractMetaButtonId(msg);
       if (metaButtonId) {
+        console.info("[webhook] interactive reply", {
+          conversationId,
+          empresaId,
+          metaButtonId,
+          currentNode:
+            (existingConv as { flow_current_node?: string | null }).flow_current_node ??
+            "inicio",
+        });
         const interactiveResult = await flowEngine.processInteractiveReply({
           conversationId,
           empresaId,
           metaButtonId,
           rawPayload: msg as unknown as Record<string, unknown>,
+        });
+        console.info("[webhook] interactive result", {
+          conversationId,
+          metaButtonId,
+          status: interactiveResult.status,
+          nextNodeCode: interactiveResult.nextNodeCode ?? null,
         });
         if (!interactiveResult.ok) {
           errors.push(
