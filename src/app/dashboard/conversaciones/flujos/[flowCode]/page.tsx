@@ -253,12 +253,17 @@ export default function FlowEditorPage() {
       const mediaBlock = getImageBlock(node);
       const mediaUrl = mediaBlock?.media_url?.trim() ?? "";
       const captionSize = (mediaBlock?.content_text ?? "").trim().length;
+      if (!mediaBlock) {
+        throw new Error("Este nodo requiere configurar una imagen antes de guardar.");
+      }
       if (!mediaUrl || !isValidHttpUrl(mediaUrl)) {
         throw new Error("El nodo 'Mensaje con imagen' requiere una URL válida de imagen.");
       }
       if (captionSize > MAX_WHATSAPP_IMAGE_CAPTION) {
         throw new Error(`El caption supera ${MAX_WHATSAPP_IMAGE_CAPTION} caracteres.`);
       }
+      // UX: guardar el bloque media junto con el paso para evitar errores por cambios no persistidos.
+      await saveBlock(node, mediaBlock);
     }
     const res = await fetch(
       `/api/chat/flows/${encodeURIComponent(flowCode)}/nodes/${encodeURIComponent(node.node_code)}`,
