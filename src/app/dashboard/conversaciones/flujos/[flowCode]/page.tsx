@@ -39,7 +39,11 @@ type FlowNode = {
 
 const NODE_TYPE_OPTIONS = [
   { value: "text", label: "Texto libre", help: "Espera respuesta de texto del cliente." },
-  { value: "media", label: "Imagen saliente", help: "Envía imagen con caption opcional." },
+  {
+    value: "media",
+    label: "Mensaje con imagen",
+    help: "Envía una sola burbuja con imagen y texto opcional (caption).",
+  },
   { value: "buttons", label: "Botones", help: "Muestra botones rápidos al cliente." },
   { value: "list", label: "Lista", help: "Interacción tipo lista (catálogo de opciones)." },
   { value: "image_input", label: "Solicitar imagen", help: "Espera imagen/comprobante del cliente." },
@@ -69,8 +73,8 @@ function prettifyCode(code: string): string {
 function friendlyNodeTitle(node: FlowNode): string {
   if (node.node_type === "media") {
     const mediaCaption = node.blocks.find((b) => b.block_type === "image")?.content_text?.trim();
-    if (mediaCaption) return `Imagen: ${mediaCaption.slice(0, 34)}${mediaCaption.length > 34 ? "..." : ""}`;
-    return "Imagen saliente";
+    if (mediaCaption) return `Mensaje con imagen: ${mediaCaption.slice(0, 24)}${mediaCaption.length > 24 ? "..." : ""}`;
+    return "Mensaje con imagen";
   }
   const txt = node.message_text?.trim();
   if (txt) return txt.slice(0, 42) + (txt.length > 42 ? "..." : "");
@@ -238,7 +242,7 @@ export default function FlowEditorPage() {
       const mediaUrl = mediaBlock?.media_url?.trim() ?? "";
       const captionSize = (mediaBlock?.content_text ?? "").trim().length;
       if (!mediaUrl || !isValidHttpUrl(mediaUrl)) {
-        throw new Error("El nodo 'Imagen saliente' requiere una URL válida en su bloque de imagen.");
+        throw new Error("El nodo 'Mensaje con imagen' requiere una URL válida de imagen.");
       }
       if (captionSize > MAX_WHATSAPP_IMAGE_CAPTION) {
         throw new Error(`El caption supera ${MAX_WHATSAPP_IMAGE_CAPTION} caracteres.`);
@@ -473,8 +477,7 @@ export default function FlowEditorPage() {
                     const caption = mediaBlock?.content_text?.trim() ?? "";
                     return (
                       <div className="space-y-2">
-                        <div className="font-semibold uppercase text-[11px] text-slate-500">Vista previa del nodo</div>
-                        <div>{caption || "Imagen sin caption"}</div>
+                        <div className="font-semibold uppercase text-[11px] text-slate-500">Vista previa del mensaje</div>
                         {mediaUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={mediaUrl} alt="Preview media" className="max-h-36 rounded border border-slate-200 bg-white" />
@@ -483,6 +486,10 @@ export default function FlowEditorPage() {
                             Falta URL de imagen.
                           </div>
                         )}
+                        <div>{caption || "Sin texto opcional"}</div>
+                        <div className="text-[11px] text-slate-500">
+                          WhatsApp enviará una sola burbuja con imagen y texto opcional debajo.
+                        </div>
                       </div>
                     );
                   })()
@@ -508,6 +515,115 @@ export default function FlowEditorPage() {
                 </div>
               </details>
 
+              {node.node_type === "media" && (
+                <div className="border border-fuchsia-100 rounded-lg p-3 space-y-3 bg-fuchsia-50/40">
+                  <div className="text-xs font-semibold text-fuchsia-700 uppercase">Mensaje con imagen</div>
+                  <p className="text-xs text-slate-600">
+                    WhatsApp enviará una sola burbuja con imagen y texto opcional debajo.
+                  </p>
+                  {getImageBlock(node) ? (
+                    (() => {
+                      const mediaBlock = getImageBlock(node)!;
+                      return (
+                        <div className="space-y-2">
+                          <label className="block text-xs text-slate-500 mb-1">Imagen / URL de imagen</label>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={async (e) => {
+                              try {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                const mediaUrl = await uploadImage(file);
+                                setNodes((prev) =>
+                                  prev.map((n) =>
+                                    n.id !== node.id
+                                      ? n
+                                      : {
+                                          ...n,
+                                          blocks: n.blocks.map((b) =>
+                                            b.id === mediaBlock.id ? { ...b, media_url: mediaUrl } : b
+                                          ),
+                                        }
+                                  )
+                                );
+                              } catch (err) {
+                                setError(err instanceof Error ? err.message : "No se pudo subir imagen");
+                              } finally {
+                                e.target.value = "";
+                              }
+                            }}
+                            className="text-xs"
+                          />
+                          <input
+                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                            value={mediaBlock.media_url ?? ""}
+                            placeholder="https://..."
+                            onChange={(e) =>
+                              setNodes((prev) =>
+                                prev.map((n) =>
+                                  n.id !== node.id
+                                    ? n
+                                    : {
+                                        ...n,
+                                        blocks: n.blocks.map((b) =>
+                                          b.id === mediaBlock.id ? { ...b, media_url: e.target.value } : b
+                                        ),
+                                      }
+                                )
+                              )
+                            }
+                          />
+                          {!!mediaBlock.media_url && !isValidHttpUrl(mediaBlock.media_url) && (
+                            <div className="text-[11px] text-red-600">La URL debe iniciar con http:// o https://</div>
+                          )}
+
+                          <label className="block text-xs text-slate-500 mb-1 mt-2">Texto del mensaje (opcional)</label>
+                          <textarea
+                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm min-h-[70px]"
+                            value={mediaBlock.content_text ?? ""}
+                            placeholder="Escribí un texto opcional para mostrar debajo de la imagen"
+                            onChange={(e) =>
+                              setNodes((prev) =>
+                                prev.map((n) =>
+                                  n.id !== node.id
+                                    ? n
+                                    : {
+                                        ...n,
+                                        blocks: n.blocks.map((b) =>
+                                          b.id === mediaBlock.id ? { ...b, content_text: e.target.value } : b
+                                        ),
+                                      }
+                                )
+                              )
+                            }
+                          />
+                          <div className={`text-[11px] ${(mediaBlock.content_text ?? "").length > MAX_WHATSAPP_IMAGE_CAPTION ? "text-red-600" : "text-slate-500"}`}>
+                            Texto: {(mediaBlock.content_text ?? "").length}/{MAX_WHATSAPP_IMAGE_CAPTION}
+                          </div>
+                        </div>
+                      );
+                    })()
+                  ) : (
+                    <button
+                      type="button"
+                      className="text-xs text-[#0EA5E9] hover:underline"
+                      onClick={async () => {
+                        try {
+                          await createBlock(node, "image");
+                          await reload();
+                        } catch (e) {
+                          setError(e instanceof Error ? e.message : "Error al preparar mensaje con imagen");
+                        }
+                      }}
+                    >
+                      + Configurar mensaje con imagen
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {node.node_type !== "media" && (
               <div className="border border-slate-100 rounded-lg p-3 space-y-3 bg-slate-50/60">
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-xs font-semibold text-slate-600 uppercase">
@@ -651,6 +767,7 @@ export default function FlowEditorPage() {
                   </div>
                 ))}
               </div>
+              )}
 
               <button
                 type="button"

@@ -384,7 +384,7 @@ export default function ConversacionesPage() {
                             return (
                               <div className="space-y-2">
                                 <div className={`text-xs font-medium ${m.from_me ? "text-sky-100" : "text-slate-500"}`}>
-                                  Imagen enviada
+                                  Mensaje con imagen
                                 </div>
                                 {parsed.url ? (
                                   // eslint-disable-next-line @next/next/no-img-element
