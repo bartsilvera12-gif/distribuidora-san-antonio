@@ -17,13 +17,13 @@ async function resolveNodeId(
 ) {
   const { data, error } = await supabase
     .from("chat_flow_nodes")
-    .select("id")
+    .select("id, node_type")
     .eq("empresa_id", empresaId)
     .eq("flow_code", flowCode)
     .eq("node_code", nodeCode)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  return data?.id as string | undefined;
+  return (data as { id: string; node_type: string } | null) ?? null;
 }
 
 export async function POST(
@@ -48,16 +48,23 @@ export async function POST(
       return NextResponse.json({ ok: false, error: "label y meta_button_id requeridos" }, { status: 400 });
     }
     const supabase = getSupabaseAdmin();
-    const nodeId = await resolveNodeId(supabase, auth.empresa_id, params.flowCode, params.nodeCode);
-    if (!nodeId) return NextResponse.json({ ok: false, error: "Nodo no encontrado" }, { status: 404 });
+    const node = await resolveNodeId(supabase, auth.empresa_id, params.flowCode, params.nodeCode);
+    if (!node) return NextResponse.json({ ok: false, error: "Nodo no encontrado" }, { status: 404 });
+    const nextNodeCode = body.next_node_code?.trim() || null;
+    if ((node.node_type === "buttons" || node.node_type === "list") && !nextNodeCode) {
+      return NextResponse.json(
+        { ok: false, error: "Seleccioná 'Siguiente paso' para esta opción." },
+        { status: 400 }
+      );
+    }
     const { data, error } = await supabase
       .from("chat_flow_options")
       .insert({
-        node_id: nodeId,
+        node_id: node.id,
         label,
         option_value: metaButtonId,
         meta_button_id: metaButtonId,
-        next_node_code: body.next_node_code?.trim() || null,
+        next_node_code: nextNodeCode,
         sort_order: Number.isFinite(body.sort_order) ? Math.trunc(body.sort_order as number) : 0,
       })
       .select("id, node_id, label, option_value, meta_button_id, next_node_code, sort_order")

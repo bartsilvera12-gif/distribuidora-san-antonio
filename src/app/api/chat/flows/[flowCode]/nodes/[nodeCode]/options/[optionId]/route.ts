@@ -36,6 +36,34 @@ export async function PATCH(
     if (Number.isFinite(body.sort_order)) patch.sort_order = Math.trunc(body.sort_order as number);
 
     const supabase = getSupabaseAdmin();
+    const { data: currentOption, error: currentErr } = await supabase
+      .from("chat_flow_options")
+      .select("node_id, next_node_code")
+      .eq("id", params.optionId)
+      .maybeSingle();
+    if (currentErr) return NextResponse.json({ ok: false, error: currentErr.message }, { status: 400 });
+    if (!currentOption) return NextResponse.json({ ok: false, error: "Opción no encontrada" }, { status: 404 });
+
+    const { data: parentNode, error: parentErr } = await supabase
+      .from("chat_flow_nodes")
+      .select("node_type")
+      .eq("id", currentOption.node_id as string)
+      .eq("empresa_id", auth.empresa_id)
+      .maybeSingle();
+    if (parentErr) return NextResponse.json({ ok: false, error: parentErr.message }, { status: 400 });
+    if (!parentNode) return NextResponse.json({ ok: false, error: "Nodo padre no encontrado" }, { status: 404 });
+
+    const targetNextNodeCode =
+      "next_node_code" in patch
+        ? ((patch.next_node_code as string | null | undefined)?.trim() || null)
+        : ((currentOption.next_node_code as string | null | undefined)?.trim() || null);
+    if ((parentNode.node_type === "buttons" || parentNode.node_type === "list") && !targetNextNodeCode) {
+      return NextResponse.json(
+        { ok: false, error: "Seleccioná 'Siguiente paso' para esta opción." },
+        { status: 400 }
+      );
+    }
+
     const { data, error } = await supabase
       .from("chat_flow_options")
       .update(patch)

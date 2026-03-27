@@ -30,6 +30,8 @@ type FlowNode = {
   message_text: string | null;
   save_as_field: string | null;
   next_node_code: string | null;
+  sort_order: number;
+  created_at: string;
   is_active: boolean;
   crm_action_type: string | null;
   crm_action_config: Record<string, unknown>;
@@ -127,45 +129,22 @@ export default function FlowEditorPage() {
   const [lastSavedNodeId, setLastSavedNodeId] = useState<string | null>(null);
   const [expandedNodeId, setExpandedNodeId] = useState<string | null>(null);
 
-  const nodeByCode = useMemo(
-    () => new Map(nodes.map((n) => [n.node_code, n])),
+  const orderedNodes = useMemo(
+    () =>
+      [...nodes].sort((a, b) => {
+        const bySort = (a.sort_order ?? 0) - (b.sort_order ?? 0);
+        if (bySort !== 0) return bySort;
+        const byCreatedAt = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        if (!Number.isNaN(byCreatedAt) && byCreatedAt !== 0) return byCreatedAt;
+        return a.node_code.localeCompare(b.node_code);
+      }),
     [nodes]
   );
 
-  const orderedNodes = useMemo(() => {
-    if (nodes.length <= 1) return nodes;
-    const incoming = new Map<string, number>();
-    for (const n of nodes) incoming.set(n.node_code, 0);
-    for (const n of nodes) {
-      const links = [n.next_node_code, ...n.options.map((o) => o.next_node_code)];
-      for (const target of links) {
-        if (!target) continue;
-        if (incoming.has(target)) incoming.set(target, (incoming.get(target) ?? 0) + 1);
-      }
-    }
-
-    const startCodes = nodes
-      .filter((n) => (incoming.get(n.node_code) ?? 0) === 0)
-      .map((n) => n.node_code);
-    const visited = new Set<string>();
-    const out: FlowNode[] = [];
-
-    function walk(code: string) {
-      if (visited.has(code)) return;
-      visited.add(code);
-      const node = nodeByCode.get(code);
-      if (!node) return;
-      out.push(node);
-      if (node.next_node_code) walk(node.next_node_code);
-      for (const opt of node.options) {
-        if (opt.next_node_code) walk(opt.next_node_code);
-      }
-    }
-
-    for (const start of startCodes) walk(start);
-    for (const n of nodes) walk(n.node_code);
-    return out;
-  }, [nodes, nodeByCode]);
+  const nodeByCode = useMemo(
+    () => new Map(orderedNodes.map((n) => [n.node_code, n])),
+    [orderedNodes]
+  );
 
   const nodeCodes = useMemo(() => orderedNodes.map((n) => n.node_code), [orderedNodes]);
 
@@ -294,6 +273,9 @@ export default function FlowEditorPage() {
   }
 
   async function saveOption(node: FlowNode, opt: FlowNodeOption) {
+    if ((node.node_type === "buttons" || node.node_type === "list") && !opt.next_node_code) {
+      throw new Error("Seleccioná 'Va a' para esta opción antes de guardar.");
+    }
     const metaButtonId = toMetaButtonId(opt.label);
     const res = await fetch(
       `/api/chat/flows/${encodeURIComponent(flowCode)}/nodes/${encodeURIComponent(node.node_code)}/options/${opt.id}`,
@@ -316,6 +298,7 @@ export default function FlowEditorPage() {
 
   async function createOption(node: FlowNode) {
     const label = "Nueva opción";
+    const defaultNext = nodeCodes.find((code) => code !== node.node_code) ?? null;
     const res = await fetch(
       `/api/chat/flows/${encodeURIComponent(flowCode)}/nodes/${encodeURIComponent(node.node_code)}/options`,
       {
@@ -325,7 +308,7 @@ export default function FlowEditorPage() {
         body: JSON.stringify({
           label,
           meta_button_id: toMetaButtonId(label),
-          next_node_code: null,
+          next_node_code: defaultNext,
           sort_order: node.options.length + 1,
         }),
       }

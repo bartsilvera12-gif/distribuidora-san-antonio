@@ -27,11 +27,12 @@ export async function GET(
     const { data: nodes, error: nErr } = await supabase
       .from("chat_flow_nodes")
       .select(
-        "id, node_code, node_type, message_text, save_as_field, next_node_code, is_active, crm_action_type, crm_action_config, created_at"
+        "id, node_code, node_type, message_text, save_as_field, next_node_code, sort_order, is_active, crm_action_type, crm_action_config, created_at"
       )
       .eq("empresa_id", auth.empresa_id)
       .eq("flow_code", flowCode)
-      .order("node_code", { ascending: true });
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
     if (nErr) return NextResponse.json({ ok: false, error: nErr.message }, { status: 400 });
 
     const ids = (nodes ?? []).map((n) => n.id as string);
@@ -113,6 +114,18 @@ export async function POST(
       return NextResponse.json({ ok: false, error: "node_type inválido" }, { status: 400 });
     }
     const supabase = getSupabaseAdmin();
+    const { data: lastNode } = await supabase
+      .from("chat_flow_nodes")
+      .select("sort_order")
+      .eq("empresa_id", auth.empresa_id)
+      .eq("flow_code", flowCode)
+      .order("sort_order", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const nextSortOrder =
+      typeof (lastNode as { sort_order?: number } | null)?.sort_order === "number"
+        ? ((lastNode as { sort_order: number }).sort_order ?? 0) + 1
+        : 1;
     const { data, error } = await supabase
       .from("chat_flow_nodes")
       .insert({
@@ -123,6 +136,7 @@ export async function POST(
         message_text: body.message_text ?? null,
         save_as_field: body.save_as_field?.trim() || null,
         next_node_code: body.next_node_code?.trim() || null,
+        sort_order: nextSortOrder,
         is_active: body.is_active !== false,
         crm_action_type: body.crm_action_type?.trim() || null,
         crm_action_config:
@@ -130,7 +144,7 @@ export async function POST(
             ? body.crm_action_config
             : {},
       })
-      .select("id, node_code, node_type, message_text, save_as_field, next_node_code, is_active, crm_action_type, crm_action_config, created_at")
+      .select("id, node_code, node_type, message_text, save_as_field, next_node_code, sort_order, is_active, crm_action_type, crm_action_config, created_at")
       .single();
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
     return NextResponse.json({ ok: true, item: data });

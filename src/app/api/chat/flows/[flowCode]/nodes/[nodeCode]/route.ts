@@ -35,6 +35,7 @@ export async function PATCH(
       message_text?: string | null;
       save_as_field?: string | null;
       next_node_code?: string | null;
+      sort_order?: number;
       is_active?: boolean;
       crm_action_type?: string | null;
       crm_action_config?: Record<string, unknown> | null;
@@ -50,6 +51,9 @@ export async function PATCH(
     if ("message_text" in body) patch.message_text = body.message_text ?? null;
     if ("save_as_field" in body) patch.save_as_field = body.save_as_field?.trim() || null;
     if ("next_node_code" in body) patch.next_node_code = body.next_node_code?.trim() || null;
+    if (typeof body.sort_order === "number" && Number.isFinite(body.sort_order)) {
+      patch.sort_order = Math.max(1, Math.trunc(body.sort_order));
+    }
     if (typeof body.is_active === "boolean") patch.is_active = body.is_active;
     if ("crm_action_type" in body) patch.crm_action_type = body.crm_action_type?.trim() || null;
     if ("crm_action_config" in body) {
@@ -98,7 +102,7 @@ export async function PATCH(
       .eq("empresa_id", auth.empresa_id)
       .eq("flow_code", params.flowCode)
       .eq("node_code", params.nodeCode)
-      .select("id, node_code, node_type, message_text, save_as_field, next_node_code, is_active, crm_action_type, crm_action_config, created_at")
+      .select("id, node_code, node_type, message_text, save_as_field, next_node_code, sort_order, is_active, crm_action_type, crm_action_config, created_at")
       .maybeSingle();
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
     if (!data) return NextResponse.json({ ok: false, error: "Nodo no encontrado" }, { status: 404 });
