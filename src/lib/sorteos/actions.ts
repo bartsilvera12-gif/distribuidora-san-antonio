@@ -41,7 +41,14 @@ export async function getSorteos(): Promise<Sorteo[]> {
 }
 
 export async function getSorteoById(id: string): Promise<Sorteo | null> {
-  const { data, error } = await supabase.from("sorteos").select("*").eq("id", id).maybeSingle();
+  let q = supabase.from("sorteos").select("*").eq("id", id);
+  try {
+    const empresaId = await getEmpresaId();
+    q = q.eq("empresa_id", empresaId);
+  } catch {
+    /* Sin empresa en perfil: el acceso lo define RLS (p. ej. super_admin). */
+  }
+  const { data, error } = await q.maybeSingle();
 
   if (error) throw new Error(error.message);
   return data ? mapSorteo(data as Record<string, unknown>) : null;
@@ -81,7 +88,7 @@ export async function createSorteo(input: SorteoInput): Promise<Sorteo> {
 }
 
 export async function updateSorteo(id: string, input: SorteoInput): Promise<Sorteo> {
-  const { data, error } = await supabase
+  let q = supabase
     .from("sorteos")
     .update({
       nombre: input.nombre.trim(),
@@ -93,11 +100,17 @@ export async function updateSorteo(id: string, input: SorteoInput): Promise<Sort
       datos_bancarios: input.datos_bancarios,
       imagen_url: input.imagen_url?.trim() || null,
     })
-    .eq("id", id)
-    .select("*")
-    .single();
+    .eq("id", id);
+  try {
+    const empresaId = await getEmpresaId();
+    q = q.eq("empresa_id", empresaId);
+  } catch {
+    /* Sin empresa en perfil: actualización acotada por RLS. */
+  }
+  const { data, error } = await q.select("*").single();
 
   if (error) throw new Error(error.message);
+  if (!data) throw new Error("No se pudo actualizar el sorteo.");
   return mapSorteo(data as Record<string, unknown>);
 }
 

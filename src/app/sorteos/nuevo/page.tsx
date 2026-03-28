@@ -10,6 +10,7 @@ export default function NuevoSorteoPage() {
   const router = useRouter();
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [nombre, setNombre] = useState("");
   const [descripcion, setDescripcion] = useState("");
   const [precio, setPrecio] = useState(0);
@@ -22,28 +23,57 @@ export default function NuevoSorteoPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setSuccess(null);
+
+    const nombreTrim = nombre.trim();
+    if (!nombreTrim) {
+      setError("El nombre del sorteo es obligatorio.");
+      return;
+    }
+    if (!Number.isFinite(precio) || precio < 0) {
+      setError("El precio por boleto debe ser un número válido mayor o igual a 0.");
+      return;
+    }
+    if (!Number.isFinite(maxBoletos) || maxBoletos < 1) {
+      setError("El máximo de boletos debe ser al menos 1.");
+      return;
+    }
+
     let json: Record<string, unknown> = {};
     try {
       json = datosBancarios.trim() ? (JSON.parse(datosBancarios) as Record<string, unknown>) : {};
     } catch {
-      setError("Datos bancarios deben ser JSON válido");
+      setError("Datos bancarios: el JSON no es válido.");
       return;
     }
+
+    let fechaIso: string | null = null;
+    if (fechaSorteo.trim()) {
+      const d = new Date(fechaSorteo);
+      if (Number.isNaN(d.getTime())) {
+        setError("La fecha del sorteo no es válida.");
+        return;
+      }
+      fechaIso = d.toISOString();
+    }
+
     setGuardando(true);
     try {
       const row = await createSorteo({
-        nombre,
+        nombre: nombreTrim,
         descripcion,
         precio_por_boleto: precio,
         max_boletos: maxBoletos,
-        fecha_sorteo: fechaSorteo ? new Date(fechaSorteo).toISOString() : null,
+        fecha_sorteo: fechaIso,
         estado,
         datos_bancarios: json,
         imagen_url: imagenUrl.trim() || null,
       });
+      setSuccess("Sorteo creado. Redirigiendo al editor…");
       router.push(`/sorteos/${row.id}/editar`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar");
+      console.error("[nuevo sorteo]", err);
     } finally {
       setGuardando(false);
     }
@@ -61,17 +91,24 @@ export default function NuevoSorteoPage() {
       <h1 className="text-2xl font-bold text-gray-800">Nuevo sorteo</h1>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-800 text-sm rounded-lg px-4 py-2">{error}</div>
+        <div className="bg-red-50 border border-red-200 text-red-800 text-sm rounded-lg px-4 py-2" role="alert">
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 text-sm rounded-lg px-4 py-2" role="status">
+          {success}
+        </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-4 bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+      <form noValidate onSubmit={handleSubmit} className="space-y-4 bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label>
           <input
-            required
             className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
             value={nombre}
             onChange={(e) => setNombre(e.target.value)}
+            autoComplete="off"
           />
         </div>
         <div>
@@ -89,10 +126,12 @@ export default function NuevoSorteoPage() {
               type="number"
               min={0}
               step={1}
-              required
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-              value={precio}
-              onChange={(e) => setPrecio(Number(e.target.value))}
+              value={Number.isFinite(precio) ? precio : ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                setPrecio(v === "" ? 0 : Number(v));
+              }}
             />
           </div>
           <div>
@@ -100,10 +139,12 @@ export default function NuevoSorteoPage() {
             <input
               type="number"
               min={1}
-              required
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-              value={maxBoletos}
-              onChange={(e) => setMaxBoletos(Number(e.target.value))}
+              value={Number.isFinite(maxBoletos) ? maxBoletos : ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                setMaxBoletos(v === "" ? 0 : Number(v));
+              }}
             />
           </div>
         </div>
