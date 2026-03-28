@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { GripVertical, Trash2 } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { getSorteos } from "@/lib/sorteos/actions";
 
 type FlowNodeOption = {
   id: string;
@@ -60,7 +62,11 @@ const NODE_TYPE_OPTIONS = [
   },
   { value: "buttons", label: "Botones", help: "Muestra botones rápidos al cliente." },
   { value: "list", label: "Lista", help: "Interacción tipo lista (catálogo de opciones)." },
-  { value: "image_input", label: "Solicitar imagen", help: "Espera imagen/comprobante del cliente." },
+  {
+    value: "image_input",
+    label: "Solicitar imagen (comprobante)",
+    help: "Pide el comprobante por mensaje, espera una imagen, guarda la URL en «Guardar respuesta como» (ej. comprobante_pago) y avanza al siguiente paso.",
+  },
   { value: "human", label: "Derivar a humano", help: "Pasa la conversación a atención humana." },
   { value: "end", label: "Finalizar", help: "Cierra la automatización del flujo." },
 ] as const;
@@ -75,6 +81,14 @@ function isValidHttpUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function compareFlowNodes(a: FlowNode, b: FlowNode): number {
+  const bySort = (a.sort_order ?? 0) - (b.sort_order ?? 0);
+  if (bySort !== 0) return bySort;
+  const byCreatedAt = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+  if (!Number.isNaN(byCreatedAt) && byCreatedAt !== 0) return byCreatedAt;
+  return a.node_code.localeCompare(b.node_code);
 }
 
 function prettifyCode(code: string): string {
@@ -199,24 +213,21 @@ export default function FlowEditorPage() {
   const [newNodeType, setNewNodeType] = useState("text");
   const [creatingNode, setCreatingNode] = useState(false);
   const [savingNodeId, setSavingNodeId] = useState<string | null>(null);
+  const [deletingNodeId, setDeletingNodeId] = useState<string | null>(null);
+  const [reorderBusy, setReorderBusy] = useState(false);
   const [lastSavedNodeId, setLastSavedNodeId] = useState<string | null>(null);
   const [expandedNodeId, setExpandedNodeId] = useState<string | null>(null);
   const [optionPayloadDrafts, setOptionPayloadDrafts] = useState<Record<string, string>>({});
   const [optionEditorMode, setOptionEditorMode] = useState<Record<string, "simple" | "advanced">>({});
   const [optionSimpleDrafts, setOptionSimpleDrafts] = useState<Record<string, OptionSimpleDraft>>({});
   const [optionSaveError, setOptionSaveError] = useState<Record<string, string>>({});
+  const [sorteosOptions, setSorteosOptions] = useState<{ id: string; nombre: string }[]>([]);
+  const [flowSorteoId, setFlowSorteoId] = useState<string | null>(null);
+  const [flowSorteoNombre, setFlowSorteoNombre] = useState<string | null>(null);
+  const [sorteoDraft, setSorteoDraft] = useState<string>("");
+  const [savingSorteoLink, setSavingSorteoLink] = useState(false);
 
-  const orderedNodes = useMemo(
-    () =>
-      [...nodes].sort((a, b) => {
-        const bySort = (a.sort_order ?? 0) - (b.sort_order ?? 0);
-        if (bySort !== 0) return bySort;
-        const byCreatedAt = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-        if (!Number.isNaN(byCreatedAt) && byCreatedAt !== 0) return byCreatedAt;
-        return a.node_code.localeCompare(b.node_code);
-      }),
-    [nodes]
-  );
+  const orderedNodes = useMemo(() => [...nodes].sort(compareFlowNodes), [nodes]);
 
   const nodeByCode = useMemo(
     () => new Map(orderedNodes.map((n) => [n.node_code, n])),
@@ -332,7 +343,60 @@ export default function FlowEditorPage() {
 
   useEffect(() => {
     void reload();
+    void (async () => {
+      try {
+        const [sorteosRows, flowRes] = await Promise.all([
+          getSorteos().catch(() => []),
+          fetch(`/api/chat/flows/${encodeURIComponent(flowCode)}`, {
+            credentials: "same-origin",
+            cache: "no-store",
+          }).then((r) => r.json()),
+        ]);
+        setSorteosOptions(sorteosRows.map((s) => ({ id: s.id, nombre: s.nombre })));
+        const fj = flowRes as {
+          ok?: boolean;
+          item?: { sorteo_id?: string | null; sorteo_nombre?: string | null };
+        };
+        if (fj.ok && fj.item) {
+          setFlowSorteoId(fj.item.sorteo_id ?? null);
+          setFlowSorteoNombre(fj.item.sorteo_nombre ?? null);
+          setSorteoDraft(fj.item.sorteo_id ?? "");
+        }
+      } catch {
+        setSorteosOptions([]);
+      }
+    })();
   }, [flowCode]);
+
+  async function saveSorteoAssociation() {
+    setSavingSorteoLink(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch(`/api/chat/flows/${encodeURIComponent(flowCode)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ sorteo_id: sorteoDraft.trim() || null }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        item?: { sorteo_id?: string | null; sorteo_nombre?: string | null };
+      };
+      if (!res.ok || !json.ok) throw new Error(json.error ?? "No se pudo guardar la asociación");
+      const item = json.item;
+      if (item) {
+        setFlowSorteoId(item.sorteo_id ?? null);
+        setFlowSorteoNombre(item.sorteo_nombre ?? null);
+      }
+      setSuccess("Sorteo asociado guardado.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al guardar sorteo");
+    } finally {
+      setSavingSorteoLink(false);
+    }
+  }
 
   async function createNode(e: React.FormEvent) {
     e.preventDefault();
@@ -575,6 +639,94 @@ export default function FlowEditorPage() {
     setSuccess("Opción eliminada.");
   }
 
+  async function deleteNode(node: FlowNode) {
+    if (
+      !globalThis.confirm(
+        `¿Eliminar el paso «${node.node_code}»? Las opciones y bloques de este paso se borrarán. No se puede deshacer.`
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    setSuccess(null);
+    setDeletingNodeId(node.id);
+    try {
+      const res = await fetch(
+        `/api/chat/flows/${encodeURIComponent(flowCode)}/nodes/${encodeURIComponent(node.node_code)}`,
+        { method: "DELETE", credentials: "same-origin" }
+      );
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        references?: {
+          fromNodes?: { node_code: string }[];
+          fromOptions?: { parent_node_code: string; label: string }[];
+        };
+      };
+      if (res.status === 409 && json.references) {
+        const parts: string[] = [json.error ?? "Hay referencias a este paso."];
+        for (const r of json.references.fromNodes ?? []) {
+          parts.push(`• Paso «${r.node_code}» lo tiene como siguiente paso.`);
+        }
+        for (const r of json.references.fromOptions ?? []) {
+          parts.push(
+            `• Botón/lista «${r.label}» en «${r.parent_node_code}» apunta a este paso.`
+          );
+        }
+        setError(parts.join("\n"));
+        return;
+      }
+      if (!res.ok || !json.ok) throw new Error(json.error ?? "No se pudo eliminar el paso");
+      setExpandedNodeId((prev) => (prev === node.id ? null : prev));
+      setSuccess(`Paso «${node.node_code}» eliminado.`);
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al eliminar paso");
+    } finally {
+      setDeletingNodeId(null);
+    }
+  }
+
+  async function applyNodeReorder(dragId: string, targetId: string) {
+    if (dragId === targetId) return;
+    const sorted = [...nodes].sort(compareFlowNodes);
+    const from = sorted.findIndex((n) => n.id === dragId);
+    const to = sorted.findIndex((n) => n.id === targetId);
+    if (from < 0 || to < 0) return;
+    const nextOrder = [...sorted];
+    const [moved] = nextOrder.splice(from, 1);
+    nextOrder.splice(to, 0, moved);
+
+    setReorderBusy(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      for (let i = 0; i < nextOrder.length; i++) {
+        const n = nextOrder[i];
+        const sortOrder = i + 1;
+        if (n.sort_order === sortOrder) continue;
+        const res = await fetch(
+          `/api/chat/flows/${encodeURIComponent(flowCode)}/nodes/${encodeURIComponent(n.node_code)}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ sort_order: sortOrder }),
+          }
+        );
+        const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+        if (!res.ok || !json.ok) throw new Error(json.error ?? "No se pudo guardar el orden");
+      }
+      setSuccess("Orden de pasos actualizado (solo visualización en el editor; los enlaces del flujo no cambian).");
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al reordenar");
+      await reload();
+    } finally {
+      setReorderBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap justify-between gap-3 items-start">
@@ -590,8 +742,62 @@ export default function FlowEditorPage() {
         </Link>
       </div>
 
-      {error && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-4 py-2">{error}</div>}
+      {error && (
+        <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-4 py-2 whitespace-pre-wrap">
+          {error}
+        </div>
+      )}
       {success && <div className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2">{success}</div>}
+
+      <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-800">Sorteo asociado</h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Si elegís un sorteo, al recibir el comprobante por WhatsApp se puede crear la orden y los cupones (módulo Sorteos).
+            </p>
+          </div>
+          {flowSorteoId ? (
+            <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
+              Vinculado: {flowSorteoNombre || "Sorteo"}
+            </span>
+          ) : (
+            <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+              Sin sorteo — no se generan órdenes desde este flujo
+            </span>
+          )}
+        </div>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex-1 min-w-[220px]">
+            <label className="block text-xs text-slate-500 mb-1">Sorteo asociado</label>
+            <select
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+              value={sorteoDraft}
+              onChange={(e) => setSorteoDraft(e.target.value)}
+            >
+              <option value="">Ninguno</option>
+              {sorteosOptions.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.nombre}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="button"
+            disabled={savingSorteoLink}
+            onClick={() => void saveSorteoAssociation()}
+            className="bg-slate-800 hover:bg-slate-900 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
+          >
+            {savingSorteoLink ? "Guardando…" : "Guardar sorteo"}
+          </button>
+        </div>
+        {sorteosOptions.length === 0 && (
+          <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2 py-1.5">
+            No hay sorteos en la empresa. Creá uno en el módulo Sorteos para poder asociarlo.
+          </p>
+        )}
+      </div>
 
       <form onSubmit={createNode} className="bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap gap-3 items-end shadow-sm">
         <div className="flex-1 min-w-[180px]">
@@ -623,16 +829,48 @@ export default function FlowEditorPage() {
           {orderedNodes.map((node, idx) => {
             const isExpanded = expandedNodeId === node.id;
             return (
-            <div key={node.id} className={`bg-white border border-slate-200 border-l-4 ${nodeAccent(node.node_type)} rounded-xl p-4 space-y-3 shadow-sm`}>
+            <div
+              key={node.id}
+              className={`bg-white border border-slate-200 border-l-4 ${nodeAccent(node.node_type)} rounded-xl p-4 space-y-3 shadow-sm`}
+              onDragOver={(e) => {
+                if (reorderBusy) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+              }}
+              onDrop={(e) => {
+                if (reorderBusy) return;
+                e.preventDefault();
+                const id =
+                  e.dataTransfer.getData("text/plain") ||
+                  e.dataTransfer.getData("application/x-neura-node-id");
+                if (id) void applyNodeReorder(id, node.id);
+              }}
+            >
               <div className="flex items-center justify-between gap-3">
-                <div>
+                <div className="flex items-start gap-2 min-w-0 flex-1">
+                  <button
+                    type="button"
+                    draggable={!reorderBusy}
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("text/plain", node.id);
+                      e.dataTransfer.setData("application/x-neura-node-id", node.id);
+                      e.dataTransfer.effectAllowed = "move";
+                    }}
+                    className="shrink-0 cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600 p-1 rounded border border-transparent hover:border-slate-200 mt-0.5"
+                    title="Arrastrar para reordenar (solo orden en el editor; no cambia enlaces del flujo)"
+                    aria-label="Arrastrar para reordenar pasos"
+                  >
+                    <GripVertical className="w-4 h-4" aria-hidden />
+                  </button>
+                  <div className="min-w-0">
                   <div className="text-sm font-semibold text-slate-800">Paso #{idx + 1}: {friendlyNodeTitle(node)}</div>
                   <div className="text-xs text-slate-500">Tipo: {nodeTypeLabel(node.node_type)} · {nodeTypeHelp(node.node_type)}</div>
                   {lastSavedNodeId === node.id && (
                     <div className="text-xs text-emerald-600 mt-1">Guardado correctamente.</div>
                   )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 shrink-0">
                   <label className="text-sm text-slate-700 flex items-center gap-2">
                     <input type="checkbox" checked={node.is_active} onChange={(e) => setNodes((prev) => prev.map((n) => n.id === node.id ? { ...n, is_active: e.target.checked } : n))} />
                     Activo
@@ -643,6 +881,16 @@ export default function FlowEditorPage() {
                     className="text-xs text-[#0EA5E9] hover:underline"
                   >
                     {isExpanded ? "Cerrar edición" : "Editar"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void deleteNode(node)}
+                    disabled={deletingNodeId === node.id || reorderBusy}
+                    className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-40"
+                    title="Eliminar paso"
+                    aria-label={`Eliminar paso ${node.node_code}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
               </div>
@@ -699,10 +947,31 @@ export default function FlowEditorPage() {
                 </div>
               </div>
 
+              {node.node_type === "image_input" && (
+                <div className="rounded-lg border border-violet-200 bg-violet-50/80 px-3 py-2 text-xs text-violet-900 space-y-1">
+                  <div className="font-semibold">Solicitar imagen (comprobante)</div>
+                  <p>
+                    Usá el mensaje de abajo para pedir la imagen. En «Opciones avanzadas», completá{" "}
+                    <span className="font-medium">Guardar respuesta como</span> (recomendado:{" "}
+                    <code className="bg-violet-100 px-1 rounded">comprobante_pago</code>) y elegí el{" "}
+                    <span className="font-medium">Siguiente paso</span>. El flujo avanza solo cuando llega una imagen válida; si mandan texto u otro tipo de archivo, el bot responde pidiendo imagen.
+                  </p>
+                </div>
+              )}
+
               {node.node_type !== "media" && (
                 <div>
                   <label className="block text-xs text-slate-500 mb-1">Mensaje al cliente (compatibilidad)</label>
-                  <textarea className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm min-h-[74px]" placeholder="Se usa solo en nodos sin bloques configurados" value={node.message_text ?? ""} onChange={(e) => setNodes((prev) => prev.map((n) => n.id === node.id ? { ...n, message_text: e.target.value } : n))} />
+                  <textarea
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm min-h-[74px]"
+                    placeholder={
+                      node.node_type === "image_input"
+                        ? "Ej: Por favor envianos una foto o captura de tu comprobante de pago."
+                        : "Se usa solo en nodos sin bloques configurados"
+                    }
+                    value={node.message_text ?? ""}
+                    onChange={(e) => setNodes((prev) => prev.map((n) => n.id === node.id ? { ...n, message_text: e.target.value } : n))}
+                  />
                   <p className="text-[11px] text-slate-500 mt-1">
                     Podés usar placeholders del contexto, por ejemplo: {"{{producto}}"}, {"{{cantidad}}"}, {"{{monto}}"}.
                   </p>
@@ -795,7 +1064,27 @@ export default function FlowEditorPage() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
                   <div>
                     <label className="block text-xs text-slate-500 mb-1">Guardar respuesta como</label>
-                    <input className="border border-slate-200 rounded-lg px-3 py-2 text-sm w-full" placeholder="ej: nombre, cedula, ciudad" value={node.save_as_field ?? ""} onChange={(e) => setNodes((prev) => prev.map((n) => n.id === node.id ? { ...n, save_as_field: e.target.value || null } : n))} />
+                    <input
+                      className="border border-slate-200 rounded-lg px-3 py-2 text-sm w-full"
+                      placeholder={
+                        node.node_type === "image_input"
+                          ? "ej: comprobante_pago (URL pública de la imagen)"
+                          : "ej: nombre, cedula, ciudad"
+                      }
+                      value={node.save_as_field ?? ""}
+                      onChange={(e) =>
+                        setNodes((prev) =>
+                          prev.map((n) =>
+                            n.id === node.id ? { ...n, save_as_field: e.target.value || null } : n
+                          )
+                        )
+                      }
+                    />
+                    {node.node_type === "image_input" && (
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        Opcional pero recomendado: sin nombre de campo no se guarda en datos del flujo (el avance al siguiente paso igual ocurre).
+                      </p>
+                    )}
                   </div>
                   <div className="md:col-span-2">
                     <label className="block text-xs text-slate-500 mb-1">Acción en CRM (opcional)</label>

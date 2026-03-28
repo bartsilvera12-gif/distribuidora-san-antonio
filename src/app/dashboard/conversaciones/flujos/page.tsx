@@ -11,6 +11,8 @@ type FlowRow = {
   activo: boolean;
   node_count: number;
   updated_at: string;
+  sorteo_id: string | null;
+  sorteo_nombre: string | null;
 };
 
 function fmt(iso: string) {
@@ -211,6 +213,7 @@ export default function FlowsListPage() {
                   <th className="text-left px-4 py-2">canal</th>
                   <th className="text-left px-4 py-2">estado</th>
                   <th className="text-left px-4 py-2">nodos</th>
+                  <th className="text-left px-4 py-2">sorteo</th>
                   <th className="text-left px-4 py-2">actualizado</th>
                   <th className="text-left px-4 py-2">acciones</th>
                 </tr>
@@ -225,6 +228,13 @@ export default function FlowsListPage() {
                       {r.activo ? <span className="text-emerald-600">Activo</span> : <span className="text-amber-600">Inactivo</span>}
                     </td>
                     <td className="px-4 py-2">{r.node_count}</td>
+                    <td className="px-4 py-2">
+                      {r.sorteo_id ? (
+                        <span className="text-emerald-700 text-xs font-medium">{r.sorteo_nombre || "Sí"}</span>
+                      ) : (
+                        <span className="text-slate-400 text-xs">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-2">{fmt(r.updated_at)}</td>
                     <td className="px-4 py-2 flex gap-3">
                       <Link href={`/configuracion/conversaciones/flujos/${encodeURIComponent(r.flow_code)}`} className="text-[#0EA5E9] hover:underline">

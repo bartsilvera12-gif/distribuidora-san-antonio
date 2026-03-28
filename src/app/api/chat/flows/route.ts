@@ -19,7 +19,7 @@ export async function GET() {
 
     const { data: flows, error: fErr } = await supabase
       .from("chat_flows")
-      .select("id, flow_code, label, channel, activo, updated_at")
+      .select("id, flow_code, label, channel, activo, updated_at, sorteo_id, sorteos(nombre)")
       .eq("empresa_id", auth.empresa_id)
       .order("updated_at", { ascending: false });
     if (fErr) return NextResponse.json({ ok: false, error: fErr.message }, { status: 400 });
@@ -43,15 +43,22 @@ export async function GET() {
 
     return NextResponse.json({
       ok: true,
-      items: (flows ?? []).map((f) => ({
-        id: f.id,
-        flow_code: f.flow_code,
-        label: f.label,
-        channel: f.channel,
-        activo: f.activo !== false,
-        updated_at: f.updated_at,
-        node_count: byFlow.get(f.flow_code as string) ?? 0,
-      })),
+      items: (flows ?? []).map((f) => {
+        const join = f.sorteos as { nombre?: string } | { nombre?: string }[] | null | undefined;
+        const sorteoNombre =
+          join && !Array.isArray(join) ? join.nombre : Array.isArray(join) && join[0] ? join[0].nombre : null;
+        return {
+          id: f.id,
+          flow_code: f.flow_code,
+          label: f.label,
+          channel: f.channel,
+          activo: f.activo !== false,
+          updated_at: f.updated_at,
+          sorteo_id: (f.sorteo_id as string | null) ?? null,
+          sorteo_nombre: sorteoNombre ?? null,
+          node_count: byFlow.get(f.flow_code as string) ?? 0,
+        };
+      }),
     });
   } catch (e) {
     console.error("[api/chat/flows][GET]", e);
