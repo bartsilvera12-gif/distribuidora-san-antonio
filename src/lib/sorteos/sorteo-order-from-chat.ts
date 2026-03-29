@@ -256,6 +256,43 @@ export const CHAT_FLOW_SORTEO_CONTEXT_FIELDS = {
  * Filas para upsert en `chat_flow_data` después de `ensureSorteoOrderFromChat` exitoso.
  * Orden: solo llamar cuando la orden ya exista en DB.
  */
+function sorteoOrderContextPairs(data: EnsureSorteoOrderCreatedData): [string, string][] {
+  const nums = data.cupones
+    .map((c) => c.numero_cupon)
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const comma = nums.join(", ");
+  const lines = nums.join("\n");
+  const no = String(data.numeroOrden);
+  const F = CHAT_FLOW_SORTEO_CONTEXT_FIELDS;
+  const pairs: [string, string][] = [
+    [F.sorteo_entrada_id, data.entradaId],
+    [F.numero_orden, no],
+    [F.numeros_cupon, comma],
+    [F.numeros_cupon_lineas, lines],
+    [F.sorteo_nombre, data.sorteoNombre],
+    [F.orden_cantidad_boletos, String(data.cantidadBoletos)],
+    [F.orden_monto_total, String(data.montoTotal)],
+    [F.precio_fuente_orden, data.precioFuente],
+    ["id_orden", no],
+    ["orden_id", no],
+    ["order_id", no],
+    ["id_de_orden", no],
+    ["numero_de_orden", no],
+    ["numeros_generados", comma],
+    ["numeros_cupones", comma],
+    ["cupones", comma],
+    ["cupones_generados", comma],
+    ["nros_cupon", comma],
+    ["nros_cupones", comma],
+    ["cupones_lineas", lines],
+  ];
+  if (data.promoNombre.trim()) {
+    pairs.push([F.sorteo_promo_nombre, data.promoNombre]);
+  }
+  return pairs;
+}
+
 export function buildChatFlowDataUpsertsForSorteoOrder(
   empresaId: string,
   conversationId: string,
@@ -269,31 +306,24 @@ export function buildChatFlowDataUpsertsForSorteoOrder(
   field_value: string;
 }> {
   const fc = flowCode.trim();
-  const nums = data.cupones
-    .map((c) => c.numero_cupon)
-    .filter(Boolean)
-    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  const F = CHAT_FLOW_SORTEO_CONTEXT_FIELDS;
-  const pairs: [string, string][] = [
-    [F.sorteo_entrada_id, data.entradaId],
-    [F.numero_orden, String(data.numeroOrden)],
-    [F.numeros_cupon, nums.join(", ")],
-    [F.numeros_cupon_lineas, nums.join("\n")],
-    [F.sorteo_nombre, data.sorteoNombre],
-    [F.orden_cantidad_boletos, String(data.cantidadBoletos)],
-    [F.orden_monto_total, String(data.montoTotal)],
-    [F.precio_fuente_orden, data.precioFuente],
-  ];
-  if (data.promoNombre.trim()) {
-    pairs.push([F.sorteo_promo_nombre, data.promoNombre]);
-  }
-  return pairs.map(([field_name, field_value]) => ({
+  return sorteoOrderContextPairs(data).map(([field_name, field_value]) => ({
     empresa_id: empresaId,
     conversation_id: conversationId,
     flow_code: fc,
     field_name,
     field_value,
   }));
+}
+
+/**
+ * Variables para `{{...}}` en el nodo que sigue al comprobante.
+ * Incluye alias típicos de plantillas; el merge en memoria evita placeholders vacíos
+ * por lag de lectura tras el upsert.
+ */
+export function buildSorteoOrderFlowVarOverrides(
+  data: EnsureSorteoOrderCreatedData
+): Record<string, string> {
+  return Object.fromEntries(sorteoOrderContextPairs(data));
 }
 
 /**

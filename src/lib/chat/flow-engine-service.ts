@@ -8,6 +8,7 @@ import { FLOW_POINTER_RESET_EVENT } from "@/lib/chat/resolve-whatsapp-active-flo
 import { normalizeWaPhone } from "@/lib/chat/whatsapp-webhook-service";
 import {
   buildChatFlowDataUpsertsForSorteoOrder,
+  buildSorteoOrderFlowVarOverrides,
   ensureSorteoOrderFromChat,
 } from "@/lib/sorteos/sorteo-order-from-chat";
 import { parseMoneyPy } from "@/lib/sorteos/parse-money-py";
@@ -40,6 +41,8 @@ export type AdvanceConversationParams = {
 export type SendCurrentNodeParams = {
   conversationId: string;
   __autoHop?: number;
+  /** Se fusiona encima de chat_flow_data (útil tras crear orden sorteo sin esperar réplica). */
+  mergeFlowVars?: Record<string, string>;
 };
 
 type FlowOption = {
@@ -758,11 +761,12 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     const node = await getNode(state.empresa_id, state.flow_code, state.flow_current_node);
     if (!node) return { ok: false, error: "Nodo actual no encontrado" };
 
-    const flowVars = await getConversationFlowDataMap({
+    const flowVarsBase = await getConversationFlowDataMap({
       empresaId: state.empresa_id,
       conversationId: state.id,
       flowCode: state.flow_code,
     });
+    const flowVars = { ...flowVarsBase, ...(params.mergeFlowVars ?? {}) };
     const fallbackText = interpolateTemplate(
       node.message_text?.trim() || "Continuemos con el flujo.",
       flowVars
@@ -1529,7 +1533,9 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         error: sorteoOrderResult.message,
       };
     }
+    let mergeFlowVarsAfterSorteo: Record<string, string> | undefined;
     if (!sorteoOrderResult.skipped) {
+      mergeFlowVarsAfterSorteo = buildSorteoOrderFlowVarOverrides(sorteoOrderResult);
       const contextRows = buildChatFlowDataUpsertsForSorteoOrder(
         state.empresa_id,
         state.id,
@@ -1600,7 +1606,10 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       },
     });
 
-    const sent = await sendCurrentFlowNode({ conversationId: state.id });
+    const sent = await sendCurrentFlowNode({
+      conversationId: state.id,
+      mergeFlowVars: mergeFlowVarsAfterSorteo,
+    });
     if (!sent.ok) {
       return { ok: false, status: "send_next_node_failed", error: sent.error };
     }
