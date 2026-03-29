@@ -11,8 +11,12 @@ import {
   applySorteoInteractiveCommercialContract,
   buildChatFlowDataUpsertsForSorteoOrder,
   buildSorteoOrderFlowVarOverrides,
-  ensureSorteoOrderFromChat,
+  finalizeSorteoOrderFromConfirmedFlowData,
   getSorteoDatosIncompletosMessage,
+  getSorteoIdForChatFlow,
+  optionPayloadFinalizesSorteoOrder,
+  SORTEO_COMPROBANTE_MEDIA_ID_FIELD,
+  SORTEO_COMPROBANTE_URL_FIELD,
 } from "@/lib/sorteos/sorteo-order-from-chat";
 import { parseMoneyPy } from "@/lib/sorteos/parse-money-py";
 
@@ -1396,6 +1400,127 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       });
     }
 
+    let sorteoOrderMerge: Record<string, string> | undefined;
+    const sorteoLinked = await getSorteoIdForChatFlow(
+      supabase,
+      state.empresa_id,
+      state.flow_code as string
+    );
+    const wantsSorteoFinalize =
+      Boolean(sorteoLinked) && optionPayloadFinalizesSorteoOrder(selected.option_payload);
+
+    if (wantsSorteoFinalize) {
+      const rawFd = await getConversationFlowDataMap({
+        empresaId: state.empresa_id,
+        conversationId: state.id,
+        flowCode: state.flow_code,
+        flowSessionId: flowSidInteractive,
+        traceReadContext: "before_finalize_sorteo_on_confirm",
+      });
+      const hydFd = await hydrateFlowDataFromSessionEvents(
+        state.id,
+        state.flow_code as string,
+        rawFd,
+        flowSidInteractive
+      );
+      const sendCtxFin = await getConversationSendContext(state.id);
+      const fin = await finalizeSorteoOrderFromConfirmedFlowData(supabase, {
+        empresaId: state.empresa_id,
+        conversationId: state.id,
+        flowCode: state.flow_code as string,
+        flowSessionId: flowSidInteractive,
+        whatsappNumero: sendCtxFin.toDigits,
+        flowData: hydFd,
+      });
+
+      const notifyFinalizeError = async (text: string) => {
+        const send = await sendWhatsAppText({
+          toDigits: sendCtxFin.toDigits,
+          phoneNumberId: sendCtxFin.phoneNumberId,
+          accessToken: sendCtxFin.token,
+          text,
+        });
+        if (send.ok) {
+          await persistOutgoingMessage({
+            conversation: state,
+            content: text,
+            messageType: "text",
+            waMessageId: send.waMessageId,
+            raw: send.raw,
+            senderType: "system",
+            automationSource: "flow_engine",
+          });
+        }
+      };
+
+      if (!fin.ok) {
+        await notifyFinalizeError(fin.message);
+        return { ok: false, status: "sorteo_finalize_failed", error: fin.message };
+      }
+      if (fin.skipped) {
+        let detail: string;
+        if (fin.reason === "sin_comprobante_en_sesion") {
+          detail =
+            "No encontramos el comprobante de esta compra. Enviá la imagen del comprobante y volvé a confirmar.";
+        } else if (fin.reason === "flow_sin_sorteo_id") {
+          detail = "Este flujo no está vinculado a un sorteo.";
+        } else if (fin.reason === "datos_flujo_incompletos") {
+          detail = await getSorteoDatosIncompletosMessage(
+            supabase,
+            state.empresa_id,
+            state.flow_code as string
+          );
+        } else {
+          detail = await getSorteoDatosIncompletosMessage(
+            supabase,
+            state.empresa_id,
+            state.flow_code as string
+          );
+        }
+        await notifyFinalizeError(detail);
+        return { ok: false, status: "sorteo_finalize_skipped", error: detail };
+      }
+
+      sorteoOrderMerge = buildSorteoOrderFlowVarOverrides(fin);
+      const ctxRows = buildChatFlowDataUpsertsForSorteoOrder(
+        state.empresa_id,
+        state.id,
+        state.flow_code as string,
+        flowSidInteractive,
+        fin
+      );
+      const { error: ctxErr } = await supabase
+        .from("chat_flow_data")
+        .upsert(ctxRows, { onConflict: "flow_session_id,field_name" });
+      if (ctxErr) {
+        await notifyFinalizeError("No se pudo guardar el resultado de la compra. Intentá confirmar de nuevo.");
+        return { ok: false, status: "sorteo_context_after_finalize_failed", error: ctxErr.message };
+      }
+      await insertFlowEvent({
+        empresaId: state.empresa_id,
+        conversationId: state.id,
+        flowCode: state.flow_code,
+        nodeCode: currentNode.node_code,
+        flowSessionId: flowSidInteractive,
+        eventType: "sorteo_order_ensured",
+        selectedOptionId: selected.id,
+        metaButtonId: params.metaButtonId,
+        payload: {
+          idempotent: fin.idempotent,
+          entrada_id: fin.entradaId,
+          numero_orden: fin.numeroOrden,
+          cantidad_boletos: fin.cantidadBoletos,
+          monto_total: fin.montoTotal,
+          precio_fuente: fin.precioFuente,
+          promo_nombre: fin.promoNombre,
+          sorteo_id: fin.sorteoId,
+          sorteo_nombre: fin.sorteoNombre,
+          cupones: fin.cupones.map((c) => c.numero_cupon),
+          trigger: "confirmacion_final",
+        },
+      });
+    }
+
     if (!selected.next_node_code) {
       await insertFlowEvent({
         empresaId: state.empresa_id,
@@ -1408,6 +1533,29 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         metaButtonId: params.metaButtonId,
         payload: { next_node_code: null },
       });
+      if (sorteoOrderMerge && Object.keys(sorteoOrderMerge).length > 0) {
+        const sendCtxEnd = await getConversationSendContext(state.id);
+        const no = sorteoOrderMerge.numero_orden ?? "";
+        const cup = sorteoOrderMerge.numeros_cupon ?? "";
+        const summary = `Listo. Tu orden Nº ${no}. Cupones: ${cup}.`;
+        const sendSum = await sendWhatsAppText({
+          toDigits: sendCtxEnd.toDigits,
+          phoneNumberId: sendCtxEnd.phoneNumberId,
+          accessToken: sendCtxEnd.token,
+          text: summary,
+        });
+        if (sendSum.ok) {
+          await persistOutgoingMessage({
+            conversation: state,
+            content: summary,
+            messageType: "text",
+            waMessageId: sendSum.waMessageId,
+            raw: sendSum.raw,
+            senderType: "system",
+            automationSource: "flow_engine",
+          });
+        }
+      }
       return { ok: true, status: "no_next_node" };
     }
     console.info("[flow-engine] next node resolved", {
@@ -1443,7 +1591,10 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       payload: { from_node: currentNode.node_code, next_node_code: selected.next_node_code },
     });
 
-    const sent = await sendCurrentFlowNode({ conversationId: state.id });
+    const sent = await sendCurrentFlowNode({
+      conversationId: state.id,
+      ...(sorteoOrderMerge ? { mergeFlowVars: sorteoOrderMerge } : {}),
+    });
     if (!sent.ok) {
       return { ok: false, status: "send_next_node_failed", error: sent.error };
     }
@@ -1803,44 +1954,64 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       event: "comprobante_image_input",
     });
 
-    if (currentNode.save_as_field) {
-      const { error: upErr } = await supabase
-        .from("chat_flow_data")
-        .upsert(
-          {
-            empresa_id: state.empresa_id,
-            conversation_id: state.id,
-            flow_code: state.flow_code,
-            flow_session_id: imgFlowSid,
-            field_name: currentNode.save_as_field,
-            field_value: publicUrl,
-          },
-          { onConflict: "flow_session_id,field_name" }
-        );
-      if (upErr) {
-        console.error(FLOW_SORTEO_LOG, "processImageReply_early_exit", {
-          status: "save_image_failed",
-          archivo: "src/lib/chat/flow-engine-service.ts",
-          lineApprox: 1306,
-          condicion: "chat_flow_data upsert error",
-          conversationId: state.id,
-          flowCode: state.flow_code,
-          save_as_field: currentNode.save_as_field,
-          error: upErr.message,
-          ensureSorteoOrderFromChat: "no_llamado",
-        });
-        return { ok: false, status: "save_image_failed", error: upErr.message };
-      }
-      flowTrace("flow_data_write", {
-        conversation_id: state.id,
+    const comprobanteStagingRows: Array<{
+      empresa_id: string;
+      conversation_id: string;
+      flow_code: string;
+      flow_session_id: string;
+      field_name: string;
+      field_value: string;
+    }> = [
+      {
         empresa_id: state.empresa_id,
+        conversation_id: state.id,
         flow_code: state.flow_code,
-        flow_session_id_write: imgFlowSid,
-        node_code: currentNode.node_code,
-        event: "comprobante_image_url",
-        field_name: currentNode.save_as_field ?? null,
+        flow_session_id: imgFlowSid,
+        field_name: SORTEO_COMPROBANTE_MEDIA_ID_FIELD,
+        field_value: params.mediaId,
+      },
+      {
+        empresa_id: state.empresa_id,
+        conversation_id: state.id,
+        flow_code: state.flow_code,
+        flow_session_id: imgFlowSid,
+        field_name: SORTEO_COMPROBANTE_URL_FIELD,
+        field_value: publicUrl,
+      },
+    ];
+    if (currentNode.save_as_field?.trim()) {
+      comprobanteStagingRows.push({
+        empresa_id: state.empresa_id,
+        conversation_id: state.id,
+        flow_code: state.flow_code,
+        flow_session_id: imgFlowSid,
+        field_name: currentNode.save_as_field.trim(),
+        field_value: publicUrl,
       });
     }
+    const { error: upErr } = await supabase
+      .from("chat_flow_data")
+      .upsert(comprobanteStagingRows, { onConflict: "flow_session_id,field_name" });
+    if (upErr) {
+      console.error(FLOW_SORTEO_LOG, "processImageReply_early_exit", {
+        status: "save_image_failed",
+        archivo: "src/lib/chat/flow-engine-service.ts",
+        condicion: "chat_flow_data comprobante staging upsert",
+        conversationId: state.id,
+        flowCode: state.flow_code,
+        error: upErr.message,
+      });
+      return { ok: false, status: "save_image_failed", error: upErr.message };
+    }
+    flowTrace("flow_data_write", {
+      conversation_id: state.id,
+      empresa_id: state.empresa_id,
+      flow_code: state.flow_code,
+      flow_session_id_write: imgFlowSid,
+      node_code: currentNode.node_code,
+      event: "comprobante_staged_deferred_order",
+      field_names: comprobanteStagingRows.map((r) => r.field_name),
+    });
 
     await insertFlowEvent({
       empresaId: state.empresa_id,
@@ -1855,132 +2026,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         caption: params.caption ?? null,
         storage_url: publicUrl,
         save_as_field: currentNode.save_as_field ?? null,
-      },
-    });
-
-    const rawFlowData = await getConversationFlowDataMap({
-      empresaId: state.empresa_id,
-      conversationId: state.id,
-      flowCode: state.flow_code,
-      flowSessionId: imgFlowSid,
-      traceReadContext: "before_ensure_sorteo_order",
-    });
-    const flowDataForSorteo = await hydrateFlowDataFromSessionEvents(
-      state.id,
-      state.flow_code as string,
-      rawFlowData,
-      imgFlowSid
-    );
-    const sorteoInputTrace = summarizeFlowDataForTrace(flowDataForSorteo);
-    flowTrace("process_image_reply_before_sorteo_rpc", {
-      conversation_id: state.id,
-      flow_session_id: imgFlowSid,
-      flow_code: state.flow_code,
-      event: "ensure_sorteo_order_from_chat",
-      flow_data_keys: sorteoInputTrace.keys,
-      flow_data_samples: sorteoInputTrace.samples ?? null,
-    });
-    const sorteoOrderResult = await ensureSorteoOrderFromChat(supabase, {
-      empresaId: state.empresa_id,
-      conversationId: state.id,
-      flowCode: state.flow_code,
-      flowSessionId: imgFlowSid,
-      mediaId: params.mediaId,
-      whatsappNumero: sendCtx.toDigits,
-      comprobanteUrl: publicUrl,
-      flowData: flowDataForSorteo,
-    });
-    if (!sorteoOrderResult.ok) {
-      return {
-        ok: false,
-        status: "sorteo_order_failed",
-        error: sorteoOrderResult.message,
-      };
-    }
-    if (sorteoOrderResult.skipped) {
-      const detail =
-        sorteoOrderResult.reason === "flow_sin_sorteo_id"
-          ? "No pudimos registrar la participación: el flujo no está vinculado a un sorteo. Contactá al equipo."
-          : await getSorteoDatosIncompletosMessage(
-              supabase,
-              state.empresa_id,
-              state.flow_code as string
-            );
-      const send = await sendWhatsAppText({
-        toDigits: sendCtx.toDigits,
-        phoneNumberId: sendCtx.phoneNumberId,
-        accessToken: sendCtx.token,
-        text: detail,
-      });
-      if (send.ok) {
-        await persistOutgoingMessage({
-          conversation: state,
-          content: detail,
-          messageType: "text",
-          waMessageId: send.waMessageId,
-          raw: send.raw,
-          senderType: "system",
-          automationSource: "flow_engine",
-        });
-      }
-      console.warn(FLOW_SORTEO_LOG, "processImageReply_sorteo_skipped_no_advance", {
-        conversationId: state.id,
-        flowCode: state.flow_code,
-        reason: sorteoOrderResult.reason,
-      });
-      return { ok: true, status: "sorteo_order_skipped" };
-    }
-    const mergeFlowVarsAfterSorteo = buildSorteoOrderFlowVarOverrides(sorteoOrderResult);
-    const contextRows = buildChatFlowDataUpsertsForSorteoOrder(
-      state.empresa_id,
-      state.id,
-      state.flow_code as string,
-      imgFlowSid,
-      sorteoOrderResult
-    );
-    const { error: sorteoCtxErr } = await supabase
-      .from("chat_flow_data")
-      .upsert(contextRows, { onConflict: "flow_session_id,field_name" });
-    if (sorteoCtxErr) {
-      console.error(FLOW_SORTEO_LOG, "sorteo_order_context_upsert_failed", {
-        conversationId: state.id,
-        flowCode: state.flow_code,
-        message: sorteoCtxErr.message,
-      });
-      return {
-        ok: false,
-        status: "sorteo_context_persist_failed",
-        error: sorteoCtxErr.message,
-      };
-    }
-    flowTrace("flow_data_write", {
-      conversation_id: state.id,
-      empresa_id: state.empresa_id,
-      flow_code: state.flow_code,
-      flow_session_id_write: imgFlowSid,
-      node_code: currentNode.node_code,
-      event: "sorteo_order_context_after_rpc",
-      field_names: contextRows.map((r) => r.field_name),
-    });
-
-    await insertFlowEvent({
-      empresaId: state.empresa_id,
-      conversationId: state.id,
-      flowCode: state.flow_code,
-      nodeCode: currentNode.node_code,
-      flowSessionId: imgFlowSid,
-      eventType: "sorteo_order_ensured",
-      payload: {
-        idempotent: sorteoOrderResult.idempotent,
-        entrada_id: sorteoOrderResult.entradaId,
-        numero_orden: sorteoOrderResult.numeroOrden,
-        cantidad_boletos: sorteoOrderResult.cantidadBoletos,
-        monto_total: sorteoOrderResult.montoTotal,
-        precio_fuente: sorteoOrderResult.precioFuente,
-        promo_nombre: sorteoOrderResult.promoNombre,
-        sorteo_id: sorteoOrderResult.sorteoId,
-        sorteo_nombre: sorteoOrderResult.sorteoNombre,
-        cupones: sorteoOrderResult.cupones.map((c) => c.numero_cupon),
+        sorteo_order_deferred_until_confirm: true,
       },
     });
 
@@ -2014,7 +2060,10 @@ export function createFlowEngine(ctx: FlowEngineContext) {
 
     const sent = await sendCurrentFlowNode({
       conversationId: state.id,
-      mergeFlowVars: mergeFlowVarsAfterSorteo,
+      mergeFlowVars: {
+        sorteo_comprobante_url: publicUrl,
+        comprobante_recibido: "sí",
+      },
     });
     if (!sent.ok) {
       return { ok: false, status: "send_next_node_failed", error: sent.error };

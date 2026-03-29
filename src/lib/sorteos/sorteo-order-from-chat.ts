@@ -682,9 +682,79 @@ export function buildChatFlowDataUpsertsForSorteoOrder(
   }));
 }
 
+/**
+ * Comprobante persistido al recibir imagen; la orden se arma en confirmación leyendo estos campos.
+ */
+export const SORTEO_COMPROBANTE_MEDIA_ID_FIELD = "sorteo_comprobante_media_id";
+export const SORTEO_COMPROBANTE_URL_FIELD = "sorteo_comprobante_url";
+
+/**
+ * En el JSON `option_payload` del botón que cierra la compra (después de resumen/datos), incluir:
+ * `{ "confirmar_orden_sorteo": true }` (o `finalize_sorteo_order` / `cerrar_compra_sorteo`).
+ */
+export function optionPayloadFinalizesSorteoOrder(payload: unknown): boolean {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+  const o = payload as Record<string, unknown>;
+  for (const k of ["confirmar_orden_sorteo", "finalize_sorteo_order", "cerrar_compra_sorteo"] as const) {
+    const v = o[k];
+    if (v === true || v === "true" || v === "1" || v === 1) return true;
+  }
+  return false;
+}
+
+export function resolveComprobanteUrlFromFlowData(data: Record<string, string>): string {
+  const u = norm(data[SORTEO_COMPROBANTE_URL_FIELD]);
+  if (u) return u;
+  for (const [k, v] of Object.entries(data)) {
+    const kn = k.toLowerCase();
+    const val = norm(v);
+    if (!val) continue;
+    if ((kn.includes("comprobante") || kn.includes("voucher")) && /^https?:\/\//i.test(val)) return val;
+  }
+  return "";
+}
+
+/**
+ * Cierra compra sorteo + cupones (RPC idempotente) cuando el cliente ya confirmó y existen datos + comprobante en sesión.
+ */
+export async function finalizeSorteoOrderFromConfirmedFlowData(
+  supabase: SupabaseClient,
+  input: {
+    empresaId: string;
+    conversationId: string;
+    flowCode: string;
+    flowSessionId: string;
+    whatsappNumero: string;
+    flowData: Record<string, string>;
+  }
+): Promise<EnsureSorteoOrderFromChatResult> {
+  const url = resolveComprobanteUrlFromFlowData(input.flowData);
+  const mediaId = norm(input.flowData[SORTEO_COMPROBANTE_MEDIA_ID_FIELD]);
+  if (!url || !mediaId) {
+    return { ok: true, skipped: true, reason: "sin_comprobante_en_sesion" };
+  }
+  flowTrace("finalize_sorteo_order_invoke", {
+    conversation_id: input.conversationId,
+    flow_session_id: input.flowSessionId,
+    flow_code: input.flowCode.trim(),
+    has_comprobante_url: true,
+    has_media_id: true,
+  });
+  return ensureSorteoOrderFromChat(supabase, {
+    empresaId: input.empresaId,
+    conversationId: input.conversationId,
+    flowCode: input.flowCode,
+    flowSessionId: input.flowSessionId,
+    mediaId,
+    whatsappNumero: input.whatsappNumero,
+    comprobanteUrl: url,
+    flowData: input.flowData,
+  });
+}
+
 /** Texto por defecto si `chat_flows.sorteo_datos_incompletos_message` está vacío. */
 export const SORTEO_DATOS_INCOMPLETOS_DEFAULT_MESSAGE =
-  "No pudimos registrar la participación con los datos de esta compra. Tocá de nuevo la opción de tu compra y enviá el comprobante después, o escribí reiniciar y empezá de nuevo.";
+  "Faltan datos para cerrar la compra. Revisá el resumen y tocá Confirmar de nuevo.";
 
 export async function getSorteoDatosIncompletosMessage(
   supabase: SupabaseClient,
