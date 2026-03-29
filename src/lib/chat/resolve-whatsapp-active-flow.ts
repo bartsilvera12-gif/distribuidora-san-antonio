@@ -6,6 +6,39 @@ export const CONV_LOG = "[webhook/whatsapp][conversation]" as const;
 /** Marca en `chat_flow_events` que el puntero del flujo se reinició (sesión nueva para re-envío del nodo). */
 export const FLOW_POINTER_RESET_EVENT = "flow_pointer_reset" as const;
 
+/**
+ * Borra variables capturadas del flujo para esa conversación.
+ * Sin esto, un "hola"/reinicio deja puntero en inicio pero conserva nombre/cédula/monto
+ * de la sesión anterior → riesgo grave de mezclar participantes en la misma conversación.
+ */
+export async function deleteChatFlowDataForConversationFlow(
+  supabase: SupabaseAdmin,
+  empresaId: string,
+  conversationId: string,
+  flowCode: string | null | undefined
+): Promise<void> {
+  const fc = flowCode?.trim();
+  if (!fc) return;
+  const { error } = await supabase
+    .from("chat_flow_data")
+    .delete()
+    .eq("empresa_id", empresaId)
+    .eq("conversation_id", conversationId)
+    .eq("flow_code", fc);
+  if (error) {
+    console.error(CONV_LOG, "chat_flow_data_delete_failed", {
+      conversationId,
+      flowCode: fc,
+      message: error.message,
+    });
+  } else {
+    console.info(CONV_LOG, "chat_flow_data_cleared_for_flow", {
+      conversationId,
+      flowCode: fc,
+    });
+  }
+}
+
 export type ActiveFlowsCatalogResult =
   | { kind: "single"; flowCode: string }
   | { kind: "none" }
@@ -164,6 +197,11 @@ export async function syncWhatsappConversationFlowFromCatalog(
     flow_current_node: firstNode,
   });
 
+  if (currentFlow && currentFlow !== targetFlow) {
+    await deleteChatFlowDataForConversationFlow(supabase, empresaId, conversationId, currentFlow);
+  }
+  await deleteChatFlowDataForConversationFlow(supabase, empresaId, conversationId, targetFlow);
+
   return { flow_code: targetFlow, flow_current_node: firstNode, changed: true };
 }
 
@@ -317,6 +355,8 @@ export async function restartWhatsappConversationToFlowStart(
     });
     return { flow_code: null, flow_current_node: null, restarted: false, reason: "update_failed" };
   }
+
+  await deleteChatFlowDataForConversationFlow(supabase, empresaId, conversationId, targetFlow);
 
   const { error: resetEvErr } = await supabase.from("chat_flow_events").insert({
     empresa_id: empresaId,
