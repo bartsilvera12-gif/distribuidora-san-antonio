@@ -614,6 +614,7 @@ export async function processInboundWebhookValue(
         ok: presentResult.ok,
         status: presentResult.status,
         presentedNow: presentResult.presentedNow,
+        acceptsInboundTextAsCapture: presentResult.acceptsInboundTextAsCapture,
         error: presentResult.error ?? null,
       });
       if (!presentResult.ok && presentResult.error) {
@@ -648,11 +649,19 @@ export async function processInboundWebhookValue(
           );
         }
       } else if (message_type === "text") {
-        if (presentResult.presentedNow) {
+        const skipAfterRestartKeyword = restartKeywordMatch && restartedThisMessage;
+        const skipBecauseNonCapturePresent =
+          presentResult.presentedNow && !presentResult.acceptsInboundTextAsCapture;
+        if (skipAfterRestartKeyword) {
+          console.info(logW, "skip_text_flow_handler", {
+            conversationId,
+            reason: "mensaje_usado_como_reinicio_flujo_no_es_captura",
+          });
+        } else if (skipBecauseNonCapturePresent) {
           console.info(logW, "skip_text_flow_handler", {
             conversationId,
             reason:
-              "Se acaba de enviar la UI del nodo actual; el mismo mensaje no se interpreta como captura",
+              "Se acaba de enviar la UI del nodo actual (no es captura de texto); el mismo mensaje no se interpreta como dato del flujo",
           });
         } else {
           const textResult = await flowEngine.processTextReply({

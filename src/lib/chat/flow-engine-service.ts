@@ -102,6 +102,11 @@ export type EnsureInboundPresentResult = {
   status: string;
   /** Si true, acabamos de enviar la UI del nodo actual; no interpretar el mismo mensaje de texto como captura */
   presentedNow: boolean;
+  /**
+   * Si true junto con `presentedNow`, el nodo recién enviado es captura de texto: el mismo mensaje
+   * entrante debe pasarse a `processTextReply` (evita perder nombre/cédula en el primer reply).
+   */
+  acceptsInboundTextAsCapture: boolean;
   error?: string;
 };
 
@@ -505,7 +510,12 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         console.info(logPrefix, "skip: conversation_not_found", {
           conversationId: params.conversationId,
         });
-        return { ok: true, status: "conversation_not_found", presentedNow: false };
+        return {
+          ok: true,
+          status: "conversation_not_found",
+          presentedNow: false,
+          acceptsInboundTextAsCapture: false,
+        };
       }
       if (state.flow_status !== "bot" || state.human_taken_over) {
         console.info(logPrefix, "skip: not_bot_mode", {
@@ -513,7 +523,12 @@ export function createFlowEngine(ctx: FlowEngineContext) {
           flow_status: state.flow_status,
           human_taken_over: state.human_taken_over,
         });
-        return { ok: true, status: "skipped_not_bot_mode", presentedNow: false };
+        return {
+          ok: true,
+          status: "skipped_not_bot_mode",
+          presentedNow: false,
+          acceptsInboundTextAsCapture: false,
+        };
       }
       if (!state.flow_code?.trim() || !state.flow_current_node?.trim()) {
         console.info(logPrefix, "skip: missing_flow_pointer", {
@@ -521,7 +536,12 @@ export function createFlowEngine(ctx: FlowEngineContext) {
           flow_code: state.flow_code,
           flow_current_node: state.flow_current_node,
         });
-        return { ok: true, status: "missing_flow_state", presentedNow: false };
+        return {
+          ok: true,
+          status: "missing_flow_state",
+          presentedNow: false,
+          acceptsInboundTextAsCapture: false,
+        };
       }
 
       const flowCode = state.flow_code as string;
@@ -538,7 +558,12 @@ export function createFlowEngine(ctx: FlowEngineContext) {
           eventType: "automation_skipped_flow_inactive",
           payload: {},
         });
-        return { ok: true, status: "flow_inactive", presentedNow: false };
+        return {
+          ok: true,
+          status: "flow_inactive",
+          presentedNow: false,
+          acceptsInboundTextAsCapture: false,
+        };
       }
 
       const already = await wasNodeSentForCurrentStep(state.id, flowCode, nodeCode);
@@ -548,7 +573,12 @@ export function createFlowEngine(ctx: FlowEngineContext) {
           flowCode,
           nodeCode,
         });
-        return { ok: true, status: "already_presented", presentedNow: false };
+        return {
+          ok: true,
+          status: "already_presented",
+          presentedNow: false,
+          acceptsInboundTextAsCapture: false,
+        };
       }
 
       console.info(logPrefix, "trigger: sending_current_node", {
@@ -573,19 +603,38 @@ export function createFlowEngine(ctx: FlowEngineContext) {
           ok: false,
           status: "send_failed",
           presentedNow: false,
+          acceptsInboundTextAsCapture: false,
           error: sent.error,
         };
       }
 
+      const presentedNodeCode = sent.nodeCode ?? nodeCode;
+      const presentedNode = await getNode(state.empresa_id, flowCode.trim(), presentedNodeCode);
+      const acceptsInboundTextAsCapture = Boolean(
+        presentedNode?.node_type === "text" && presentedNode.save_as_field?.trim()
+      );
+
       console.info(logPrefix, "ok: node_presented", {
         conversationId: state.id,
-        nodeCode: sent.nodeCode ?? nodeCode,
+        nodeCode: presentedNodeCode,
+        acceptsInboundTextAsCapture,
       });
-      return { ok: true, status: "presented", presentedNow: true };
+      return {
+        ok: true,
+        status: "presented",
+        presentedNow: true,
+        acceptsInboundTextAsCapture,
+      };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error(logPrefix, "exception", msg);
-      return { ok: false, status: "exception", presentedNow: false, error: msg };
+      return {
+        ok: false,
+        status: "exception",
+        presentedNow: false,
+        acceptsInboundTextAsCapture: false,
+        error: msg,
+      };
     }
   }
 
