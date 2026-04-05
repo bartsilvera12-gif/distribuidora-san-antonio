@@ -59,6 +59,13 @@ export interface RecibeLoteRespuestaParsed {
   loteNoEncolado: boolean;
   httpStatus: number;
   cuerpoSoapCrudo: string;
+  /** Traza de la petición HTTPS enviada (mismo contrato que usa el endpoint async recibe-lote). */
+  solicitudHttps?: {
+    url: string;
+    method: string;
+    contentType: string;
+    soapBodyUtf8: string;
+  };
 }
 
 function stripXmlDeclaration(xml: string): string {
@@ -126,13 +133,43 @@ function construirSoapRecibeLote(dId: number, xdeBase64: string): string {
     `<soap12:Envelope xmlns:soap12="${SOAP_ENV}" xmlns:xsd="${SIFEN_NS}">` +
     `<soap12:Header/>` +
     `<soap12:Body>` +
-    `<xsd:rEnvioLote>` +
+    `<xsd:rEnvioLoteDe>` +
     `<xsd:dId>${dId}</xsd:dId>` +
     `<xsd:xDE>${xdeEscapado}</xsd:xDE>` +
-    `</xsd:rEnvioLote>` +
+    `</xsd:rEnvioLoteDe>` +
     `</soap12:Body>` +
     `</soap12:Envelope>`
   );
+}
+
+const CONTENT_TYPE_RECEP_LOTE = () =>
+  `application/soap+xml; charset=utf-8; action="${SOAP_ACTION_RECEP_LOTE}"`;
+
+/** Arma el mismo SOAP que envía `enviarLoteSifenTest` (útil para trazas sin mTLS). */
+export async function prepararSoapRecibeLoteTestDe(
+  xmlFirmado: string,
+  opts?: { envoltorioRloteDe?: boolean; dId?: number }
+): Promise<{
+  dId: number;
+  url: string;
+  method: string;
+  contentType: string;
+  soapBodyUtf8: string;
+}> {
+  const dId = opts?.dId ?? generarDId();
+  const envoltorio = opts?.envoltorioRloteDe === true;
+  const xmlLote = envoltorio
+    ? construirXmlLoteRloteDe(xmlFirmado)
+    : stripXmlDeclaration(xmlFirmado);
+  const xde = await zipLoteXmlAUtf8Base64(xmlLote);
+  const soapBodyUtf8 = construirSoapRecibeLote(dId, xde);
+  return {
+    dId,
+    url: SIFEN_TEST_RECEP_LOTE_SERVICE_URL,
+    method: "POST",
+    contentType: CONTENT_TYPE_RECEP_LOTE(),
+    soapBodyUtf8,
+  };
 }
 
 /** Extrae texto de un elemento hoja en respuesta SOAP (prefijo opcional). */
@@ -185,7 +222,8 @@ function postHttpsMtls(
   urlStr: string,
   body: string,
   certPem: string,
-  keyPem: string
+  keyPem: string,
+  contentType: string
 ): Promise<{ status: number; body: string }> {
   const url = new URL(urlStr);
   const port = url.port ? Number(url.port) : 443;
@@ -201,7 +239,7 @@ function postHttpsMtls(
         key: keyPem,
         rejectUnauthorized: true,
         headers: {
-          "Content-Type": `application/soap+xml; charset=utf-8; action="${SOAP_ACTION_RECEP_LOTE}"`,
+          "Content-Type": contentType,
           "Content-Length": Buffer.byteLength(body, "utf8"),
         },
       },
@@ -250,8 +288,12 @@ export async function enviarLoteSifenTest(
     );
   }
 
-  const xde = await zipLoteXmlAUtf8Base64(xmlLote);
-  const soap = construirSoapRecibeLote(dId, xde);
+  const preparado = await prepararSoapRecibeLoteTestDe(params.xmlFirmado, {
+    envoltorioRloteDe: params.envoltorioRloteDe,
+    dId,
+  });
+  const soap = preparado.soapBodyUtf8;
+  const contentTypeRequest = preparado.contentType;
 
   const { privateKeyPem, certificatePem } = extractKeyAndCertFromP12(
     params.empresaConfig.certificadoP12,
@@ -265,7 +307,8 @@ export async function enviarLoteSifenTest(
       SIFEN_TEST_RECEP_LOTE_SERVICE_URL,
       soap,
       certificatePem,
-      privateKeyPem
+      privateKeyPem,
+      contentTypeRequest
     );
     httpStatus = res.status;
     cuerpo = res.body;
@@ -283,5 +326,11 @@ export async function enviarLoteSifenTest(
     loteRecibido: code === "0300",
     loteNoEncolado: code === "0301",
     cuerpoSoapCrudo: cuerpo,
+    solicitudHttps: {
+      url: SIFEN_TEST_RECEP_LOTE_SERVICE_URL,
+      method: "POST",
+      contentType: contentTypeRequest,
+      soapBodyUtf8: soap,
+    },
   };
 }
