@@ -3,7 +3,7 @@
  *
  * El digest referencia el elemento `DE` (namespace e-kuatia). La firma se inserta como
  * hermano posterior a `DE` bajo `rDE` (campos firmados del DE, sin incluir gCamFuFD).
- * Tras firmar, se añade `gCamFuFD` con URL de consulta QR si aún no existe.
+ * Tras firmar, se añade `gCamFuFD` con URL de consulta QR (parámetros + cHashQR) si aún no existe.
  *
  * Nota: validar siempre contra XSD v150 y ambiente de pruebas SET.
  *
@@ -16,7 +16,10 @@ import {
   SIFEN_EKUATIA_TARGET_NS,
   SIFEN_SIRECEP_DE_V150_XSD_FILE,
 } from "./sifen-xsi-schema-location";
+import { buildSifenDcarQrUrl, type BuildSifenDcarQrOptions } from "./sifen-dcar-qr";
 import { escapeXml } from "./xml";
+
+export type { BuildSifenDcarQrOptions as SifenDocumentoQrParams } from "./sifen-dcar-qr";
 
 const SIFEN_NS = SIFEN_EKUATIA_TARGET_NS;
 const XMLNS_XSI = "http://www.w3.org/2001/XMLSchema-instance";
@@ -109,16 +112,9 @@ export function extractKeyAndCertFromP12(p12Buffer: Buffer, password: string): P
   };
 }
 
-function extraerCdcDeRde(xml: string): string | null {
-  const m = /\bId\s*=\s*"(\d{44})"/.exec(xml);
-  return m?.[1] ?? null;
-}
-
-function anexarCamFuFdSiFalta(xml: string): string {
+function anexarCamFuFdSiFalta(xml: string, qr: BuildSifenDcarQrOptions): string {
   if (/<gCamFuFD\b/i.test(xml)) return xml;
-  const cdc = extraerCdcDeRde(xml);
-  if (!cdc) return xml;
-  const url = `https://ekuatia.set.gov.py/consultas/qr?nVersion=150&id=${cdc}`;
+  const url = buildSifenDcarQrUrl(xml, qr);
   const bloque = `<gCamFuFD><dCarQR>${escapeXml(url)}</dCarQR></gCamFuFD>`;
   return xml.replace(/<\/rDE>\s*$/i, `${bloque}</rDE>`);
 }
@@ -127,7 +123,11 @@ function anexarCamFuFdSiFalta(xml: string): string {
  * Firma el documento rDE: referencia el nodo `DE` y coloca `Signature` inmediatamente después de `DE`
  * (hermano bajo `rDE`), alineado al orden del tipo `rDE` en el XSD oficial.
  */
-export function signSifenDocumentoXml(xmlUtf8: string, material: P12KeyMaterial): string {
+export function signSifenDocumentoXml(
+  xmlUtf8: string,
+  material: P12KeyMaterial,
+  qr: BuildSifenDcarQrOptions
+): string {
   const trimmed = xmlUtf8.trim();
   if (!/<\s*DE\b/i.test(trimmed) || !/<\s*rDE\b/i.test(trimmed)) {
     throw new Error("Se esperaba un XML con raíz rDE que contenga un elemento DE para firmar.");
@@ -160,5 +160,5 @@ export function signSifenDocumentoXml(xmlUtf8: string, material: P12KeyMaterial)
   });
 
   const rawSigned = sig.getSignedXml();
-  return anexarCamFuFdSiFalta(ensureRdeRootSchemaAttrs(rawSigned));
+  return anexarCamFuFdSiFalta(ensureRdeRootSchemaAttrs(rawSigned), qr);
 }

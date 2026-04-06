@@ -10,6 +10,7 @@ import { createClient } from "@supabase/supabase-js";
 import { loadValidatedSifenPayload } from "../src/lib/sifen/load-factura-payload";
 import { buildOfficialRdeFacturaElectronicaXml } from "../src/lib/sifen/rde-xml";
 import { resolveP12PasswordForScripts } from "../src/lib/sifen/resolve-p12-password-for-scripts";
+import { SIFEN_TEST_CSC_GENERICO } from "../src/lib/sifen/sifen-ambiente-test";
 import { extractKeyAndCertFromP12, signSifenDocumentoXml } from "../src/lib/sifen/sign-xml";
 import { enviarLoteSifenTest } from "../src/lib/sifen/enviar-lote-sifen-test";
 import {
@@ -87,7 +88,10 @@ async function main() {
   if (!up.ok) throw new Error(up.message);
 
   const material = extractKeyAndCertFromP12(p12Dl.data, p12Password);
-  const xmlFirmado = signSifenDocumentoXml(xmlSinFirma, material);
+  const xmlFirmado = signSifenDocumentoXml(xmlSinFirma, material, {
+    ambiente: "test",
+    csc: SIFEN_TEST_CSC_GENERICO,
+  });
   const upF = await uploadSifenXml(supabase, signedPath, xmlFirmado);
   if (!upF.ok) throw new Error(upF.message);
 

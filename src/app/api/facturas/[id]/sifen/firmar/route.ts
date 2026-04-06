@@ -15,6 +15,8 @@ import {
 } from "@/lib/sifen/sifen-storage";
 import { downloadSifenCertificadoObject } from "@/lib/sifen/sifen-certificados-storage";
 import { extractKeyAndCertFromP12, signSifenDocumentoXml } from "@/lib/sifen/sign-xml";
+import { SIFEN_TEST_CSC_GENERICO } from "@/lib/sifen/sifen-ambiente-test";
+import { parseAmbiente } from "@/lib/sifen/config-validation";
 import type {
   FacturaElectronicaDTO,
   SifenApiFirmarDetalle,
@@ -28,7 +30,7 @@ function getSupabase() {
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
-const ESTADOS_BLOQUEADOS_FIRMAR = new Set<string>(["aprobado", "enviado"]);
+const ESTADOS_BLOQUEADOS_FIRMAR = new Set<string>(["aprobado"]);
 
 /**
  * POST /api/facturas/[id]/sifen/firmar
@@ -92,7 +94,7 @@ export async function POST(
 
     const { data: cfg, error: errCfg } = await supabase
       .from("empresa_sifen_config")
-      .select("certificado_path, certificado_password_encrypted")
+      .select("certificado_path, certificado_password_encrypted, ambiente, csc")
       .eq("empresa_id", auth.empresa_id)
       .maybeSingle();
 
@@ -121,6 +123,29 @@ export async function POST(
       return NextResponse.json(
         errorResponse(
           "No hay contraseña del certificado cifrada. Configúrela con PATCH /api/configuracion/sifen (certificado_password)."
+        ),
+        { status: 400 }
+      );
+    }
+
+    const ambiente = parseAmbiente(cfg.ambiente);
+    if (!ambiente) {
+      return NextResponse.json(
+        errorResponse('Configuración SIFEN: ambiente inválido (use "test" o "produccion").'),
+        { status: 400 }
+      );
+    }
+    const cscCfg = cfg.csc == null ? "" : String(cfg.csc).trim();
+    const cscParaQr =
+      ambiente === "test"
+        ? cscCfg !== ""
+          ? cscCfg
+          : SIFEN_TEST_CSC_GENERICO
+        : cscCfg;
+    if (ambiente === "produccion" && cscParaQr === "") {
+      return NextResponse.json(
+        errorResponse(
+          "Falta CSC en configuración SIFEN (obligatorio para el código QR / cHashQR en producción)."
         ),
         { status: 400 }
       );
@@ -162,7 +187,10 @@ export async function POST(
 
     let signedXml: string;
     try {
-      signedXml = signSifenDocumentoXml(xmlDl.data.toString("utf8"), material);
+      signedXml = signSifenDocumentoXml(xmlDl.data.toString("utf8"), material, {
+        ambiente,
+        csc: cscParaQr,
+      });
     } catch (e) {
       const m = e instanceof Error ? e.message : "Error al firmar el XML";
       return NextResponse.json(errorResponse(`Firma XML-DSig falló: ${m}`), { status: 500 });

@@ -532,7 +532,7 @@ export function buildOfficialRdeFacturaElectronicaXml(
   );
   if (sumIva5 > 0) totParts.push(textEl("dIVA5", sumIva5));
   if (sumIva10 > 0) totParts.push(textEl("dIVA10", sumIva10));
-  if (dTotIVA > 0) totParts.push(textEl("dTotIVA", dTotIVA));
+  totParts.push(textEl("dTotIVA", dTotIVA));
   if (sumBase5 > 0) totParts.push(textEl("dBaseGrav5", sumBase5));
   if (sumBase10 > 0) totParts.push(textEl("dBaseGrav10", sumBase10));
   if (dTBasGraIVA > 0) totParts.push(textEl("dTBasGraIVA", dTBasGraIVA));
