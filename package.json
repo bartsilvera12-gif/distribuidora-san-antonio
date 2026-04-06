@@ -22,6 +22,7 @@
     "verify:sorteo-integridad": "tsx scripts/verify-sorteo-integridad-nombre-monto.ts",
     "verify:flow-sessions": "tsx scripts/verify-flow-session-isolation.ts",
     "db:migrate-sifen-cert-password": "tsx scripts/migrate-sifen-certificado-password-to-encrypted.ts",
+    "db:apply-sifen-timbrado-fecha": "tsx scripts/apply-sifen-timbrado-fecha-inicio-migration.ts",
     "test:comprobante-tech": "tsx scripts/technical-tests-comprobante-full.ts"
   },
   "dependencies": {
