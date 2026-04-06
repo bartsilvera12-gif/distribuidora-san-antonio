@@ -536,7 +536,10 @@ export function buildOfficialRdeFacturaElectronicaXml(
   if (sumBase5 > 0) totParts.push(textEl("dBaseGrav5", sumBase5));
   if (sumBase10 > 0) totParts.push(textEl("dBaseGrav10", sumBase10));
   if (dTBasGraIVA > 0) totParts.push(textEl("dTBasGraIVA", dTBasGraIVA));
-  totParts.push(textEl("dTotalGs", dTotGralOpe));
+  /**
+   * `dTotalGs` (minOccurs=0): solo aplica si `cMoneOpe` ≠ PYG (total convertido a Gs).
+   * Con moneda Guaraníes, informarlo provoca rechazo SET **2389**.
+   */
   totParts.push("</gTotSub>");
 
   const esCredito = documento.tipo === "credito" || documento.tipo === "suscripcion";
