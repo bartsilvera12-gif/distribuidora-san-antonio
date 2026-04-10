@@ -9,11 +9,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export const SUPABASE_APP_SCHEMA = "zentra_erp" as const;
 
 /**
- * Cliente Supabase con cualquier esquema PostgREST.
- * El segundo genérico `"public"` es el nombre por defecto del SDK; el esquema Postgres real es `SUPABASE_APP_SCHEMA`.
+ * Cliente Supabase con cualquier esquema PostgREST (`zentra_erp`, `erp_*`, etc.).
+ * El tercer genérico no puede ser solo `"public"` porque `createClient(..., { db: { schema } })`
+ * infiere el nombre literal del schema y deja de asignarse a `SupabaseAdmin` en el build (p. ej. Vercel).
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AppSupabaseClient = SupabaseClient<any, "public", any, any, any>;
+export type AppSupabaseClient = SupabaseClient<any, "public", string, any, any>;
 
 export const supabaseDbSchemaOption = {
   db: { schema: SUPABASE_APP_SCHEMA },
