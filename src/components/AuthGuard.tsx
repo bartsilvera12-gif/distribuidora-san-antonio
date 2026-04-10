@@ -39,7 +39,10 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const res = await fetch("/api/empresas/module-access", { cache: "no-store" });
+      const res = await fetch("/api/empresas/module-access", {
+        cache: "no-store",
+        credentials: "include",
+      });
       if (cancelled) return;
       if (!res.ok) {
         setAccess({ superAdmin: false, slugs: new Set() });

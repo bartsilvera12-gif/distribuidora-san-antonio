@@ -4,11 +4,12 @@
  */
 import { config } from "dotenv";
 import * as path from "path";
-import { createClient } from "@supabase/supabase-js";
+import { createErpServiceClient } from "./erp-db";
 
 config({ path: path.join(process.cwd(), ".env.local") });
 
-const EMAIL = "neurautomations@gmail.com";
+/** Debe coincidir con el correo en Supabase Auth (super admin global del ERP). */
+const EMAIL = "neuratomations@gmail.com";
 const PASSWORD = "Neura2026";
 const NOMBRE = "Admin Sistema";
 
@@ -21,9 +22,7 @@ async function main() {
     process.exit(1);
   }
 
-  const supabase = createClient(url, key, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
+  const supabase = createErpServiceClient(url, key);
 
   console.log("Creando super_admin:", EMAIL);
 

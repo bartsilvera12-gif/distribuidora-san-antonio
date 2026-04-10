@@ -53,7 +53,7 @@ export async function getModulosEmpresa(empresaId: string): Promise<ModuloEmpres
 
 /** Obtiene los módulos habilitados para la empresa del usuario autenticado (vía API con service role). */
 export async function getMisModulos(): Promise<ModuloEmpresa[]> {
-  const res = await fetch("/api/empresas/mis-modulos", { cache: "no-store" });
+  const res = await fetch("/api/empresas/mis-modulos", { cache: "no-store", credentials: "include" });
   if (!res.ok) {
     if (res.status === 401) return [];
     throw new Error("Error al cargar módulos");
@@ -63,7 +63,7 @@ export async function getMisModulos(): Promise<ModuloEmpresa[]> {
 
 /** Obtiene todos los módulos de la tabla modulos (para super_admin). */
 export async function getTodosModulos(): Promise<ModuloEmpresa[]> {
-  const res = await fetch("/api/admin/modulos", { cache: "no-store" });
+  const res = await fetch("/api/admin/modulos", { cache: "no-store", credentials: "include" });
   if (!res.ok) throw new Error("Error al cargar módulos");
   const data = await res.json();
   return (data ?? []).map((m: { id: string; nombre?: string; slug?: string }) => ({
@@ -80,7 +80,7 @@ export async function getEmpresas(): Promise<Empresa[]> {
 }
 
 export async function getModulos(): Promise<Modulo[]> {
-  const res = await fetch("/api/admin/modulos");
+  const res = await fetch("/api/admin/modulos", { credentials: "include" });
   if (!res.ok) throw new Error("Error al cargar módulos");
   return res.json();
 }

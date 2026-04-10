@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { supabaseDbSchemaOption } from "@/lib/supabase/schema";
 import { createServiceRoleClient } from "@/lib/supabase/service-admin";
+import { resolveUsuarioErpFromAuthUser } from "@/lib/auth/resolve-usuario-erp";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { resolveEffectiveModules } from "@/lib/modulos/resolve-effective-modules";
@@ -37,21 +38,15 @@ export async function GET() {
     const {
       data: { user },
     } = await supabaseAuth.auth.getUser();
-    if (!user?.email) {
+    if (!user?.id) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });
     }
 
     const supabase = createServiceRoleClient();
 
-    const { data: urows, error: errUsuario } = await supabase
-      .from("usuarios")
-      .select("id, empresa_id, rol")
-      .eq("email", user.email)
-      .limit(1);
-
-    const usuario = urows?.[0] as { id: string; empresa_id: string; rol: string } | undefined;
-    if (errUsuario || !usuario) {
-      return NextResponse.json({ superAdmin: false, slugs: [] });
+    const usuario = await resolveUsuarioErpFromAuthUser(supabase, user);
+    if (!usuario) {
+      return NextResponse.json({ superAdmin: false, slugs: [], modulos: [] });
     }
 
     const modulos = await resolveEffectiveModules(supabase, {
@@ -65,6 +60,7 @@ export async function GET() {
     return NextResponse.json({
       superAdmin,
       slugs: modulos.map((m) => m.slug).filter(Boolean),
+      modulos: modulos.map((m) => ({ id: m.id, nombre: m.nombre, slug: m.slug })),
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Error";

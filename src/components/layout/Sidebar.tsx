@@ -29,7 +29,6 @@ import {
   Headphones,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { getMisModulos, getTodosModulos } from "@/lib/empresas/actions";
 import type { ModuloEmpresa } from "@/lib/empresas/actions";
 import { getFavoritos, toggleFavorito } from "@/lib/favorites";
 
@@ -234,27 +233,34 @@ export default function Sidebar() {
       try {
         setCargando(true);
         const { data: { session } } = await supabase.auth.getSession();
-        const user = session?.user;
-        if (cancelled || !user?.email) {
-          setModulos([]);
+        if (cancelled || !session?.user) {
+          if (!cancelled) {
+            setModulos([]);
+            setEsSuperAdmin(false);
+          }
           return;
         }
-        const { data: urows, error: errUsuario } = await supabase
-          .from("usuarios")
-          .select("rol")
-          .eq("email", user.email)
-          .limit(1);
-        if (errUsuario) {
-          if (!cancelled) setModulos([]);
-          return;
-        }
-        const rol = urows?.[0]?.rol as string | undefined;
-        if (!cancelled) setEsSuperAdmin(rol === "super_admin");
-        const data = rol === "super_admin" ? await getTodosModulos() : await getMisModulos();
+        const res = await fetch("/api/empresas/module-access", {
+          credentials: "include",
+          cache: "no-store",
+        });
         if (cancelled) return;
-        setModulos(data);
+        if (!res.ok) {
+          setModulos([]);
+          setEsSuperAdmin(false);
+          return;
+        }
+        const body = (await res.json()) as {
+          superAdmin?: boolean;
+          modulos?: ModuloEmpresa[];
+        };
+        setEsSuperAdmin(!!body.superAdmin);
+        setModulos(Array.isArray(body.modulos) ? body.modulos : []);
       } catch {
-        if (!cancelled) setModulos([]);
+        if (!cancelled) {
+          setModulos([]);
+          setEsSuperAdmin(false);
+        }
       } finally {
         if (!cancelled) setCargando(false);
       }
@@ -262,7 +268,10 @@ export default function Sidebar() {
     cargarMenu();
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) cargarMenu();
-      else setModulos([]);
+      else {
+        setModulos([]);
+        setEsSuperAdmin(false);
+      }
     });
     return () => { cancelled = true; subscription.unsubscribe(); };
   }, []);

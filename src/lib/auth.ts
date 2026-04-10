@@ -55,10 +55,24 @@ export async function getCurrentUser(): Promise<CurrentUsuario | null> {
 
   if (!user) return null;
 
+  if (user.id) {
+    const { data: byAuth, error: errAuth } = await supabase
+      .from("usuarios")
+      .select("*")
+      .eq("auth_user_id", user.id)
+      .limit(1);
+    if (errAuth) throw errAuth;
+    const rowAuth = byAuth?.[0] as CurrentUsuario | undefined;
+    if (rowAuth) return rowAuth;
+  }
+
+  const email = user.email?.trim();
+  if (!email) return null;
+
   const { data: rows, error } = await supabase
     .from("usuarios")
     .select("*")
-    .eq("email", user.email)
+    .ilike("email", email.toLowerCase())
     .limit(1);
 
   if (error) throw error;
