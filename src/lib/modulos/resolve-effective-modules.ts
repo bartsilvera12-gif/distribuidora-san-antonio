@@ -14,6 +14,14 @@ export function esRolAdminEmpresa(rol: string | null | undefined): boolean {
   return r === "admin" || r === "administrador";
 }
 
+async function allModuloIdsFromCatalog(supabase: ModulosSupabase): Promise<string[]> {
+  const { data, error } = await supabase.from("modulos").select("id");
+  if (error) throw new Error(error.message);
+  return (data ?? [])
+    .map((m: { id?: unknown }) => String(m.id ?? ""))
+    .filter((id: string) => id.length > 0);
+}
+
 async function modulosRowsByIds(
   supabase: ModulosSupabase,
   moduloIds: string[]
@@ -72,10 +80,16 @@ export async function resolveEffectiveModules(
         .filter((x): x is string => x.length > 0)
     ),
   ];
-  if (empresaModuloIds.length === 0) return [];
+
+  /** Sin filas en empresa_modulos: misma UX que “ERP completo” (empresas nuevas / legado). */
+  let effectiveEmpresaModuloIds = empresaModuloIds;
+  if (effectiveEmpresaModuloIds.length === 0) {
+    effectiveEmpresaModuloIds = await allModuloIdsFromCatalog(supabase);
+  }
+  if (effectiveEmpresaModuloIds.length === 0) return [];
 
   if (esRolAdminEmpresa(usuario.rol)) {
-    return modulosRowsByIds(supabase, empresaModuloIds);
+    return modulosRowsByIds(supabase, effectiveEmpresaModuloIds);
   }
 
   const { data: umData, error: errUm } = await supabase
@@ -95,9 +109,10 @@ export async function resolveEffectiveModules(
 
   let moduloIds: string[];
   if (userIds.length === 0) {
-    moduloIds = [];
+    /** Retrocompat: sin usuario_modulos → todos los módulos habilitados para la empresa. */
+    moduloIds = effectiveEmpresaModuloIds;
   } else {
-    const empresaSet = new Set(empresaModuloIds);
+    const empresaSet = new Set(effectiveEmpresaModuloIds);
     moduloIds = userIds.filter((id) => empresaSet.has(id));
   }
 

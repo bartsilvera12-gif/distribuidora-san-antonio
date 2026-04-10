@@ -1,4 +1,4 @@
-import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { getProspectos } from "@/lib/crm/storage";
 import { toCalendarDateStr } from "@/lib/fechas/calendario";
 
@@ -186,8 +186,7 @@ function toNum(v: unknown): number {
 // ── getDashboardData ──────────────────────────────────────────────────────────
 
 /**
- * Obtiene prospectos desde crm_prospectos (misma fuente que el CRM Funnel).
- * No depende de queryEmpresa/getEmpresaId — RLS filtra por empresa.
+ * Prospectos vía `/api/crm/prospectos` (tenant + service role), alineado al CRM Funnel.
  */
 async function fetchProspectos(): Promise<ProspectoRaw[]> {
   const prospectosFromCrm = await getProspectos();
@@ -206,12 +205,11 @@ async function fetchProspectos(): Promise<ProspectoRaw[]> {
 }
 
 /**
- * Obtiene todos los datos necesarios para el Dashboard desde Supabase.
- * RLS filtra por empresa_id automáticamente según el usuario autenticado.
+ * Dashboard: tablas operativas vía `/api/dashboard/tenant-tables` (service role + schema tenant).
+ * No depende del cliente browser + RLS en esquemas `erp_*`.
  */
 export async function getDashboardData(): Promise<DashboardData> {
   const prospectos = await fetchProspectos();
-  const supabase = await getBrowserSupabaseForEmpresaData();
 
   let clientes: ClienteRaw[] = [];
   let facturas: FacturaRaw[] = [];
@@ -225,47 +223,54 @@ export async function getDashboardData(): Promise<DashboardData> {
   let clientesBajaMes = 0;
   let montoPerdidoBajasMes = 0;
 
+  if (typeof window === "undefined") {
+    return {
+      prospectos,
+      clientes,
+      facturas,
+      pagos,
+      tipificaciones,
+      productos,
+      ventas,
+      compras,
+      gastos,
+      suscripciones,
+      clientes_baja_mes: clientesBajaMes,
+      monto_perdido_bajas_mes: montoPerdidoBajasMes,
+    };
+  }
+
   try {
-    const now = new Date();
-    const anio = now.getFullYear();
-    const mes = now.getMonth() + 1;
-    const inicioMes = `${anio}-${String(mes).padStart(2, "0")}-01`;
-    const finMes = `${anio}-${String(mes).padStart(2, "0")}-31`;
+    const res = await fetchWithSupabaseSession("/api/dashboard/tenant-tables", { cache: "no-store" });
+    if (!res.ok) throw new Error(await res.text());
+    const json = (await res.json()) as {
+      success?: boolean;
+      data?: {
+        clientes?: Record<string, unknown>[];
+        facturas?: Record<string, unknown>[];
+        pagos?: Record<string, unknown>[];
+        tipificaciones?: Record<string, unknown>[];
+        productos?: Record<string, unknown>[];
+        ventas?: Record<string, unknown>[];
+        ventas_items?: Record<string, unknown>[];
+        compras?: Record<string, unknown>[];
+        gastos?: Record<string, unknown>[];
+        suscripciones?: Record<string, unknown>[];
+        clientes_baja_mes?: { id: string }[];
+        suscripciones_canceladas?: { cliente_id: string; precio: number }[];
+      };
+    };
+    if (!json.success || !json.data) throw new Error("Respuesta inválida");
+    const d = json.data;
 
-    const [clientesQ, facturasQ, pagosQ, tipificacionesQ, productosQ, ventasQ, ventasItemsQ, comprasQ, gastosQ, suscripcionesDashQ, bajasQ, suscBajasQ] =
-      await Promise.all([
-        supabase.from("clientes").select("*").is("deleted_at", null),
-        supabase.from("facturas").select("*"),
-        supabase.from("pagos").select("id, factura_id, monto, fecha_pago"),
-        supabase.from("tipificaciones").select("*"),
-        supabase.from("productos").select("*"),
-        supabase.from("ventas").select("*"),
-        supabase.from("ventas_items").select("*"),
-        supabase.from("compras").select("*"),
-        supabase.from("gastos").select("id, monto, fecha"),
-        supabase.from("suscripciones").select("id, cliente_id, precio, moneda, fecha_inicio, created_at"),
-        supabase.from("clientes").select("id").not("baja_operativa_at", "is", null).gte("baja_operativa_at", inicioMes).lte("baja_operativa_at", finMes + "T23:59:59.999Z"),
-        supabase.from("suscripciones").select("cliente_id, precio").eq("estado", "cancelada"),
-      ]);
-
-    const clientesBajaIds = new Set((bajasQ.data ?? []).map((c: { id: string }) => c.id));
-    const suscBajas = (suscBajasQ.data ?? []) as { cliente_id: string; precio: number }[];
+    const clientesBajaIds = new Set((d.clientes_baja_mes ?? []).map((c) => c.id));
+    const suscBajas = d.suscripciones_canceladas ?? [];
     clientesBajaMes = clientesBajaIds.size;
     montoPerdidoBajasMes = suscBajas
       .filter((s) => clientesBajaIds.has(s.cliente_id))
       .reduce((sum, s) => sum + Number(s.precio ?? 0), 0);
 
-    if (clientesQ.error) throw new Error(clientesQ.error.message);
-    if (facturasQ.error) throw new Error(facturasQ.error.message);
-    if (pagosQ.error) throw new Error(pagosQ.error.message);
-    if (tipificacionesQ.error) throw new Error(tipificacionesQ.error.message);
-    if (productosQ.error) throw new Error(productosQ.error.message);
-    if (ventasQ.error) throw new Error(ventasQ.error.message);
-    if (ventasItemsQ.error) throw new Error(ventasItemsQ.error.message);
-    if (comprasQ.error) throw new Error(comprasQ.error.message);
-    if (suscripcionesDashQ.error) throw new Error(suscripcionesDashQ.error.message);
-
-    clientes = (clientesQ.data ?? []).map((r: Record<string, unknown>) => ({
+    clientes = (d.clientes ?? []).map((r: Record<string, unknown>) => ({
       id: r.id as string,
       codigo_cliente: `CL-${(r.id as string).slice(0, 8).toUpperCase()}`,
       empresa: r.empresa as string | undefined,
@@ -277,7 +282,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       condicion_pago: (r.condicion_pago as string) ?? undefined,
     }));
 
-    facturas = (facturasQ.data ?? []).map((r: Record<string, unknown>) => ({
+    facturas = (d.facturas ?? []).map((r: Record<string, unknown>) => ({
       id: r.id as string,
       cliente_id: r.cliente_id as string,
       numero_factura: (r.numero_factura as string) ?? "",
@@ -290,14 +295,14 @@ export async function getDashboardData(): Promise<DashboardData> {
       moneda: (r.moneda as string) ?? "GS",
     }));
 
-    pagos = (pagosQ.data ?? []).map((r: Record<string, unknown>) => ({
+    pagos = (d.pagos ?? []).map((r: Record<string, unknown>) => ({
       id: r.id as string,
       factura_id: r.factura_id as string,
       monto: toNum(r.monto),
       fecha_pago: toCalendarDateStr(r.fecha_pago as string),
     }));
 
-    tipificaciones = (tipificacionesQ.data ?? []).map((r: Record<string, unknown>) => ({
+    tipificaciones = (d.tipificaciones ?? []).map((r: Record<string, unknown>) => ({
       id: r.id as string,
       cliente_id: r.cliente_id as string,
       tipo_gestion: (r.tipo_gestion as string) ?? "",
@@ -307,7 +312,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       fecha: toCalendarDateStr(r.fecha as string),
     }));
 
-    productos = (productosQ.data ?? []).map((r: Record<string, unknown>) => ({
+    productos = (d.productos ?? []).map((r: Record<string, unknown>) => ({
       id: r.id as string,
       nombre: (r.nombre as string) ?? "",
       sku: (r.sku as string) ?? "",
@@ -320,7 +325,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     }));
 
     const itemsByVenta = new Map<string, LineaVentaRaw[]>();
-    for (const it of ventasItemsQ.data ?? []) {
+    for (const it of d.ventas_items ?? []) {
       const r = it as Record<string, unknown>;
       const ventaId = r.venta_id as string;
       const lineas = itemsByVenta.get(ventaId) ?? [];
@@ -337,7 +342,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       itemsByVenta.set(ventaId, lineas);
     }
 
-    ventas = (ventasQ.data ?? []).map((r: Record<string, unknown>) => {
+    ventas = (d.ventas ?? []).map((r: Record<string, unknown>) => {
       const id = r.id as string;
       return {
         id,
@@ -353,7 +358,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       };
     });
 
-    compras = (comprasQ.data ?? []).map((r: Record<string, unknown>) => ({
+    compras = (d.compras ?? []).map((r: Record<string, unknown>) => ({
       id: r.id as string,
       producto_id: r.producto_id as string | undefined,
       producto_nombre: (r.producto_nombre as string) ?? "",
@@ -362,13 +367,13 @@ export async function getDashboardData(): Promise<DashboardData> {
       fecha: toCalendarDateStr(r.fecha as string),
     }));
 
-    gastos = (gastosQ.data ?? []).map((r: Record<string, unknown>) => ({
+    gastos = (d.gastos ?? []).map((r: Record<string, unknown>) => ({
       id: r.id as string,
       monto: toNum(r.monto),
       fecha: (r.fecha as string) ?? "",
     }));
 
-    suscripciones = (suscripcionesDashQ.data ?? []).map((r: Record<string, unknown>) => ({
+    suscripciones = (d.suscripciones ?? []).map((r: Record<string, unknown>) => ({
       id: r.id as string,
       cliente_id: r.cliente_id as string,
       precio: toNum(r.precio),

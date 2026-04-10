@@ -1,3 +1,4 @@
+import { getUsuarioCatalogFromServerCookies } from "@/lib/auth/usuario-catalog-from-server-session";
 import { createSupabaseServerClient, createSupabaseServerClientWithDbSchema } from "@/lib/supabase/server";
 import { SUPABASE_APP_SCHEMA, resolveEmpresaDataSchema, type AppSupabaseClient } from "@/lib/supabase/schema";
 
@@ -21,25 +22,11 @@ export type EmpresaChatSession = {
  */
 export async function requireEmpresaUsuarioSession(): Promise<EmpresaUsuarioSession> {
   const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user?.email) {
+  const cat = await getUsuarioCatalogFromServerCookies();
+  if (!cat) {
     throw new Error("Usuario no autenticado o sin empresa");
   }
-  const { data: rows, error } = await supabase
-    .from("usuarios")
-    .select("id, empresa_id")
-    .eq("email", user.email)
-    .limit(1);
-  if (error) throw new Error(error.message);
-  const data = rows?.[0] as { id?: string; empresa_id?: string } | undefined;
-  const empresa_id = data?.empresa_id;
-  const usuario_id = data?.id;
-  if (!empresa_id || typeof empresa_id !== "string" || !usuario_id || typeof usuario_id !== "string") {
-    throw new Error("Usuario no autenticado o sin empresa");
-  }
-  return { supabase, empresa_id, usuario_id };
+  return { supabase, empresa_id: cat.empresa_id, usuario_id: cat.id };
 }
 
 /**
@@ -47,24 +34,11 @@ export async function requireEmpresaUsuarioSession(): Promise<EmpresaUsuarioSess
  */
 export async function requireEmpresaChatSession(): Promise<EmpresaChatSession> {
   const catalogSupabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await catalogSupabase.auth.getUser();
-  if (!user?.email) {
+  const cat = await getUsuarioCatalogFromServerCookies();
+  if (!cat) {
     throw new Error("Usuario no autenticado o sin empresa");
   }
-  const { data: rows, error } = await catalogSupabase
-    .from("usuarios")
-    .select("id, empresa_id")
-    .eq("email", user.email)
-    .limit(1);
-  if (error) throw new Error(error.message);
-  const data = rows?.[0] as { id?: string; empresa_id?: string } | undefined;
-  const empresa_id = data?.empresa_id;
-  const usuario_id = data?.id;
-  if (!empresa_id || typeof empresa_id !== "string" || !usuario_id || typeof usuario_id !== "string") {
-    throw new Error("Usuario no autenticado o sin empresa");
-  }
+  const { empresa_id, id: usuario_id } = cat;
 
   const { data: empRow } = await catalogSupabase
     .from("empresas")

@@ -3,6 +3,13 @@
  * `null` = no aplica gate de módulo (acceso con sesión).
  */
 
+/** Slugs otorgados explícitamente o por alias (p. ej. `clientes` incluye gestión de cartera). */
+export function isModuleSlugGranted(routeSlug: string, grantedSlugs: Set<string>): boolean {
+  if (grantedSlugs.has(routeSlug)) return true;
+  if (routeSlug === "gestion-clientes" && grantedSlugs.has("clientes")) return true;
+  return false;
+}
+
 export function pathRequiresModuleSlug(pathname: string): string | null {
   const p = pathname.split("?")[0] ?? pathname;
   if (!p || p === "/") return null;

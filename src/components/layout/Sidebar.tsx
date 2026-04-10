@@ -35,6 +35,7 @@ import { isBootstrapSuperAdminEmail } from "@/lib/auth/super-admin-bootstrap-ema
 import { supabase } from "@/lib/supabase";
 import type { ModuloEmpresa } from "@/lib/empresas/actions";
 import { getFavoritos, toggleFavorito } from "@/lib/favorites";
+import { isModuleSlugGranted } from "@/lib/modulos/route-slug-map";
 
 type MenuItem = {
   key: string;
@@ -338,7 +339,7 @@ export default function Sidebar() {
     if (slug === "conversaciones" || slug === "historial-omnicanal" || slug === "colas-agentes") {
       return hasChatModuleAccess();
     }
-    return modulosSlugs.has(slug);
+    return isModuleSlugGranted(slug, modulosSlugs);
   };
 
   const isActive = (slug: string, href: string) => {

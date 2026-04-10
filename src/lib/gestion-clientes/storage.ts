@@ -1,3 +1,4 @@
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { getCurrentUser } from "@/lib/auth";
 import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
 import type {
@@ -66,25 +67,26 @@ function rowToTipificacion(row: TipificacionRow): Tipificacion {
 
 // ─── Facturas ─────────────────────────────────────────────────────────────────
 
-/** Lista facturas. RLS filtra por empresa. */
+/** Lista facturas vía API tenant (service role). */
 export async function getFacturas(clienteId?: string): Promise<Factura[]> {
-  const supabase = await getBrowserSupabaseForEmpresaData();
-  let query = supabase
-    .from("facturas")
-    .select("*")
-    .order("fecha", { ascending: false });
-
-  if (clienteId) {
-    query = query.eq("cliente_id", clienteId);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    console.error("[gestion-clientes] getFacturas:", error.message);
+  if (typeof window === "undefined") return [];
+  try {
+    const qs = new URLSearchParams();
+    if (clienteId) qs.set("cliente_id", clienteId);
+    const q = qs.toString();
+    const res = await fetchWithSupabaseSession(`/api/facturas${q ? `?${q}` : ""}`, { cache: "no-store" });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.error("[gestion-clientes] getFacturas API:", res.status, t);
+      return [];
+    }
+    const json = (await res.json()) as { success?: boolean; data?: unknown };
+    if (!json.success || !Array.isArray(json.data)) return [];
+    return (json.data as FacturaRow[]).map(rowToFactura);
+  } catch (e) {
+    console.error("[gestion-clientes] getFacturas:", e);
     return [];
   }
-  return (data as FacturaRow[]).map(rowToFactura);
 }
 
 export type NuevaFacturaData = Omit<Factura, "id">;

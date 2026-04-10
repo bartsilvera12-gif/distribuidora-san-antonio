@@ -1,6 +1,8 @@
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
 import { createServiceRoleClientForEmpresa } from "@/lib/supabase/empresa-data-schema";
 import { getCurrentUser } from "@/lib/auth";
+import type { AppSupabaseClient } from "@/lib/supabase/schema";
 import type { Prospecto, Nota } from "./types";
 import { generarNumeroControlFromSupabase } from "@/lib/crm/numero-control";
 
@@ -79,16 +81,38 @@ function rowToProspecto(row: ProspectoRow, notas: Nota[]): Prospecto {
 
 // ─── Prospectos ────────────────────────────────────────────────────────────────
 
-/** Lista prospectos con sus notas. RLS filtra por empresa. */
+/** Lista prospectos vía API tenant (service role); evita RLS del browser en `erp_*`. */
 export async function getProspectos(): Promise<Prospecto[]> {
-  const supabase = await browserDataClient();
+  if (typeof window === "undefined") return [];
+  try {
+    const res = await fetchWithSupabaseSession("/api/crm/prospectos", { cache: "no-store" });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.error("[crm] getProspectos API:", res.status, t);
+      return [];
+    }
+    const json = (await res.json()) as { success?: boolean; data?: Prospecto[] };
+    if (!json.success || !Array.isArray(json.data)) return [];
+    return json.data;
+  } catch (e) {
+    console.error("[crm] getProspectos:", e);
+    return [];
+  }
+}
+
+/** Prospectos + notas filtrados por empresa (p. ej. API con service role en schema tenant). */
+export async function listProspectosForEmpresa(
+  supabase: AppSupabaseClient,
+  empresaId: string
+): Promise<Prospecto[]> {
   const { data: prospectosData, error: errP } = await supabase
     .from("crm_prospectos")
     .select("*")
+    .eq("empresa_id", empresaId)
     .order("fecha_creacion", { ascending: false });
 
   if (errP) {
-    console.error("[crm] getProspectos:", errP.message);
+    console.error("[crm] listProspectosForEmpresa:", errP.message);
     return [];
   }
 
@@ -99,11 +123,12 @@ export async function getProspectos(): Promise<Prospecto[]> {
   const { data: notasData, error: errN } = await supabase
     .from("crm_notas")
     .select("*")
+    .eq("empresa_id", empresaId)
     .in("prospecto_id", ids)
     .order("fecha", { ascending: false });
 
   if (errN) {
-    console.error("[crm] getProspectos (notas):", errN.message);
+    console.error("[crm] listProspectosForEmpresa (notas):", errN.message);
   }
 
   const notasRows = (notasData as NotaRow[]) ?? [];
@@ -113,9 +138,7 @@ export async function getProspectos(): Promise<Prospecto[]> {
     return acc;
   }, {});
 
-  return prospectos.map((p) =>
-    rowToProspecto(p, notasPorProspecto[p.id] ?? [])
-  );
+  return prospectos.map((p) => rowToProspecto(p, notasPorProspecto[p.id] ?? []));
 }
 
 /** Obtiene un prospecto por ID con sus notas. */
