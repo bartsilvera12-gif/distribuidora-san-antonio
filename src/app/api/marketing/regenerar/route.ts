@@ -14,7 +14,7 @@ import { regenerarTareasClienteMes } from "@/lib/marketing/generador";
  */
 export async function POST(request: NextRequest) {
   try {
-    const ctx = await getTenantSupabaseFromAuthWithRol();
+    const ctx = await getTenantSupabaseFromAuthWithRol(request);
     if (!ctx?.auth?.user?.email) {
       return NextResponse.json(errorResponse("No autenticado"), { status: 401 });
     }

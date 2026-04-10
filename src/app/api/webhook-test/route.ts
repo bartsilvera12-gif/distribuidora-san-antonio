@@ -8,9 +8,9 @@ import { EVENT_TYPES } from "@/lib/integrations/events";
  * Envía un webhook de prueba para verificar la configuración.
  * Requiere autenticación.
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const auth = await getUserAndEmpresa();
+    const auth = await getUserAndEmpresa(request);
     if (!auth) {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }

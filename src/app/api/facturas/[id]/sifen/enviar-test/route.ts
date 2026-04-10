@@ -9,7 +9,7 @@ import { handleSifenEnviarPost } from "@/lib/sifen/handle-sifen-enviar-post";
  * Igual que `/sifen/enviar` pero solo si la configuración está en ambiente `test` (compatibilidad).
  */
 export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await getUserAndEmpresa();
+  const auth = await getUserAndEmpresa(request);
   if (!auth) {
     return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
   }

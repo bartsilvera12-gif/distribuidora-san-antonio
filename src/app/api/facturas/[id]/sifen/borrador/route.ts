@@ -10,11 +10,11 @@ import type { FacturaElectronicaDTO, SifenBorradorGeneracionDetalle } from "@/li
  * Crea (o devuelve) el registro factura_electronica en estado borrador, sin XML ni SET.
  */
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const ctx = await getTenantSupabaseFromAuth();
+    const ctx = await getTenantSupabaseFromAuth(request);
     if (!ctx) {
       return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
     }

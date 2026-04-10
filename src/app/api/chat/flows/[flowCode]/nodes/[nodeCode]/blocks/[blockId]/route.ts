@@ -16,7 +16,7 @@ export async function PATCH(
   context: { params: Promise<{ flowCode: string; nodeCode: string; blockId: string }> }
 ) {
   try {
-    const auth = await getAuthWithRol();
+    const auth = await getAuthWithRol(request);
     if (!auth?.empresa_id) {
       return NextResponse.json({ ok: false, error: "No autenticado" }, { status: 401 });
     }
@@ -83,11 +83,11 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   context: { params: Promise<{ flowCode: string; nodeCode: string; blockId: string }> }
 ) {
   try {
-    const auth = await getAuthWithRol();
+    const auth = await getAuthWithRol(request);
     if (!auth?.empresa_id) {
       return NextResponse.json({ ok: false, error: "No autenticado" }, { status: 401 });
     }

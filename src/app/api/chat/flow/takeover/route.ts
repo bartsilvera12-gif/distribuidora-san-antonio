@@ -4,7 +4,7 @@ import { getAuthWithRol } from "@/lib/middleware/auth";
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = await getAuthWithRol();
+    const auth = await getAuthWithRol(request);
     if (!auth?.empresa_id) {
       return NextResponse.json({ ok: false, error: "No autenticado" }, { status: 401 });
     }

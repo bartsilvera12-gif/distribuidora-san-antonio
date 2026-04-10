@@ -4,11 +4,11 @@ import { getContactHistory, normalizePhone } from "@/lib/chat/history-service";
 import { getAuthWithRol } from "@/lib/middleware/auth";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ phone: string }> }
 ) {
   try {
-    const auth = await getAuthWithRol();
+    const auth = await getAuthWithRol(request);
     if (!auth?.empresa_id) {
       return NextResponse.json({ ok: false, error: "No autenticado" }, { status: 401 });
     }

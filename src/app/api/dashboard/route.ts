@@ -6,7 +6,7 @@ import { API_ERRORS } from "@/lib/api/errors";
 
 export async function GET(request: NextRequest) {
   try {
-    const ctx = await getTenantSupabaseFromAuth();
+    const ctx = await getTenantSupabaseFromAuth(request);
     if (!ctx) {
       return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
     }

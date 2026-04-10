@@ -17,6 +17,8 @@ export type ApiAuthContext = {
   user: User;
   /** null solo cuando forDataSchemaEndpoint y super_admin sin empresa. */
   empresa_id: string | null;
+  /** PK `zentra_erp.usuarios.id` cuando se resolvió la fila (service role o RLS). */
+  usuarioCatalogId?: string | null;
   /** Cliente anon + JWT del usuario (cookies o Bearer). PostgREST respeta RLS en zentra_erp. */
   userScopedSupabase: AppSupabaseClient;
   usuarioRol?: string | null;
@@ -53,6 +55,7 @@ async function resolveBearerToken(request?: Request | null): Promise<BearerResol
 }
 
 type UsuarioRow = {
+  id?: string;
   empresa_id?: string | null;
   rol?: string | null;
   nombre?: string | null;
@@ -142,7 +145,7 @@ export async function resolveApiAuthContext(
     if (user.id) {
       const { data: byId, error: e1 } = await sr
         .from("usuarios")
-        .select("empresa_id, rol, nombre")
+        .select("id, empresa_id, rol, nombre")
         .eq("auth_user_id", user.id)
         .limit(1);
       if (e1) lastUsuarioErr = e1.message;
@@ -152,7 +155,7 @@ export async function resolveApiAuthContext(
       for (const em of usuarioEmailLookupVariants(user.email)) {
         const { data: rows, error: uErr } = await sr
           .from("usuarios")
-          .select("empresa_id, rol, nombre")
+          .select("id, empresa_id, rol, nombre")
           .ilike("email", em)
           .limit(1);
         if (uErr) {
@@ -169,7 +172,7 @@ export async function resolveApiAuthContext(
     if (user.id) {
       const { data: byId, error: e1 } = await userScopedSupabase
         .from("usuarios")
-        .select("empresa_id, rol, nombre")
+        .select("id, empresa_id, rol, nombre")
         .eq("auth_user_id", user.id)
         .limit(1);
       if (e1) lastUsuarioErr = e1.message;
@@ -179,7 +182,7 @@ export async function resolveApiAuthContext(
       for (const em of usuarioEmailLookupVariants(user.email)) {
         const { data: rows, error: uErr } = await userScopedSupabase
           .from("usuarios")
-          .select("empresa_id, rol, nombre")
+          .select("id, empresa_id, rol, nombre")
           .ilike("email", em)
           .limit(1);
         if (uErr) {
@@ -205,6 +208,7 @@ export async function resolveApiAuthContext(
   const empresa_id = row.empresa_id ?? null;
   const usuarioRol = row.rol ?? null;
   const usuarioNombre = row.nombre ?? null;
+  const usuarioCatalogId = typeof row.id === "string" ? row.id : null;
 
   if (empresa_id) {
     return {
@@ -212,6 +216,7 @@ export async function resolveApiAuthContext(
       ctx: {
         user,
         empresa_id,
+        usuarioCatalogId,
         userScopedSupabase,
         usuarioRol,
         usuarioNombre,
@@ -225,6 +230,7 @@ export async function resolveApiAuthContext(
       ctx: {
         user,
         empresa_id: null,
+        usuarioCatalogId,
         userScopedSupabase,
         usuarioRol,
         usuarioNombre,

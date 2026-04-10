@@ -5,11 +5,11 @@ import { getAuthWithRol } from "@/lib/middleware/auth";
 const VALID_NODE_TYPES = ["buttons", "list", "text", "media", "image_input", "human", "end"] as const;
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   context: { params: Promise<{ flowCode: string; nodeCode: string }> }
 ) {
   try {
-    const auth = await getAuthWithRol();
+    const auth = await getAuthWithRol(request);
     if (!auth?.empresa_id) {
       return NextResponse.json({ ok: false, error: "No autenticado" }, { status: 401 });
     }
@@ -102,7 +102,7 @@ export async function PATCH(
   context: { params: Promise<{ flowCode: string; nodeCode: string }> }
 ) {
   try {
-    const auth = await getAuthWithRol();
+    const auth = await getAuthWithRol(request);
     if (!auth?.empresa_id) {
       return NextResponse.json({ ok: false, error: "No autenticado" }, { status: 401 });
     }

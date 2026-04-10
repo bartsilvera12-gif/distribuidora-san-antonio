@@ -11,11 +11,11 @@ import { getTenantSupabaseFromAuthWithRol } from "@/lib/supabase/tenant-api";
  * bloqueos duros (ventas / tipificaciones).
  */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const ctx = await getTenantSupabaseFromAuthWithRol();
+    const ctx = await getTenantSupabaseFromAuthWithRol(request);
     if (!ctx) {
       return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
     }

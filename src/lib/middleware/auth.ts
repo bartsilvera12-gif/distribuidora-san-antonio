@@ -4,6 +4,8 @@ import { resolveApiAuthContext } from "@/lib/middleware/api-auth-context";
 export interface UsuarioConEmpresa {
   user: User;
   empresa_id: string;
+  /** PK `zentra_erp.usuarios.id` cuando se resolvió la fila. */
+  usuarioCatalogId?: string | null;
 }
 
 export interface UsuarioConEmpresaYRol extends UsuarioConEmpresa {
@@ -37,8 +39,8 @@ export function isAdmin(auth: UsuarioConEmpresaYRol | null): boolean {
 
 /**
  * Obtiene el usuario autenticado y su empresa_id.
- * Requerido para todas las rutas API multiempresa.
- * No exige SUPABASE_SERVICE_ROLE_KEY: usa anon + sesión (cookies o Bearer) y RLS.
+ * Requerido para rutas API multiempresa. Misma resolución de catálogo que `getAuthWithRol` / `resolveApiAuthContext`.
+ * Para `empresa_id` + `data_schema` + cliente RLS en un solo paso, usá `resolveUsuarioEmpresaContextFromAuth`.
  */
 export async function getUserAndEmpresa(request?: Request | null): Promise<UsuarioConEmpresa | null> {
   const r = await resolveApiAuthContext(request);
@@ -46,5 +48,6 @@ export async function getUserAndEmpresa(request?: Request | null): Promise<Usuar
   return {
     user: r.ctx.user,
     empresa_id: r.ctx.empresa_id,
+    usuarioCatalogId: r.ctx.usuarioCatalogId ?? null,
   };
 }

@@ -9,7 +9,7 @@ import { handleSifenEnviarPost } from "@/lib/sifen/handle-sifen-enviar-post";
  * Envía el XML firmado a SIFEN según `empresa_sifen_config.ambiente` (test | producción).
  */
 export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await getUserAndEmpresa();
+  const auth = await getUserAndEmpresa(request);
   if (!auth) {
     return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
   }

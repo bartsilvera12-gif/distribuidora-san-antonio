@@ -19,11 +19,11 @@ export type FacturaSifenResumenData = {
  * Config SIFEN (existencia/activo) + fila factura_electronica si existe (una sola ida a BD agrupada en handler).
  */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const ctx = await getTenantSupabaseFromAuth();
+    const ctx = await getTenantSupabaseFromAuth(request);
     if (!ctx) {
       return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
     }

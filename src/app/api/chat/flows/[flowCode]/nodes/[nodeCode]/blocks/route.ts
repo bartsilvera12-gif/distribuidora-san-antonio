@@ -30,11 +30,11 @@ async function resolveNodeId(
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   context: { params: Promise<{ flowCode: string; nodeCode: string }> }
 ) {
   try {
-    const auth = await getAuthWithRol();
+    const auth = await getAuthWithRol(request);
     if (!auth?.empresa_id) {
       return NextResponse.json({ ok: false, error: "No autenticado" }, { status: 401 });
     }
@@ -63,7 +63,7 @@ export async function POST(
   context: { params: Promise<{ flowCode: string; nodeCode: string }> }
 ) {
   try {
-    const auth = await getAuthWithRol();
+    const auth = await getAuthWithRol(request);
     if (!auth?.empresa_id) {
       return NextResponse.json({ ok: false, error: "No autenticado" }, { status: 401 });
     }

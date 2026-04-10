@@ -8,11 +8,11 @@ import { getTenantSupabaseFromAuthWithRol } from "@/lib/supabase/tenant-api";
  * GET /api/clientes/:id — un cliente de la empresa (mismo schema que el resto de APIs tenant).
  */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const ctx = await getTenantSupabaseFromAuthWithRol();
+    const ctx = await getTenantSupabaseFromAuthWithRol(request);
     if (!ctx) {
       return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
     }
@@ -56,7 +56,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const ctx = await getTenantSupabaseFromAuthWithRol();
+    const ctx = await getTenantSupabaseFromAuthWithRol(request);
     if (!ctx) {
       return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
     }

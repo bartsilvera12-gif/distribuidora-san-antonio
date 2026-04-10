@@ -3,11 +3,11 @@ import { getChatServiceClientForEmpresa } from "@/app/api/chat/_chat-service-cli
 import { getAuthWithRol } from "@/lib/middleware/auth";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   context: { params: Promise<{ flowCode: string }> }
 ) {
   try {
-    const auth = await getAuthWithRol();
+    const auth = await getAuthWithRol(request);
     if (!auth?.empresa_id) {
       return NextResponse.json({ ok: false, error: "No autenticado" }, { status: 401 });
     }
@@ -54,7 +54,7 @@ export async function PATCH(
   context: { params: Promise<{ flowCode: string }> }
 ) {
   try {
-    const auth = await getAuthWithRol();
+    const auth = await getAuthWithRol(request);
     if (!auth?.empresa_id) {
       return NextResponse.json({ ok: false, error: "No autenticado" }, { status: 401 });
     }

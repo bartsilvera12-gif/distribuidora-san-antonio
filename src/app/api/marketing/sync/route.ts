@@ -10,7 +10,7 @@ import { previewSyncMarketing, regenerarMesCompleto, sincronizarClientesMarketin
  */
 export async function GET(request: NextRequest) {
   try {
-    const ctx = await getTenantSupabaseFromAuthWithRol();
+    const ctx = await getTenantSupabaseFromAuthWithRol(request);
     if (!ctx?.auth?.user?.email) {
       return NextResponse.json(errorResponse("No autenticado"), { status: 401 });
     }
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const ctx = await getTenantSupabaseFromAuthWithRol();
+    const ctx = await getTenantSupabaseFromAuthWithRol(request);
     if (!ctx?.auth?.user?.email) {
       return NextResponse.json(errorResponse("No autenticado"), { status: 401 });
     }

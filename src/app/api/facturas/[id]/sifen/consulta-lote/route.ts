@@ -9,7 +9,7 @@ import { handleSifenConsultaLotePost } from "@/lib/sifen/handle-sifen-consulta-l
  * Consulta resultado de lote según ambiente en configuración SIFEN.
  */
 export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await getUserAndEmpresa();
+  const auth = await getUserAndEmpresa(request);
   if (!auth) {
     return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
   }

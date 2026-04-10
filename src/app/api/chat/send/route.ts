@@ -10,7 +10,7 @@ import { getChatServiceClientForEmpresa } from "@/app/api/chat/_chat-service-cli
  */
 export async function POST(request: NextRequest) {
   try {
-    const auth = await getAuthWithRol();
+    const auth = await getAuthWithRol(request);
     if (!auth?.empresa_id) {
       return NextResponse.json({ ok: false, error: "No autenticado" }, { status: 401 });
     }
