@@ -69,9 +69,9 @@ export async function fetchChatConversations(
       channel_id,
       flow_status,
       human_taken_over,
-      chat_channels ( id, type, nombre ),
-      chat_queues ( id, nombre ),
-      chat_agents ( id, usuario_id, queue_id, is_online, max_conversations )
+      chat_channels!chat_conversations_channel_id_fkey ( id, type, nombre ),
+      chat_queues!chat_conversations_queue_id_fkey ( id, nombre ),
+      chat_agents!chat_conversations_assigned_agent_id_fkey ( id, usuario_id, queue_id, is_online, max_conversations )
     `
     )
     .eq("empresa_id", empresa_id);
