@@ -9,11 +9,11 @@ import { signIn } from "@/lib/auth";
 export default function LoginPage() {
   const router = useRouter();
 
-  const [email,     setEmail]     = useState("");
-  const [password,  setPassword]  = useState("");
-  const [showPass,  setShowPass]  = useState(false);
-  const [error,     setError]     = useState<string | null>(null);
-  const [loading,   setLoading]   = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPass, setShowPass] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -42,30 +42,25 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex flex-col items-center justify-center px-4">
-      <div className="flex flex-col items-center w-full">
-
-        {/* Logo — más grande que el cuadro de login, cercano al formulario */}
-        <div className="mb-3 w-[min(420px,100%)]">
+    <div className="zentra-login-bg flex min-h-dvh w-full flex-col items-center justify-center overflow-x-hidden overflow-y-auto px-4 py-5 md:h-dvh md:overflow-y-hidden md:py-6">
+      <div className="flex w-full max-w-[22rem] shrink-0 flex-col items-center gap-3 sm:max-w-sm sm:gap-4">
+        <div className="w-full max-w-[13.5rem] shrink-0 sm:max-w-[15rem]">
           <Image
-            src="/neura-logo.svg"
-            alt="Neura"
-            width={420}
-            height={120}
-            className="w-full h-auto object-contain brightness-0"
+            src="/brand/zentra-logo-official.png"
+            alt="ZENTRA"
+            width={480}
+            height={264}
+            priority
+            className="h-auto w-full max-h-[4.25rem] object-contain object-center sm:max-h-[4.75rem]"
           />
         </div>
 
-        <p className="text-sm text-[#475569] mb-4">Iniciá sesión para continuar</p>
+        <p className="text-center text-sm text-sky-100/90">Iniciá sesión para continuar</p>
 
-        {/* Card */}
-        <div className="w-full max-w-sm bg-white border border-slate-200 rounded-xl shadow-sm p-8">
-          <form onSubmit={handleSubmit} className="space-y-5">
-
+        <div className="w-full rounded-2xl border border-white/20 bg-white/[0.97] p-5 shadow-[0_24px_48px_-12px_rgba(0,0,0,0.38)] backdrop-blur-md sm:p-6">
+          <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
             <div>
-              <label className="block text-sm font-medium text-[#0F172A] mb-1.5">
-                Correo electrónico
-              </label>
+              <label className="mb-1.5 block text-sm font-medium text-[#0F172A]">Correo electrónico</label>
               <input
                 type="email"
                 value={email}
@@ -73,14 +68,12 @@ export default function LoginPage() {
                 placeholder="usuario@empresa.com"
                 required
                 autoFocus
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none transition-all"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-[#0F172A] transition-all placeholder:text-slate-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-[#0F172A] mb-1.5">
-                Contraseña
-              </label>
+              <label className="mb-1.5 block text-sm font-medium text-[#0F172A]">Contraseña</label>
               <div className="relative">
                 <input
                   type={showPass ? "text" : "password"}
@@ -88,7 +81,7 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   required
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 pr-10 text-sm bg-white focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none transition-all"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 pr-10 text-sm text-[#0F172A] transition-all placeholder:text-slate-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]"
                 />
                 <button
                   type="button"
@@ -96,7 +89,7 @@ export default function LoginPage() {
                   onMouseDown={() => setShowPass(true)}
                   onMouseUp={() => setShowPass(false)}
                   onMouseLeave={() => setShowPass(false)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-[#0F172A] transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-500 transition-colors hover:text-[#0F172A]"
                   aria-label={showPass ? "Ocultar contraseña" : "Mostrar contraseña"}
                 >
                   {showPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -105,8 +98,8 @@ export default function LoginPage() {
             </div>
 
             {error && (
-              <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
-                <span>⚠</span>
+              <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700 sm:px-4 sm:py-3">
+                <span aria-hidden>⚠</span>
                 <span>{error}</span>
               </div>
             )}
@@ -114,18 +107,14 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-[#0EA5E9] hover:bg-[#0284C7] text-white rounded-lg px-4 py-2.5 font-medium transition-colors shadow-sm active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
+              className="w-full rounded-lg bg-[#0EA5E9] px-4 py-2.5 font-medium text-white shadow-sm transition-colors hover:bg-[#0284C7] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100"
             >
               {loading ? "Verificando…" : "Iniciar sesión"}
             </button>
-
           </form>
         </div>
 
-        <p className="text-center text-xs text-[#475569] mt-6">
-          Acceso restringido
-        </p>
-
+        <p className="text-center text-[11px] text-sky-200/55 sm:text-xs">Acceso restringido</p>
       </div>
     </div>
   );

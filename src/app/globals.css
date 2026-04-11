@@ -6,7 +6,16 @@
   --foreground: #0F172A;
   --foreground-muted: #475569;
   --card: #FFFFFF;
-  --sidebar: #F1F5F9;
+  /* ZENTRA — identidad lateral (azul profundo; logo oficial en blanco) */
+  --zentra-sidebar: #0a2540;
+  --zentra-sidebar-elevated: #0c2d4d;
+  --zentra-sidebar-border: rgba(255, 255, 255, 0.08);
+  --zentra-sidebar-hover: rgba(255, 255, 255, 0.08);
+  --zentra-sidebar-active: rgba(56, 189, 248, 0.16);
+  --zentra-sidebar-accent: #38bdf8;
+  --zentra-login-bg-mid: #0b2f4c;
+  --zentra-login-bg-deep: #051525;
+  --sidebar: var(--zentra-sidebar);
   --primary: #0EA5E9;
   --primary-hover: #0284C7;
   --primary-light: #E0F2FE;
@@ -25,7 +34,8 @@
   --foreground: #F8FAFC;
   --foreground-muted: #94A3B8;
   --card: #1E293B;
-  --sidebar: #020617;
+  /* Lateral ERP: misma identidad ZENTRA en modo oscuro */
+  --sidebar: var(--zentra-sidebar);
   --primary: #38BDF8;
   --primary-hover: #0EA5E9;
   --primary-light: #0C4A6E;
@@ -51,6 +61,13 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-plus-jakarta), system-ui, sans-serif;
+}
+
+/* Fondo pantalla login (solo layout visual) */
+.zentra-login-bg {
+  background:
+    radial-gradient(ellipse 100% 70% at 50% 0%, rgba(56, 189, 248, 0.14), transparent 52%),
+    linear-gradient(168deg, var(--zentra-login-bg-mid) 0%, var(--zentra-sidebar) 42%, var(--zentra-login-bg-deep) 100%);
 }
 
 

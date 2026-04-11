@@ -133,8 +133,8 @@ function NavItem({
   if (item.children) {
     const rowTone =
       isActive || childActive
-        ? "bg-[#0EA5E9] text-white"
-        : "text-slate-700 hover:bg-[#E2E8F0]";
+        ? "bg-[color:var(--zentra-sidebar-active)] text-white shadow-[inset_3px_0_0_var(--zentra-sidebar-accent)]"
+        : "text-slate-200 hover:bg-[color:var(--zentra-sidebar-hover)]";
     return (
       <div className="space-y-0.5">
         <div className={`flex items-center gap-0.5 rounded-lg text-sm font-medium transition-colors ${rowTone}`}>
@@ -143,7 +143,7 @@ function NavItem({
             className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5"
             title={item.label}
           >
-            <Icon className={`h-5 w-5 shrink-0 ${isActive || childActive ? "text-white" : "text-slate-500"}`} />
+            <Icon className={`h-5 w-5 shrink-0 ${isActive || childActive ? "text-white" : "text-slate-400"}`} />
             {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
           </Link>
           {!collapsed && (
@@ -151,7 +151,7 @@ function NavItem({
               <button
                 type="button"
                 onClick={() => onToggleFavorito(itemId)}
-                className={`shrink-0 rounded p-0.5 ${isFavorito ? "text-amber-400" : "text-slate-400 hover:text-amber-400"}`}
+                className={`shrink-0 rounded p-0.5 ${isFavorito ? "text-amber-300" : "text-slate-500 hover:text-amber-300"}`}
                 aria-label="Favorito"
               >
                 <Star className={`h-4 w-4 ${isFavorito ? "fill-current" : ""}`} />
@@ -182,8 +182,8 @@ function NavItem({
                   href={c.href}
                   className={`block rounded-lg px-3 py-2 text-sm transition-all ${
                     menuChildPathActive(p, c.href, c.exactMatch)
-                      ? "bg-[#0EA5E9] text-white font-medium"
-                      : "text-slate-600 hover:bg-[#E2E8F0]"
+                      ? "bg-[color:var(--zentra-sidebar-active)] text-white font-medium shadow-[inset_3px_0_0_var(--zentra-sidebar-accent)]"
+                      : "text-slate-300 hover:bg-[color:var(--zentra-sidebar-hover)]"
                   }`}
                 >
                   {c.label}
@@ -201,11 +201,11 @@ function NavItem({
       href={item.href}
       className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
         isActive
-          ? "bg-[#0EA5E9] text-white"
-          : "text-slate-700 hover:bg-[#E2E8F0]"
+          ? "bg-[color:var(--zentra-sidebar-active)] text-white shadow-[inset_3px_0_0_var(--zentra-sidebar-accent)]"
+          : "text-slate-200 hover:bg-[color:var(--zentra-sidebar-hover)]"
       }`}
     >
-      <Icon className={`h-5 w-5 shrink-0 ${isActive ? "text-white" : "text-slate-500"}`} />
+      <Icon className={`h-5 w-5 shrink-0 ${isActive ? "text-white" : "text-slate-400"}`} />
       {!collapsed && (
         <>
           <span className="flex-1 truncate">{item.label}</span>
@@ -213,7 +213,7 @@ function NavItem({
             type="button"
             onClick={(e) => { e.preventDefault(); onToggleFavorito(itemId); }}
             className={`rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 ${
-              isFavorito ? "opacity-100 text-amber-500" : "text-slate-500 hover:text-amber-500"
+              isFavorito ? "opacity-100 text-amber-300" : "text-slate-500 hover:text-amber-300"
             }`}
           >
             <Star className={`h-4 w-4 ${isFavorito ? "fill-current" : ""}`} />
@@ -352,18 +352,21 @@ export default function Sidebar() {
       initial={false}
       animate={{ width: collapsed ? 80 : 260 }}
       transition={{ duration: 0.2 }}
-      className="flex h-svh min-h-0 shrink-0 flex-col border-r border-slate-200 bg-[#F1F5F9]"
+      className="flex h-svh min-h-0 shrink-0 flex-col border-r border-[color:var(--zentra-sidebar-border)] bg-[color:var(--zentra-sidebar)]"
     >
-      {/* Logo — casi del tamaño de la sección lateral, sin texto duplicado */}
-      <div className="flex h-36 shrink-0 items-center justify-between gap-2 border-b border-slate-200 px-3 py-3">
+      {/* Logo oficial ZENTRA (blanco sobre azul marca) */}
+      <div className="flex h-[7.25rem] shrink-0 items-center justify-between gap-2 border-b border-[color:var(--zentra-sidebar-border)] bg-[color:var(--zentra-sidebar-elevated)]/35 px-3 py-2.5">
         <Link href="/" className={`flex items-center justify-center min-w-0 flex-1 overflow-hidden`}>
-          <div className={`relative flex items-center justify-center ${collapsed ? "h-14 w-14" : "h-28 w-full max-w-[240px]"}`}>
+          <div
+            className={`relative flex items-center justify-center ${collapsed ? "h-11 w-11" : "h-[4.5rem] w-full max-w-[200px]"}`}
+          >
             <Image
-              src="/neura-logo.svg"
-              alt="Neura"
-              width={240}
-              height={120}
-              className="h-full w-full object-contain object-center brightness-0"
+              src="/brand/zentra-logo-official.png"
+              alt="ZENTRA"
+              width={400}
+              height={220}
+              sizes={collapsed ? "44px" : "200px"}
+              className="h-full w-full object-contain object-center"
               priority
             />
           </div>
@@ -371,7 +374,7 @@ export default function Sidebar() {
         <button
           type="button"
           onClick={() => setCollapsed(!collapsed)}
-          className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-[#E2E8F0] hover:text-slate-700"
+          className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-[color:var(--zentra-sidebar-hover)] hover:text-white"
           aria-label={collapsed ? "Expandir sidebar" : "Colapsar sidebar"}
         >
           {collapsed ? <PanelLeft className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
@@ -382,7 +385,7 @@ export default function Sidebar() {
         {/* Favoritos */}
         {favoritos.length > 0 && !collapsed && (
           <div className="mb-4">
-            <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-[#475569]">★ Favoritos</p>
+            <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500">★ Favoritos</p>
             <div className="space-y-0.5">
               {MENU_STRUCTURE.filter((item) => favoritos.includes(slugToId(item.slug))).map((item) => (
                 <NavItem
@@ -408,7 +411,7 @@ export default function Sidebar() {
             <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500">General</p>
           )}
           {cargando ? (
-            <div className="px-3 py-2 text-sm text-[#475569] animate-pulse">Cargando…</div>
+            <div className="px-3 py-2 text-sm text-slate-500 animate-pulse">Cargando…</div>
           ) : (
             MENU_STRUCTURE.filter((item) => !favoritos.includes(slugToId(item.slug))).map((item) => (
               <NavItem
@@ -429,16 +432,16 @@ export default function Sidebar() {
 
         {/* Admin */}
         {esSuperAdmin && (
-          <div className="mt-6 pt-4 border-t border-slate-200">
+          <div className="mt-6 pt-4 border-t border-[color:var(--zentra-sidebar-border)]">
             {!collapsed && (
-              <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-[#475569]">Admin</p>
+              <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Admin</p>
             )}
             <Link
               href="/admin/empresas"
               className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
                 (pathname ?? "").startsWith("/admin/empresas")
-                  ? "bg-[#0EA5E9] text-white"
-                  : "text-amber-600 hover:bg-[#E2E8F0]"
+                  ? "bg-[color:var(--zentra-sidebar-active)] text-amber-100 shadow-[inset_3px_0_0_var(--zentra-sidebar-accent)]"
+                  : "text-amber-300/95 hover:bg-[color:var(--zentra-sidebar-hover)]"
               }`}
             >
               <Building2 className="h-5 w-5 shrink-0" />

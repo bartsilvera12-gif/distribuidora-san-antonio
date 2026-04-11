@@ -33,7 +33,7 @@ export default function Header() {
   }, []);
 
   return (
-    <header className="z-40 flex h-16 shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-6">
+    <header className="z-40 flex h-16 shrink-0 items-center justify-between gap-4 border-b border-slate-200/90 bg-white/95 px-6 shadow-[inset_0_-1px_0_0_rgba(10,37,64,0.05)] backdrop-blur-sm">
       {/* Buscador global */}
       <div className="flex flex-1 max-w-md">
         <div className="relative w-full">
@@ -98,7 +98,7 @@ export default function Header() {
             onClick={() => setUserMenuOpen(!userMenuOpen)}
             className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 transition-colors hover:bg-slate-100"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#0EA5E9] text-white shrink-0">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[color:var(--zentra-sidebar)] text-white ring-1 ring-sky-400/35">
               <User className="h-4 w-4" />
             </div>
             <div className="hidden text-left sm:block">
