@@ -3,7 +3,8 @@ import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import { emitEvent, EVENT_TYPES } from "@/lib/integrations/events";
-import { fechaMasDiasCalendario, toCalendarDateStr } from "@/lib/fechas/calendario";
+import { fechaMasDiasCalendario, fechaVencimientoSuscripcion, toCalendarDateStr } from "@/lib/fechas/calendario";
+import { montosFacturaItemParaInsert } from "@/lib/facturacion/factura-item-montos";
 
 
 export async function GET(request: NextRequest) {
@@ -48,13 +49,22 @@ export async function POST(request: NextRequest) {
     }
     const { auth, supabase } = ctx;
 
-    const body = await request.json();
-    const { cliente_id, numero_factura, fecha, fecha_vencimiento, monto, tipo, moneda } = body;
+    const body = (await request.json()) as Record<string, unknown>;
+    const cliente_id = body.cliente_id;
+    const numero_factura = body.numero_factura;
+    const fecha = body.fecha;
+    const fecha_vencimiento = body.fecha_vencimiento;
+    const monto = body.monto;
+    const tipo = body.tipo;
+    const moneda = body.moneda;
+    const descripcion_linea =
+      typeof body.descripcion_linea === "string" ? body.descripcion_linea.trim() : "";
+    const dia_vencimiento_susc = Number(body.dia_vencimiento);
 
-    if (!cliente_id?.trim()) {
+    if (!String(cliente_id ?? "").trim()) {
       return NextResponse.json(errorResponse("cliente_id es obligatorio"), { status: 400 });
     }
-    if (!numero_factura?.trim()) {
+    if (!String(numero_factura ?? "").trim()) {
       return NextResponse.json(errorResponse("numero_factura es obligatorio"), { status: 400 });
     }
     if (!fecha) {
@@ -64,13 +74,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(errorResponse("monto debe ser >= 0"), { status: 400 });
     }
 
-    const tipoFac = tipo === "contado" || tipo === "credito" || tipo === "suscripcion" ? tipo : "credito";
+    const tipoStr = typeof tipo === "string" ? tipo.toLowerCase() : "";
+    const tipoFac: "contado" | "credito" | "suscripcion" =
+      tipoStr === "contado" || tipoStr === "credito" || tipoStr === "suscripcion" ? tipoStr : "credito";
     const fechaNorm = toCalendarDateStr(String(fecha)) || String(fecha).slice(0, 10);
     let fechaVenc: string;
-    if (fecha_vencimiento) {
-      fechaVenc = toCalendarDateStr(String(fecha_vencimiento)) || String(fecha_vencimiento).slice(0, 10);
+    if (fecha_vencimiento != null && String(fecha_vencimiento).trim() !== "") {
+      fechaVenc =
+        toCalendarDateStr(String(fecha_vencimiento)) || String(fecha_vencimiento).slice(0, 10);
     } else if (tipoFac === "contado") {
       fechaVenc = fechaNorm;
+    } else if (tipoFac === "suscripcion") {
+      /** Misma regla que emitir suscripción: día de vencimiento en el mes de emisión o mes siguiente si ya pasó. */
+      const diaV = Math.min(31, Math.max(1, Number.isFinite(dia_vencimiento_susc) ? dia_vencimiento_susc : 10));
+      fechaVenc = fechaVencimientoSuscripcion(fechaNorm, diaV);
     } else if (tipoFac === "credito") {
       const diasCred = Number(process.env.FACTURA_DIAS_CREDITO_DEFAULT ?? 30);
       fechaVenc = fechaMasDiasCalendario(fechaNorm, Number.isFinite(diasCred) ? diasCred : 30);
@@ -79,8 +96,8 @@ export async function POST(request: NextRequest) {
     }
     const insert = {
       empresa_id: auth.empresa_id,
-      cliente_id: cliente_id.trim(),
-      numero_factura: numero_factura.trim(),
+      cliente_id: String(cliente_id).trim(),
+      numero_factura: String(numero_factura).trim(),
       fecha: fechaNorm,
       fecha_vencimiento: fechaVenc,
       monto: Number(monto),
@@ -98,6 +115,29 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       return NextResponse.json(errorResponse(error.message), { status: 400 });
+    }
+
+    if (descripcion_linea && data?.id) {
+      const mon = insert.moneda;
+      const lineaUi = montosFacturaItemParaInsert({
+        totalLinea: Number(monto),
+        moneda: mon,
+        cantidad: 1,
+        precioUnitario: Number(monto),
+      });
+      const { error: errItem } = await supabase.from("factura_items").insert({
+        factura_id: data.id,
+        empresa_id: auth.empresa_id,
+        descripcion: descripcion_linea,
+        cantidad: 1,
+        precio_unitario: lineaUi.precio_unitario,
+        subtotal: lineaUi.subtotal,
+        iva: lineaUi.iva,
+        total: lineaUi.total,
+      });
+      if (errItem) {
+        console.error("[api/facturas POST] factura_items:", errItem.message);
+      }
     }
 
     console.log("[API] About to emit event");

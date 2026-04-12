@@ -122,7 +122,7 @@ export async function POST(
         .from("planes")
         .select("nombre")
         .eq("id", suscripcion.plan_id)
-        .single();
+        .maybeSingle();
       if (plan?.nombre) planNombre = plan.nombre;
     }
     const linea = montosFacturaItemParaInsert({

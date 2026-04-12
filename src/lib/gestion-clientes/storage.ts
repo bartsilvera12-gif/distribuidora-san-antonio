@@ -82,7 +82,11 @@ export async function getFacturas(clienteId?: string): Promise<Factura[]> {
     }
     const json = (await res.json()) as { success?: boolean; data?: unknown };
     if (!json.success || !Array.isArray(json.data)) return [];
-    return (json.data as FacturaRow[]).map(rowToFactura);
+    const rows = (json.data as FacturaRow[]).map(rowToFactura);
+    if (process.env.NODE_ENV === "development" && clienteId) {
+      console.info("[gestion-clientes] getFacturas", { clienteId, count: rows.length });
+    }
+    return rows;
   } catch (e) {
     console.error("[gestion-clientes] getFacturas:", e);
     return [];

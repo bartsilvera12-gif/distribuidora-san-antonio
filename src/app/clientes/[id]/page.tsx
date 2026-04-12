@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   addNotaCliente,
   clienteNombre,
@@ -24,7 +24,6 @@ import { getUsuariosActivosEmpresa } from "@/lib/usuarios/empresa";
 import { apiCreateFactura, apiCreatePago, apiCreateSuscripcion } from "@/lib/api/client";
 import { getConfig, saveConfig } from "@/lib/config/storage";
 import { getCurrentUser } from "@/lib/auth";
-import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
 import { SifenEstadoBadge } from "@/components/sifen/SifenEstadoBadge";
 import { useFacturaSifenEstados } from "@/hooks/useFacturaSifenEstados";
 import MontoInput from "@/components/ui/MontoInput";
@@ -36,8 +35,6 @@ import type { Suscripcion } from "@/lib/facturacion/types";
 import type { Plan } from "@/lib/planes/types";
 import type { MarketingTask } from "@/lib/marketing/types";
 import { TIPOS_CONTENIDO, ESTADOS_TASK } from "@/lib/marketing/types";
-import { montosFacturaItemParaInsert } from "@/lib/facturacion/factura-item-montos";
-
 // ── Estilos ────────────────────────────────────────────────────────────────────
 
 const inputClass =
@@ -189,8 +186,15 @@ export default function ClienteDetailPage() {
   const [facturaPago, setFacturaPago] = useState<Factura | null>(null);
   const [formPago, setFormPago] = useState({ factura_id: "" as string, monto: "", fecha_pago: "", metodo_pago: "efectivo" as const, referencia: "" });
   const [guardandoPago, setGuardandoPago] = useState(false);
+  const [modalFacturaContado, setModalFacturaContado] = useState(false);
+  const [formFacturaContado, setFormFacturaContado] = useState({ monto: "", descripcion: "Venta al contado" });
+  const [guardandoFacturaContado, setGuardandoFacturaContado] = useState(false);
 
   const sifenPorFactura = useFacturaSifenEstados(facturas.map((f) => f.id));
+  const suscripcionActiva = useMemo(
+    () => suscripciones.find((s) => s.estado === "activa") ?? null,
+    [suscripciones]
+  );
 
   const cargar = useCallback(async () => {
     setCargandoCliente(true);
@@ -202,6 +206,9 @@ export default function ClienteDetailPage() {
       const c = await getCliente(id);
       if (!c) {
         setCliente(null);
+        setPlanes([]);
+        setSuscripciones([]);
+        setFacturas([]);
         setNotFound(true);
         if (process.env.NODE_ENV === "development") console.warn("[cliente detalle] getCliente null", { id });
         return;
@@ -233,11 +240,24 @@ export default function ClienteDetailPage() {
         tipo_servicio_cliente: c.tipo_servicio_cliente ?? "",
         estado:               c.estado,
       });
-      if (process.env.NODE_ENV === "development") console.info("[cliente detalle] cargar ok", { id });
+      const [planesL, susL, facL] = await Promise.all([
+        getPlanes(),
+        getSuscripciones(id),
+        getFacturas(id),
+      ]);
+      setPlanes(planesL);
+      setSuscripciones(susL);
+      setFacturas(facL);
+      if (process.env.NODE_ENV === "development") {
+        console.info("[cliente detalle] cargar ok", { id, planes: planesL.length, suscripciones: susL.length, facturas: facL.length });
+      }
     } catch (e) {
       console.error("[cliente detalle] cargar excepción", { id, e });
       setErrorCarga(e instanceof Error ? e.message : "Error al cargar el cliente");
       setCliente(null);
+      setPlanes([]);
+      setSuscripciones([]);
+      setFacturas([]);
       setNotFound(false);
     } finally {
       setCargandoCliente(false);
@@ -261,16 +281,15 @@ export default function ClienteDetailPage() {
   }, []);
 
   useEffect(() => {
-    if (id && (activeTab === "suscripciones" || activeTab === "estado_cuenta" || activeTab === "marketing")) {
-      if (activeTab === "suscripciones") {
-        getSuscripciones(id).then(setSuscripciones);
-        getPlanes().then(setPlanes);
-      } else if (activeTab === "estado_cuenta") {
-        getFacturas(id).then(setFacturas);
-      } else if (activeTab === "marketing") {
-        getMarketingTasks(id).then(setMarketingTasks);
-        getUsuariosActivosEmpresa().then(setUsuariosEmpresa);
-      }
+    if (!id.trim()) return;
+    if (activeTab === "marketing") {
+      getMarketingTasks(id).then(setMarketingTasks);
+      getUsuariosActivosEmpresa().then(setUsuariosEmpresa);
+    }
+    if (activeTab === "estado_cuenta" || activeTab === "suscripciones") {
+      getFacturas(id).then(setFacturas);
+      getSuscripciones(id).then(setSuscripciones);
+      getPlanes().then(setPlanes);
     }
   }, [id, activeTab]);
 
@@ -361,28 +380,9 @@ export default function ClienteDetailPage() {
           monto,
           tipo: "contado",
           moneda: form.moneda_preferida,
+          descripcion_linea: formContadoEdit.descripcion.trim() || "Venta al contado",
         });
         if (factura) {
-          const usuario = await getCurrentUser();
-          if (usuario?.empresa_id) {
-            const lineaUi = montosFacturaItemParaInsert({
-              totalLinea: monto,
-              moneda: form.moneda_preferida,
-              cantidad: 1,
-              precioUnitario: monto,
-            });
-            const sb = await getBrowserSupabaseForEmpresaData();
-            await sb.from("factura_items").insert({
-              factura_id: factura.id,
-              empresa_id: usuario.empresa_id,
-              descripcion: formContadoEdit.descripcion.trim() || "Venta al contado",
-              cantidad: 1,
-              precio_unitario: lineaUi.precio_unitario,
-              subtotal: lineaUi.subtotal,
-              iva: lineaUi.iva,
-              total: lineaUi.total,
-            });
-          }
           saveConfig({ ...config, numeracion_inicial: config.numeracion_inicial + 1 });
         }
         getFacturas(id).then(setFacturas);
@@ -544,6 +544,52 @@ export default function ClienteDetailPage() {
     }
   }
 
+  function abrirRegistrarPago() {
+    setActiveTab("estado_cuenta");
+    const conSaldo = facturas.filter((f) => f.saldo > 0);
+    const primera = conSaldo[0];
+    if (!primera) return;
+    setFacturaPago(null);
+    setFormPago({
+      factura_id: primera.id,
+      monto: String(primera.saldo),
+      fecha_pago: new Date().toISOString().slice(0, 10),
+      metodo_pago: "efectivo",
+      referencia: "",
+    });
+    setModalPago(true);
+  }
+
+  async function emitirFacturaContadoDesdeModal() {
+    const monto = parseFloat(formFacturaContado.monto) || 0;
+    if (monto <= 0 || !cliente) return;
+    setGuardandoFacturaContado(true);
+    try {
+      const config = getConfig();
+      const hoy = new Date().toISOString().slice(0, 10);
+      const numeroFactura = `${config.prefijo_factura}${String(config.numeracion_inicial).padStart(6, "0")}`;
+      const factura = await apiCreateFactura({
+        cliente_id: id,
+        numero_factura: numeroFactura,
+        fecha: hoy,
+        fecha_vencimiento: hoy,
+        monto,
+        tipo: "contado",
+        moneda: cliente.moneda_preferida ?? "GS",
+        descripcion_linea: formFacturaContado.descripcion.trim() || "Venta al contado",
+      });
+      if (factura) {
+        saveConfig({ ...config, numeracion_inicial: config.numeracion_inicial + 1 });
+        setModalFacturaContado(false);
+        setFormFacturaContado({ monto: "", descripcion: "Venta al contado" });
+        setActiveTab("estado_cuenta");
+        getFacturas(id).then(setFacturas);
+      }
+    } finally {
+      setGuardandoFacturaContado(false);
+    }
+  }
+
   if (cargandoCliente) {
     return (
       <div className="max-w-5xl py-24 flex flex-col items-center justify-center gap-2 text-slate-500">
@@ -677,14 +723,57 @@ export default function ClienteDetailPage() {
               )}
             </div>
           </div>
+          <div className="mt-4 pt-4 border-t border-white/15 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setFormSusc({
+                  plan_id: "",
+                  precio: "",
+                  fecha_inicio: new Date().toISOString().slice(0, 10),
+                  duracion_meses: "12",
+                  dia_facturacion: "1",
+                  dia_vencimiento: "10",
+                  generar_factura_este_mes: false,
+                });
+                setModalSuscripcion(true);
+              }}
+              className="text-xs font-medium bg-white/15 hover:bg-white/25 text-white border border-white/30 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              Nueva suscripción
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setFormFacturaContado({ monto: "", descripcion: "Venta al contado" });
+                setModalFacturaContado(true);
+              }}
+              className="text-xs font-medium bg-white/15 hover:bg-white/25 text-white border border-white/30 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              Factura al contado
+            </button>
+            <button
+              type="button"
+              onClick={abrirRegistrarPago}
+              className="text-xs font-medium bg-white/15 hover:bg-white/25 text-white border border-white/30 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              Registrar pago
+            </button>
+          </div>
         </div>
 
         {/* Estadísticas rápidas */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 divide-x divide-gray-100 border-t border-gray-100">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 divide-x divide-gray-100 border-t border-gray-100">
           {[
             { label: "Origen",        value: cliente.origen                                     },
             { label: "Tipo servicio", value: cliente.tipo_servicio_cliente ? cliente.tipo_servicio_cliente.charAt(0).toUpperCase() + cliente.tipo_servicio_cliente.slice(1) : "—" },
             { label: "Condición",    value: cliente.condicion_pago  ?? "—"                     },
+            {
+              label: "Plan activo",
+              value: suscripcionActiva
+                ? `${planes.find((p) => p.id === suscripcionActiva.plan_id)?.nombre ?? suscripcionActiva.plan_nombre ?? "Plan"} (${suscripcionActiva.moneda})`
+                : "—",
+            },
             { label: "Moneda",       value: cliente.moneda_preferida ?? "GS"                    },
             { label: "Vendedor",     value: cliente.vendedor_asignado ?? "—"                   },
             { label: "Creado por",   value: cliente.created_by_nombre ?? cliente.created_by_user_id ?? "—" },
@@ -1085,6 +1174,26 @@ export default function ClienteDetailPage() {
               <section className="space-y-4">
                 <SectionTitle>Datos comerciales</SectionTitle>
 
+                {suscripcionActiva && (
+                  <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/90">
+                    <p className="text-xs font-semibold text-emerald-800 uppercase tracking-wide">Plan mensual activo</p>
+                    <p className="text-sm text-emerald-950 mt-1">
+                      <span className="font-semibold">
+                        {planes.find((p) => p.id === suscripcionActiva.plan_id)?.nombre ??
+                          suscripcionActiva.plan_nombre ??
+                          "Plan"}
+                      </span>
+                      {" · "}
+                      {suscripcionActiva.moneda === "USD" ? "U$S " : "Gs. "}
+                      {suscripcionActiva.precio.toLocaleString("es-PY")}
+                      {" · facturación día "}
+                      {suscripcionActiva.dia_facturacion}
+                      {" · vencimiento día "}
+                      {suscripcionActiva.dia_vencimiento}
+                    </p>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-3 gap-4">
                   <div>
                     <label className={labelClass}>Condición de pago</label>
@@ -1287,27 +1396,39 @@ export default function ClienteDetailPage() {
           {/* ── ESTADO DE CUENTA ─────────────────────────────────────────── */}
           {activeTab === "estado_cuenta" && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <SectionTitle>Facturas del cliente</SectionTitle>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const conSaldo = facturas.filter((f) => f.saldo > 0);
-                    const primera = conSaldo[0];
-                    setFacturaPago(null);
-                    setFormPago({
-                      factura_id: primera?.id ?? "",
-                      monto: primera ? String(primera.saldo) : "",
-                      fecha_pago: new Date().toISOString().slice(0, 10),
-                      metodo_pago: "efectivo",
-                      referencia: "",
-                    });
-                    setModalPago(true);
-                  }}
-                  className="text-sm font-medium text-[#0EA5E9] hover:text-[#0284C7]"
-                >
-                  Registrar pago
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormFacturaContado({ monto: "", descripcion: "Venta al contado" });
+                      setModalFacturaContado(true);
+                    }}
+                    className="text-sm font-medium border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 px-3 py-1.5 rounded-lg"
+                  >
+                    Emitir factura al contado
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const conSaldo = facturas.filter((f) => f.saldo > 0);
+                      const primera = conSaldo[0];
+                      setFacturaPago(null);
+                      setFormPago({
+                        factura_id: primera?.id ?? "",
+                        monto: primera ? String(primera.saldo) : "",
+                        fecha_pago: new Date().toISOString().slice(0, 10),
+                        metodo_pago: "efectivo",
+                        referencia: "",
+                      });
+                      setModalPago(true);
+                    }}
+                    className="text-sm font-medium text-[#0EA5E9] hover:text-[#0284C7]"
+                  >
+                    Registrar pago
+                  </button>
+                </div>
               </div>
               {facturas.length === 0 ? (
                 <p className="text-sm text-gray-400 py-8 text-center">No hay facturas registradas.</p>
@@ -1372,7 +1493,7 @@ export default function ClienteDetailPage() {
           {activeTab === "suscripciones" && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <SectionTitle>Suscripciones activas</SectionTitle>
+                <SectionTitle>Suscripciones</SectionTitle>
                 <button
                   type="button"
                   onClick={() => { setFormSusc({ plan_id: "", precio: "", fecha_inicio: new Date().toISOString().slice(0, 10), duracion_meses: "12", dia_facturacion: "1", dia_vencimiento: "10", generar_factura_este_mes: false }); setModalSuscripcion(true); }}
@@ -1388,7 +1509,7 @@ export default function ClienteDetailPage() {
                   <table className="w-full text-sm">
                     <thead className="bg-slate-50">
                       <tr>
-                        {["Plan", "Precio", "Fecha inicio", "Duración", "Estado"].map((h) => (
+                        {["Plan", "Precio", "Moneda", "Inicio", "Meses", "Día fact.", "Día venc.", "Estado"].map((h) => (
                           <th key={h} className="text-left text-xs font-semibold text-slate-600 px-4 py-3">{h}</th>
                         ))}
                       </tr>
@@ -1399,9 +1520,12 @@ export default function ClienteDetailPage() {
                           <td className="px-4 py-3 font-medium text-slate-800">
                             {planes.find((p) => p.id === s.plan_id)?.nombre ?? s.plan_nombre ?? "—"}
                           </td>
-                          <td className="px-4 py-3 text-slate-600">Gs. {s.precio.toLocaleString("es-PY")}</td>
+                          <td className="px-4 py-3 text-slate-600">{s.precio.toLocaleString("es-PY")}</td>
+                          <td className="px-4 py-3 text-slate-600">{s.moneda}</td>
                           <td className="px-4 py-3 text-slate-600">{formatFecha(s.fecha_inicio)}</td>
-                          <td className="px-4 py-3 text-slate-600">{s.duracion_meses} meses</td>
+                          <td className="px-4 py-3 text-slate-600">{s.duracion_meses}</td>
+                          <td className="px-4 py-3 text-slate-600">{s.dia_facturacion}</td>
+                          <td className="px-4 py-3 text-slate-600">{s.dia_vencimiento}</td>
                           <td className="px-4 py-3">
                             <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
                               s.estado === "activa" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"
@@ -1550,6 +1674,64 @@ export default function ClienteDetailPage() {
         </div>
       </div>
 
+      {/* Modal factura al contado (nueva compra sin suscripción) */}
+      {modalFacturaContado && cliente && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          onClick={() => setModalFacturaContado(false)}
+        >
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-800 mb-1">Nueva factura al contado</h3>
+            <p className="text-xs text-slate-500 mb-4">
+              Compra puntual: no crea suscripción. El ítem se guarda en el servidor junto con la factura.
+            </p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void emitirFacturaContadoDesdeModal();
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className={labelClass}>Monto ({cliente.moneda_preferida === "USD" ? "USD" : "Gs."})</label>
+                <MontoInput
+                  value={formFacturaContado.monto}
+                  onChange={(n) => setFormFacturaContado((p) => ({ ...p, monto: String(n) }))}
+                  className={inputClass}
+                  decimals={cliente.moneda_preferida === "USD"}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Descripción (línea de factura)</label>
+                <input
+                  type="text"
+                  value={formFacturaContado.descripcion}
+                  onChange={(e) => setFormFacturaContado((p) => ({ ...p, descripcion: e.target.value }))}
+                  className={inputClass}
+                  placeholder="Venta al contado"
+                />
+              </div>
+              <div className="flex gap-2 justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => setModalFacturaContado(false)}
+                  className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={guardandoFacturaContado || !formFacturaContado.monto.trim()}
+                  className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40"
+                >
+                  {guardandoFacturaContado ? "Guardando…" : "Emitir factura"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Modal Nueva suscripción */}
       {modalSuscripcion && cliente && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setModalSuscripcion(false)}>
@@ -1563,7 +1745,7 @@ export default function ClienteDetailPage() {
                 cliente_id: id,
                 plan_id: formSusc.plan_id || null,
                 precio: parseFloat(formSusc.precio) || (plan?.precio ?? 0),
-                moneda: "GS",
+                moneda: cliente.moneda_preferida ?? "GS",
                 fecha_inicio: formSusc.fecha_inicio || new Date().toISOString().slice(0, 10),
                 duracion_meses: parseInt(formSusc.duracion_meses, 10) || 12,
                 dia_facturacion: parseInt(formSusc.dia_facturacion, 10) || 1,

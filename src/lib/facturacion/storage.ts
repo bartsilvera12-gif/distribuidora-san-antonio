@@ -1,3 +1,4 @@
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { montosFacturaItemParaInsert } from "@/lib/facturacion/factura-item-montos";
 import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
 import { getCurrentUser } from "@/lib/auth";
@@ -23,6 +24,14 @@ interface SuscripcionRow {
   estado: string;
   generar_factura_este_mes: boolean;
   created_at: string;
+  planes?: { nombre: string } | { nombre: string }[] | null;
+}
+
+function planNombreDesdeRow(r: SuscripcionRow): string | undefined {
+  const p = r.planes;
+  if (!p) return undefined;
+  if (Array.isArray(p)) return p[0]?.nombre?.trim() || undefined;
+  return typeof p.nombre === "string" ? p.nombre.trim() || undefined : undefined;
 }
 
 interface FacturaItemRow {
@@ -48,34 +57,42 @@ interface PagoRow {
 
 // ─── Suscripciones ───────────────────────────────────────────────────────────
 
+/** Lista suscripciones vía API tenant (mismo schema que facturas); evita PostgREST browser + schema cache. */
 export async function getSuscripciones(clienteId: string): Promise<Suscripcion[]> {
-  const supabase = await getBrowserSupabaseForEmpresaData();
-  const { data, error } = await supabase
-    .from("suscripciones")
-    .select("*")
-    .eq("cliente_id", clienteId)
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    console.error("[facturacion] getSuscripciones:", error.message);
+  if (typeof window === "undefined") return [];
+  try {
+    const qs = new URLSearchParams({ cliente_id: clienteId });
+    const res = await fetchWithSupabaseSession(`/api/suscripciones?${qs.toString()}`, { cache: "no-store" });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.error("[facturacion] getSuscripciones API:", res.status, t.slice(0, 400));
+      return [];
+    }
+    const json = (await res.json()) as { success?: boolean; data?: unknown };
+    if (!json.success || !Array.isArray(json.data)) return [];
+    const rows = json.data as SuscripcionRow[];
+    if (process.env.NODE_ENV === "development") {
+      console.info("[facturacion] getSuscripciones", { clienteId, count: rows.length });
+    }
+    return rows.map((r) => ({
+      id: r.id,
+      cliente_id: r.cliente_id,
+      plan_id: r.plan_id,
+      plan_nombre: planNombreDesdeRow(r),
+      precio: Number(r.precio),
+      moneda: r.moneda as "GS" | "USD",
+      fecha_inicio: r.fecha_inicio,
+      duracion_meses: r.duracion_meses,
+      dia_facturacion: r.dia_facturacion,
+      dia_vencimiento: r.dia_vencimiento,
+      estado: r.estado as Suscripcion["estado"],
+      generar_factura_este_mes: Boolean(r.generar_factura_este_mes),
+      created_at: r.created_at,
+    }));
+  } catch (e) {
+    console.error("[facturacion] getSuscripciones:", e);
     return [];
   }
-
-  return (data ?? []).map((r: SuscripcionRow) => ({
-    id: r.id,
-    cliente_id: r.cliente_id,
-    plan_id: r.plan_id,
-    plan_nombre: undefined,
-    precio: Number(r.precio),
-    moneda: r.moneda as "GS" | "USD",
-    fecha_inicio: r.fecha_inicio,
-    duracion_meses: r.duracion_meses,
-    dia_facturacion: r.dia_facturacion,
-    dia_vencimiento: r.dia_vencimiento,
-    estado: r.estado as Suscripcion["estado"],
-    generar_factura_este_mes: Boolean(r.generar_factura_este_mes),
-    created_at: r.created_at,
-  }));
 }
 
 export type NuevaSuscripcionData = {
@@ -134,7 +151,7 @@ export async function saveSuscripcion(
       .from("planes")
       .select("es_plan_marketing")
       .eq("id", datos.plan_id)
-      .single();
+      .maybeSingle();
     if (plan?.es_plan_marketing) {
       await supabase
         .from("clientes")

@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
 
     let query = supabase
       .from("suscripciones")
-      .select("*")
+      .select("*, planes(nombre)")
       .eq("empresa_id", auth.empresa_id)
       .order("created_at", { ascending: false });
 
@@ -27,10 +27,20 @@ export async function GET(request: NextRequest) {
       query = query.eq("cliente_id", clienteId);
     }
 
-    const { data, error } = await query;
-
+    let { data, error } = await query;
     if (error) {
-      return NextResponse.json(errorResponse(error.message), { status: 400 });
+      const q2 = supabase
+        .from("suscripciones")
+        .select("*")
+        .eq("empresa_id", auth.empresa_id)
+        .order("created_at", { ascending: false });
+      const q2f = clienteId ? q2.eq("cliente_id", clienteId) : q2;
+      const r2 = await q2f;
+      if (r2.error) {
+        return NextResponse.json(errorResponse(error.message), { status: 400 });
+      }
+      data = r2.data;
+      error = null;
     }
 
     return NextResponse.json(successResponse(data ?? []));
@@ -74,11 +84,7 @@ export async function POST(request: NextRequest) {
       generar_factura_este_mes: Boolean(generar_factura_este_mes),
     };
 
-    const { data, error } = await supabase
-      .from("suscripciones")
-      .insert([insert])
-      .select()
-      .single();
+    const { data, error } = await supabase.from("suscripciones").insert([insert]).select("*").single();
 
     if (error) {
       return NextResponse.json(errorResponse(error.message), { status: 400 });

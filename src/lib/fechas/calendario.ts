@@ -91,10 +91,6 @@ export function enMesCalendarioActual(ymd: string, ahora: Date = new Date()): bo
   return cal.startsWith(`${y}-${String(m).padStart(2, "0")}-`);
 }
 
-/**
- * Factura de suscripción: vence el día configurado en el mes de la fecha de emisión;
- * si ese vencimiento es anterior a la emisión, se usa el mismo día del mes siguiente.
- */
 /** Año y mes (1-12) desde YYYY-MM-DD o timestamp (usa solo los primeros 10 caracteres). */
 export function ymdAnioMes(ymd: string): { y: number; m: number } | null {
   const cal = toCalendarDateStr(ymd);
@@ -112,6 +108,11 @@ export function fechaMasDiasCalendario(ymd: string, dias: number): string {
   return hoyYmdLocal(d);
 }
 
+/**
+ * Vencimiento de factura mensual (suscripción): mismo mes de emisión en el `dia_vencimiento`
+ * (acotado a días del mes). Si ese día ya pasó respecto a la emisión, el vencimiento cae en
+ * el mismo día del mes siguiente (nunca suma N días de crédito: evita saltos tipo +30/+34 días).
+ */
 export function fechaVencimientoSuscripcion(fechaEmisionYmd: string, diaVencimiento: number): string {
   const parts = fechaEmisionYmd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!parts) return toCalendarDateStr(fechaEmisionYmd) || fechaEmisionYmd;

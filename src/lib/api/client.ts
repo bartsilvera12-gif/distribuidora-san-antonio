@@ -140,6 +140,10 @@ export async function apiCreateFactura(data: {
   monto: number;
   tipo?: string;
   moneda?: string;
+  /** Línea única de detalle (inserta factura_items en el servidor; evita Supabase browser). */
+  descripcion_linea?: string;
+  /** Solo si `tipo` = suscripcion y no enviás fecha_vencimiento explícita. */
+  dia_vencimiento?: number;
 }): Promise<{ id: string; [key: string]: unknown } | null> {
   const result = await apiPost<{ id: string; [key: string]: unknown }>("/api/facturas", data);
   return result.success ? result.data : null;

@@ -99,7 +99,11 @@ export async function crearFacturaInicialSuscripcionSiCorresponde(opts: {
 
   let planNombre = "Suscripción";
   if (suscripcion.plan_id) {
-    const { data: plan } = await supabase.from("planes").select("nombre").eq("id", suscripcion.plan_id).single();
+    const { data: plan } = await supabase
+      .from("planes")
+      .select("nombre")
+      .eq("id", suscripcion.plan_id)
+      .maybeSingle();
     if (plan?.nombre) planNombre = plan.nombre;
   }
 
