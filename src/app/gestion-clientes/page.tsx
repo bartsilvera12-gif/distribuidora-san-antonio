@@ -981,53 +981,51 @@ export default function GestionClientesPage() {
                 </div>
               </div>
 
-              {/* ── Tabla de facturas ──────────────────────────────── */}
-              <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-                <ColHeader>
-                  Facturas del cliente
-                  {facturasFiltradas.length !== facturas.length && (
-                    <span className="ml-2 normal-case font-normal text-gray-400">
-                      ({facturasFiltradas.length} de {facturas.length} con filtros aplicados)
-                    </span>
+              {/* ── Facturas: un solo scroll (resumen + tabla + pie) evita que el tbody quede con altura 0 cuando el resumen ocupa todo el flex */}
+              <div className="flex-1 min-h-[200px] flex flex-col overflow-hidden border-t border-gray-100">
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+                  <ColHeader>
+                    Facturas del cliente
+                    {facturasFiltradas.length !== facturas.length && (
+                      <span className="ml-2 normal-case font-normal text-gray-400">
+                        ({facturasFiltradas.length} de {facturas.length} con filtros aplicados)
+                      </span>
+                    )}
+                  </ColHeader>
+
+                  {facturasOrdenadas.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/40">
+                      <div className="bg-white rounded-lg border border-gray-100 px-3 py-2">
+                        <p className="text-xs text-gray-400">Facturas</p>
+                        <p className="text-lg font-bold text-gray-800 leading-tight">{facturasOrdenadas.length}</p>
+                      </div>
+                      <div className="bg-white rounded-lg border border-gray-100 px-3 py-2">
+                        <p className="text-xs text-gray-400">Monto total</p>
+                        <p className="text-xs font-bold text-gray-800 tabular-nums leading-tight mt-0.5">
+                          Gs. {formatGs(totalMonto)}
+                        </p>
+                      </div>
+                      <div className="bg-white rounded-lg border border-gray-100 px-3 py-2">
+                        <p className="text-xs text-gray-400">Saldo pendiente</p>
+                        <p className={`text-xs font-bold tabular-nums leading-tight mt-0.5 ${totalSaldo > 0 ? "text-red-600" : "text-green-600"}`}>
+                          Gs. {formatGs(totalSaldo)}
+                        </p>
+                      </div>
+                      <div className="bg-white rounded-lg border border-red-100 px-3 py-2">
+                        <p className="text-xs text-red-400">Vencidas</p>
+                        <p className="text-lg font-bold text-red-600 leading-tight">{cntVencidas}</p>
+                      </div>
+                      <div className="bg-white rounded-lg border border-amber-100 px-3 py-2">
+                        <p className="text-xs text-amber-500">Pendientes</p>
+                        <p className="text-lg font-bold text-amber-600 leading-tight">{cntPendientes}</p>
+                      </div>
+                      <div className="bg-white rounded-lg border border-green-100 px-3 py-2">
+                        <p className="text-xs text-green-500">Pagadas</p>
+                        <p className="text-lg font-bold text-green-600 leading-tight">{cntPagadas}</p>
+                      </div>
+                    </div>
                   )}
-                </ColHeader>
 
-                {/* ── Resumen de facturas ──────────────────────────── */}
-                {facturasOrdenadas.length > 0 && (
-                  <div className="shrink-0 grid grid-cols-3 gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/40">
-                    <div className="bg-white rounded-lg border border-gray-100 px-3 py-2">
-                      <p className="text-xs text-gray-400">Facturas</p>
-                      <p className="text-lg font-bold text-gray-800 leading-tight">{facturasOrdenadas.length}</p>
-                    </div>
-                    <div className="bg-white rounded-lg border border-gray-100 px-3 py-2">
-                      <p className="text-xs text-gray-400">Monto total</p>
-                      <p className="text-xs font-bold text-gray-800 tabular-nums leading-tight mt-0.5">
-                        Gs. {formatGs(totalMonto)}
-                      </p>
-                    </div>
-                    <div className="bg-white rounded-lg border border-gray-100 px-3 py-2">
-                      <p className="text-xs text-gray-400">Saldo pendiente</p>
-                      <p className={`text-xs font-bold tabular-nums leading-tight mt-0.5 ${totalSaldo > 0 ? "text-red-600" : "text-green-600"}`}>
-                        Gs. {formatGs(totalSaldo)}
-                      </p>
-                    </div>
-                    <div className="bg-white rounded-lg border border-red-100 px-3 py-2">
-                      <p className="text-xs text-red-400">Vencidas</p>
-                      <p className="text-lg font-bold text-red-600 leading-tight">{cntVencidas}</p>
-                    </div>
-                    <div className="bg-white rounded-lg border border-amber-100 px-3 py-2">
-                      <p className="text-xs text-amber-500">Pendientes</p>
-                      <p className="text-lg font-bold text-amber-600 leading-tight">{cntPendientes}</p>
-                    </div>
-                    <div className="bg-white rounded-lg border border-green-100 px-3 py-2">
-                      <p className="text-xs text-green-500">Pagadas</p>
-                      <p className="text-lg font-bold text-green-600 leading-tight">{cntPagadas}</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* ── Tabla ────────────────────────────────────────── */}
-                <div className="flex-1 min-h-0 overflow-y-auto">
                   {facturasOrdenadas.length === 0 ? (
                     <div className="py-12 text-center text-sm text-gray-400 space-y-2 px-4">
                       <p>No hay facturas para los filtros seleccionados.</p>
@@ -1039,7 +1037,7 @@ export default function GestionClientesPage() {
                     </div>
                   ) : (
                     <table className="w-full text-sm">
-                      <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 shadow-sm">
+                      <thead className="sticky top-0 z-[1] bg-slate-50 border-b border-slate-200 shadow-sm">
                         <tr>
                           {["Tipo", "Nro. Factura", "Fecha emisión", "Fecha vencimiento", "Monto", "Saldo", "Días mora", "Estado", "SIFEN", "Operación"].map((h) => (
                             <th key={h} className="text-left text-sm font-semibold text-slate-600 px-3 py-2.5 uppercase tracking-wide whitespace-nowrap">
@@ -1058,11 +1056,9 @@ export default function GestionClientesPage() {
                                 : "hover:bg-gray-50/60"
                             }`}
                           >
-                            {/* Tipo */}
                             <td className="px-3 py-2.5">
                               <BadgeTipo tipo={f.tipo} />
                             </td>
-                            {/* Nro. Factura — clickable */}
                             <td className="px-3 py-2.5">
                               <Link
                                 href={`/facturas/${f.id}`}
@@ -1071,23 +1067,19 @@ export default function GestionClientesPage() {
                                 {f.numero_factura}
                               </Link>
                             </td>
-                            {/* Fecha emisión */}
                             <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">
                               {formatFecha(f.fecha)}
                             </td>
-                            {/* Fecha vencimiento */}
                             <td className={`px-3 py-2.5 text-xs font-medium whitespace-nowrap ${
                               f._estadoEfectivo === "Vencido" ? "text-red-600" : "text-gray-600"
                             }`}>
                               {formatFecha(f.fecha_vencimiento)}
                             </td>
-                            {/* Monto */}
                             <td className="px-3 py-2.5 text-xs text-gray-800 tabular-nums whitespace-nowrap">
                               {f.moneda === "GS"
                                 ? `Gs. ${formatGs(f.monto)}`
                                 : `USD ${f.monto.toLocaleString("en-US")}`}
                             </td>
-                            {/* Saldo */}
                             <td className={`px-3 py-2.5 text-xs tabular-nums font-semibold whitespace-nowrap ${
                               f.saldo > 0 ? "text-red-600" : "text-gray-400"
                             }`}>
@@ -1095,7 +1087,6 @@ export default function GestionClientesPage() {
                                 ? `Gs. ${formatGs(f.saldo)}`
                                 : `USD ${f.saldo.toLocaleString("en-US")}`}
                             </td>
-                            {/* Días mora */}
                             <td className="px-3 py-2.5 text-xs text-center">
                               {f._diasMora > 0 ? (
                                 <span className="font-bold text-red-600 tabular-nums">{f._diasMora}</span>
@@ -1103,7 +1094,6 @@ export default function GestionClientesPage() {
                                 <span className="text-gray-300">—</span>
                               )}
                             </td>
-                            {/* Estado */}
                             <td className="px-3 py-2.5">
                               <BadgeFactura estado={f._estadoEfectivo} />
                             </td>
@@ -1112,7 +1102,6 @@ export default function GestionClientesPage() {
                                 estadoSifen={sifenPorFactura[f.id]?.estado_sifen ?? null}
                               />
                             </td>
-                            {/* KuDE + enlaces a ficha factura (SIFEN/cancelar/NC) y cliente (pago) */}
                             <td className="px-3 py-2.5 align-top">
                               <FacturaRowAccionesSifen
                                 facturaId={f.id}
@@ -1125,27 +1114,26 @@ export default function GestionClientesPage() {
                       </tbody>
                     </table>
                   )}
-                </div>
 
-                {/* ── Pie de tabla ─────────────────────────────────── */}
-                {facturasOrdenadas.length > 0 && (
-                  <div className="shrink-0 border-t border-gray-100 bg-gray-50/50 px-4 py-2 flex items-center gap-4 flex-wrap">
-                    <span className="text-xs text-gray-500 tabular-nums">
-                      <span className="font-semibold text-gray-700">{facturasOrdenadas.length}</span> facturas
-                      {facturasFiltradas.length !== facturas.length && (
-                        <span className="text-gray-400"> (filtradas)</span>
-                      )}
-                    </span>
-                    <span className="text-xs text-gray-500 tabular-nums">
-                      Total: <span className="font-semibold text-gray-700">Gs. {formatGs(totalMonto)}</span>
-                    </span>
-                    <span className="text-xs text-gray-500 tabular-nums">
-                      Saldo: <span className={`font-semibold ${totalSaldo > 0 ? "text-red-600" : "text-green-700"}`}>
-                        Gs. {formatGs(totalSaldo)}
+                  {facturasOrdenadas.length > 0 && (
+                    <div className="border-t border-gray-100 bg-gray-50/50 px-4 py-2 flex items-center gap-4 flex-wrap">
+                      <span className="text-xs text-gray-500 tabular-nums">
+                        <span className="font-semibold text-gray-700">{facturasOrdenadas.length}</span> facturas
+                        {facturasFiltradas.length !== facturas.length && (
+                          <span className="text-gray-400"> (filtradas)</span>
+                        )}
                       </span>
-                    </span>
-                  </div>
-                )}
+                      <span className="text-xs text-gray-500 tabular-nums">
+                        Total: <span className="font-semibold text-gray-700">Gs. {formatGs(totalMonto)}</span>
+                      </span>
+                      <span className="text-xs text-gray-500 tabular-nums">
+                        Saldo: <span className={`font-semibold ${totalSaldo > 0 ? "text-red-600" : "text-green-700"}`}>
+                          Gs. {formatGs(totalSaldo)}
+                        </span>
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
 
             </div>
