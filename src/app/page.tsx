@@ -23,9 +23,19 @@ import {
 import {
   enRangoCalendario,
   enMesCalendarioActual,
+  hoyYmdLocal,
   rangoMesCalendarioLocal,
   toCalendarDateStr,
 } from "@/lib/fechas/calendario";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 // ── ZENTRA (solo dashboard / esta página) ─────────────────────────────────────
 const Z = {
@@ -144,6 +154,18 @@ function enRango(fechaStr: string | null | undefined, desde: Date, hasta: Date):
   }
   const f = new Date(t);
   return !isNaN(f.getTime()) && f >= desde && f <= hasta;
+}
+
+/** Cada día calendario entre `desde` y `hasta` (inclusive), en YYYY-MM-DD local. */
+function listarDiasCalendarioYmd(desde: Date, hasta: Date): string[] {
+  const out: string[] = [];
+  const cur = new Date(desde.getFullYear(), desde.getMonth(), desde.getDate());
+  const end = new Date(hasta.getFullYear(), hasta.getMonth(), hasta.getDate());
+  while (cur.getTime() <= end.getTime()) {
+    out.push(hoyYmdLocal(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
 }
 
 // ── Componentes de gráficos ───────────────────────────────────────────────────
@@ -907,13 +929,14 @@ function DashFinanciero({
     [pagos, desde, hasta, facturaEstadoById]
   );
 
-  const cobradoDesdePagos = sumMonto(pagosPeriodo);
+  /** Cobrado del período = solo pagos registrados (fecha de pago en rango; factura no anulada). */
+  const cobradoRegistradoPeriodo = sumMonto(pagosPeriodo);
 
   /**
-   * Facturas al contado emitidas en el período sin ningún registro en `pagos`:
-   * en el ERP el cobro es implícito al emitir; antes quedaban fuera del KPI y el cobrado veía 0.
+   * Facturas al contado emitidas en el período sin filas en `pagos`: cobro contable/operativo implícito al emitir.
+   * Métrica separada de “Cobrado del período” (módulo Pagos / tabla pagos).
    */
-  const cobradoImputadoContado = useMemo(() => {
+  const cobroImplicitoContadoPeriodo = useMemo(() => {
     let s = 0;
     for (const f of facturasPeriodo) {
       if ((f.tipo ?? "").toLowerCase() !== "contado") continue;
@@ -927,43 +950,46 @@ function DashFinanciero({
     return s;
   }, [facturasPeriodo, montoPagadoPorFacturaId]);
 
-  const cobradoPeriodo = cobradoDesdePagos + cobradoImputadoContado;
-  const pendientePeriodo = aCobrarPeriodo - cobradoPeriodo;
-  const pctCobranza = aCobrarPeriodo > 0 ? (cobradoPeriodo / aCobrarPeriodo) * 100 : null;
-
-  const facturaNumById = useMemo(
-    () => Object.fromEntries(facturas.map((f) => [String(f.id), f.numero_factura])),
-    [facturas]
+  const facturasContadoImplicitasCount = useMemo(
+    () =>
+      facturasPeriodo.filter(
+        (f) =>
+          (f.tipo ?? "").toLowerCase() === "contado" &&
+          !esFacturaAnulada(f.estado) &&
+          (montoPagadoPorFacturaId.get(String(f.id)) ?? 0) === 0
+      ).length,
+    [facturasPeriodo, montoPagadoPorFacturaId]
   );
 
-  const cobradoDetalle = useMemo(() => {
-    const filasPagos = pagosPeriodo
-      .map((p) => ({
-        id: p.id,
-        factura_id: p.factura_id,
-        numero_factura: facturaNumById[String(p.factura_id)] ?? "—",
-        monto: Number(p.monto) || 0,
-        fecha_pago: toCalendarDateStr(p.fecha_pago),
-        nota: "" as string,
-      }))
-      .sort((a, b) => (a.fecha_pago < b.fecha_pago ? 1 : a.fecha_pago > b.fecha_pago ? -1 : 0));
+  /** Cobranza reconocida en el período (pagos + contado implícito): base para pendiente y %. */
+  const cobranzaTotalPeriodo = cobradoRegistradoPeriodo + cobroImplicitoContadoPeriodo;
+  const pendientePeriodo = aCobrarPeriodo - cobranzaTotalPeriodo;
+  const pctCobranza = aCobrarPeriodo > 0 ? (cobranzaTotalPeriodo / aCobrarPeriodo) * 100 : null;
 
-    const filasImputadas = facturasPeriodo
-      .filter((f) => (f.tipo ?? "").toLowerCase() === "contado" && !esFacturaAnulada(f.estado))
-      .filter((f) => (montoPagadoPorFacturaId.get(String(f.id)) ?? 0) === 0)
-      .map((f) => ({
-        id: `__contado__${f.id}`,
-        factura_id: String(f.id),
-        numero_factura: f.numero_factura,
-        monto: Number(f.monto) || 0,
-        fecha_pago: toCalendarDateStr(f.fecha),
-        nota: "Contado (sin registro en pagos)",
-      }));
-
-    return [...filasPagos, ...filasImputadas].sort((a, b) =>
-      a.fecha_pago < b.fecha_pago ? 1 : a.fecha_pago > b.fecha_pago ? -1 : 0
-    );
-  }, [pagosPeriodo, facturaNumById, facturasPeriodo, montoPagadoPorFacturaId]);
+  /** Serie diaria solo con pagos registrados; días sin movimiento en 0 (continuidad del gráfico). */
+  const cobradoPorDiaSerie = useMemo(() => {
+    const porDia = new Map<string, { monto: number; count: number }>();
+    for (const p of pagosPeriodo) {
+      const d = toCalendarDateStr(p.fecha_pago);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+      const v = Number(p.monto);
+      const addM = Number.isFinite(v) ? v : 0;
+      const cur = porDia.get(d) ?? { monto: 0, count: 0 };
+      cur.monto += addM;
+      cur.count += 1;
+      porDia.set(d, cur);
+    }
+    const dias = listarDiasCalendarioYmd(desde, hasta);
+    return dias.map((fecha) => {
+      const cell = porDia.get(fecha) ?? { monto: 0, count: 0 };
+      return {
+        fecha,
+        monto: cell.monto,
+        count: cell.count,
+        labelCorta: fecha.slice(8, 10) + "/" + fecha.slice(5, 7),
+      };
+    });
+  }, [pagosPeriodo, desde, hasta]);
 
   /** Prioridad: tipo de servicio → condición de pago → origen */
   const { dimCliente, segmentosClientes } = useMemo(() => {
@@ -1003,7 +1029,7 @@ function DashFinanciero({
   return (
     <div className="space-y-8">
 
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-5">
         <motion.div whileHover={{ y: -3 }} className={cardBase} style={cardStyle}>
           <p className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: Z.muted }}>
             A cobrar del período
@@ -1013,7 +1039,8 @@ function DashFinanciero({
           </p>
           <div className="mt-4 h-px w-12 rounded-full opacity-60" style={{ backgroundColor: Z.accent }} />
           <p className="mt-4 text-xs leading-relaxed" style={{ color: Z.muted }}>
-            Facturas emitidas en el período seleccionado · {facturasPeriodo.length} factura{facturasPeriodo.length === 1 ? "" : "s"}
+            Suma del monto de facturas <strong style={{ color: Z.text }}>emitidas</strong> en el período (fecha de
+            emisión), excluye anuladas · {facturasPeriodo.length} factura{facturasPeriodo.length === 1 ? "" : "s"}
           </p>
         </motion.div>
         <motion.div whileHover={{ y: -3 }} className={cardBase} style={cardStyle}>
@@ -1021,11 +1048,26 @@ function DashFinanciero({
             Cobrado del período
           </p>
           <p className="mt-4 text-3xl font-bold tabular-nums tracking-tight" style={{ color: Z.accent }}>
-            Gs. {formatGsM(cobradoPeriodo)}
+            Gs. {formatGsM(cobradoRegistradoPeriodo)}
           </p>
           <div className="mt-4 h-px w-12 rounded-full opacity-60" style={{ backgroundColor: Z.accent }} />
           <p className="mt-4 text-xs leading-relaxed" style={{ color: Z.muted }}>
-            Pagos con fecha de pago en el período · {pagosPeriodo.length} pago{pagosPeriodo.length === 1 ? "" : "s"}
+            Solo <strong style={{ color: Z.text }}>pagos registrados</strong> (fecha de pago en el período; factura no
+            anulada). Coincide con el criterio del módulo Pagos · {pagosPeriodo.length} pago{pagosPeriodo.length === 1 ? "" : "s"}
+          </p>
+        </motion.div>
+        <motion.div whileHover={{ y: -3 }} className={cardBase} style={cardStyle}>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: Z.muted }}>
+            Ventas al contado (implícito)
+          </p>
+          <p className="mt-4 text-3xl font-bold tabular-nums tracking-tight" style={{ color: Z.text }}>
+            Gs. {formatGsM(cobroImplicitoContadoPeriodo)}
+          </p>
+          <div className="mt-4 h-px w-12 rounded-full opacity-60" style={{ backgroundColor: Z.accent }} />
+          <p className="mt-4 text-xs leading-relaxed" style={{ color: Z.muted }}>
+            Facturas <strong style={{ color: Z.text }}>tipo contado</strong> emitidas en el período sin filas en la
+            tabla <code className="text-[10px] opacity-90">pagos</code> (cobro al emitir) · {facturasContadoImplicitasCount}{" "}
+            factura{facturasContadoImplicitasCount === 1 ? "" : "s"}
           </p>
         </motion.div>
         <motion.div whileHover={{ y: -3 }} className={cardBase} style={cardStyle}>
@@ -1043,7 +1085,7 @@ function DashFinanciero({
           </p>
           <div className="mt-4 h-px w-12 rounded-full opacity-60" style={{ backgroundColor: Z.accent }} />
           <p className="mt-4 text-xs leading-relaxed" style={{ color: Z.muted }}>
-            A cobrar menos cobrado (solo este período)
+            A cobrar − (cobrado registrado + contado implícito)
           </p>
         </motion.div>
         <motion.div whileHover={{ y: -3 }} className={cardBase} style={cardStyle}>
@@ -1055,65 +1097,111 @@ function DashFinanciero({
           </p>
           <div className="mt-4 h-px w-12 rounded-full opacity-60" style={{ backgroundColor: Z.accent }} />
           <p className="mt-4 text-xs leading-relaxed" style={{ color: Z.muted }}>
-            Cobrado ÷ A cobrar · {aCobrarPeriodo <= 0 ? "sin emisión en el período" : "mismo filtro de fechas"}
+            (Cobrado registrado + contado implícito) ÷ A cobrar ·{" "}
+            {aCobrarPeriodo <= 0 ? "sin emisión en el período" : "mismo filtro de fechas"}
           </p>
         </motion.div>
       </div>
 
       <div className="rounded-2xl border border-white/10 p-6 sm:p-8" style={{ backgroundColor: Z.card }}>
         <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: Z.muted }}>
-          Desglose cobrado · {periodo}
+          Definición de indicadores · {periodo}
+        </h3>
+        <ul className="mt-3 max-w-4xl list-disc space-y-1.5 pl-4 text-xs leading-relaxed" style={{ color: Z.muted }}>
+          <li>
+            <strong style={{ color: Z.text }}>A cobrar del período:</strong> suma de montos de facturas no anuladas con{" "}
+            <em>fecha de emisión</em> en el rango.
+          </li>
+          <li>
+            <strong style={{ color: Z.text }}>Cobrado del período:</strong> suma de la tabla <code className="text-[10px]">pagos</code>{" "}
+            cuya <em>fecha de pago</em> cae en el rango; se excluyen pagos ligados a facturas anuladas. Alineado con el
+            módulo Pagos → Cobrados.
+          </li>
+          <li>
+            <strong style={{ color: Z.text }}>Ventas al contado (implícito):</strong> facturas tipo contado emitidas en
+            el período sin movimientos en <code className="text-[10px]">pagos</code> (cobro reconocido al emitir).
+          </li>
+          <li>
+            <strong style={{ color: Z.text }}>Pendiente del período:</strong> A cobrar − cobrado registrado − contado
+            implícito.
+          </li>
+          <li>
+            <strong style={{ color: Z.text }}>% de cobranza:</strong> (cobrado registrado + contado implícito) ÷ A
+            cobrar.
+          </li>
+        </ul>
+      </div>
+
+      <div className="rounded-2xl border border-white/10 p-6 sm:p-8" style={{ backgroundColor: Z.card }}>
+        <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: Z.muted }}>
+          Cobrado por día
         </h3>
         <p className="mt-2 max-w-3xl text-xs leading-relaxed" style={{ color: Z.muted }}>
-          Suma de <strong style={{ color: Z.text }}>pagos</strong> con fecha de pago en el rango (excluye facturas
-          anuladas) más <strong style={{ color: Z.text }}>facturas al contado</strong> del período sin registros en
-          la tabla de pagos (cobro implícito al emitir). Total:{" "}
-          <span style={{ color: Z.text }}>Gs. {formatGs(cobradoPeriodo)}</span> (coincide con Cobrado del período).
+          Pagos registrados por <strong style={{ color: Z.text }}>fecha de pago</strong> (mismo criterio que “Cobrado
+          del período”). Días sin pagos se muestran en cero para mantener la continuidad de la serie.
         </p>
-        {cobradoDetalle.length === 0 ? (
+        {cobradoPorDiaSerie.length === 0 ? (
           <p className="mt-6 text-sm" style={{ color: Z.muted }}>
-            No hay pagos en este período.
+            Sin rango de fechas válido.
           </p>
         ) : (
-          <div
-            className="mt-5 max-h-56 overflow-auto rounded-xl border border-white/10"
-            style={{ backgroundColor: Z.surface }}
-          >
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 border-b border-white/10" style={{ backgroundColor: Z.surface }}>
-                <tr>
-                  <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide" style={{ color: Z.muted }}>
-                    Factura
-                  </th>
-                  <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide" style={{ color: Z.muted }}>
-                    Fecha pago
-                  </th>
-                  <th className="px-4 py-3 text-right text-[10px] font-semibold uppercase tracking-wide" style={{ color: Z.muted }}>
-                    Monto
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5">
-                {cobradoDetalle.map((row) => (
-                  <tr key={row.id} className="transition-colors hover:bg-white/[0.04]">
-                    <td className="px-4 py-2.5 font-mono text-xs" style={{ color: Z.text }}>
-                      <span className="block">{row.numero_factura}</span>
-                      {row.nota ? (
-                        <span className="mt-0.5 block text-[10px] font-normal normal-case opacity-80" style={{ color: Z.muted }}>
-                          {row.nota}
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-2.5 text-xs" style={{ color: Z.muted }}>
-                      {formatFecha(row.fecha_pago)}
-                    </td>
-                    <td className="px-4 py-2.5 text-right text-xs font-medium tabular-nums" style={{ color: Z.text }}>
-                      Gs. {formatGs(row.monto)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="mt-6 h-[300px] w-full min-w-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={cobradoPorDiaSerie} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
+                <XAxis
+                  dataKey="fecha"
+                  tick={{ fill: Z.muted, fontSize: 10 }}
+                  tickLine={false}
+                  axisLine={{ stroke: "rgba(255,255,255,0.12)" }}
+                  tickFormatter={(ymd: string) => {
+                    if (!ymd || ymd.length < 10) return ymd;
+                    return `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}`;
+                  }}
+                  minTickGap={28}
+                />
+                <YAxis
+                  tick={{ fill: Z.muted, fontSize: 10 }}
+                  tickLine={false}
+                  axisLine={{ stroke: "rgba(255,255,255,0.12)" }}
+                  tickFormatter={(v: number) => formatGsM(Number(v))}
+                  width={48}
+                />
+                <Tooltip
+                  cursor={{ stroke: "rgba(37,99,235,0.35)", strokeWidth: 1 }}
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    const row = payload[0].payload as {
+                      fecha: string;
+                      monto: number;
+                      count: number;
+                    };
+                    return (
+                      <div
+                        className="rounded-lg border border-white/15 px-3 py-2 text-xs shadow-xl"
+                        style={{ backgroundColor: Z.surface, color: Z.text }}
+                      >
+                        <p className="font-medium" style={{ color: Z.muted }}>
+                          {formatFecha(row.fecha)}
+                        </p>
+                        <p className="mt-1.5 text-sm font-semibold tabular-nums">Gs. {formatGs(row.monto)}</p>
+                        <p className="mt-1 text-[11px]" style={{ color: Z.muted }}>
+                          {row.count} pago{row.count === 1 ? "" : "s"}
+                        </p>
+                      </div>
+                    );
+                  }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="monto"
+                  stroke={Z.accent}
+                  strokeWidth={2.5}
+                  dot={false}
+                  activeDot={{ r: 5, fill: Z.accent, stroke: "#fff", strokeWidth: 1 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
           </div>
         )}
       </div>

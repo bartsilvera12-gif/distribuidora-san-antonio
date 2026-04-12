@@ -130,6 +130,12 @@ export default function PagosPage() {
     return cobrados.filter((p) => fechaEnRangoCalendario(p.fecha_pago));
   }, [cobrados, rangoFechas, fechaEnRangoCalendario]);
 
+  /** Total de la vista actual (respeta el mismo filtro de fechas que la tabla). */
+  const totalCobradoVista = useMemo(
+    () => cobradosFiltrados.reduce((acc, p) => acc + (Number.isFinite(p.monto) ? p.monto : 0), 0),
+    [cobradosFiltrados]
+  );
+
   const clienteMap = Object.fromEntries(clientes.map((c) => [c.id, c.nombre]));
 
   async function handleRegistrarPago(e: React.FormEvent) {
@@ -300,7 +306,12 @@ export default function PagosPage() {
       {tab === "cobrados" && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-700">Pagos registrados</h2>
+            <div>
+              <h2 className="text-sm font-semibold text-slate-700">Pagos registrados</h2>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Solo filas de la tabla de pagos (mismo criterio que “Cobrado del período” en el dashboard financiero).
+              </p>
+            </div>
             <span className="text-xs text-slate-500">
               {rangoFechas && cobrados.length > 0
                 ? `${cobradosFiltrados.length} en el rango · ${cobrados.length} pagos en total`
@@ -351,6 +362,19 @@ export default function PagosPage() {
                     </tr>
                   ))}
                 </tbody>
+                <tfoot>
+                  <tr className="bg-slate-50/90 border-t-2 border-slate-200">
+                    <td colSpan={2} className="px-4 py-3 text-xs font-semibold text-slate-700">
+                      Total cobrado {rangoFechas ? "en el rango" : "en esta vista"}
+                    </td>
+                    <td className="px-4 py-3 text-sm font-bold text-[#0EA5E9] tabular-nums">
+                      Gs. {totalCobradoVista.toLocaleString("es-PY")}
+                    </td>
+                    <td colSpan={4} className="px-4 py-3 text-[11px] text-slate-500">
+                      {cobradosFiltrados.length} registro{cobradosFiltrados.length === 1 ? "" : "s"} · se recalcula al cambiar el filtro
+                    </td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           )}
