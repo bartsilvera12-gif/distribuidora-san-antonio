@@ -33,6 +33,8 @@ export type ChatQueueAdminRow = {
   channel_type: string | null;
   distribution_strategy: string;
   priority: number;
+  /** Reglas operativas (jsonb); puede faltar en listados parciales. */
+  routing_config?: Record<string, unknown> | null;
 };
 
 export type QueueChannelLink = {
@@ -90,7 +92,7 @@ export async function repoFetchQueue(ctx: QueueAdminTenantContext, queueId: stri
   if (!id) return null;
   const { data, error } = await ctx.supabase
     .from("chat_queues")
-    .select("id, nombre, descripcion, is_active, channel_type, distribution_strategy, priority")
+    .select("id, nombre, descripcion, is_active, channel_type, distribution_strategy, priority, routing_config")
     .eq("id", id)
     .eq("empresa_id", ctx.empresa_id)
     .maybeSingle();
@@ -128,23 +130,26 @@ export async function repoSaveQueue(
     channel_type?: string | null;
     distribution_strategy: string;
     priority?: number;
+    routing_config?: Record<string, unknown> | null;
   }
 ): Promise<void> {
   const ds = input.distribution_strategy.trim();
   if (!DISTRIBUTION.has(ds)) throw new Error("Estrategia de distribución inválida");
-  const { error } = await ctx.supabase
-    .from("chat_queues")
-    .update({
-      nombre: input.nombre.trim() || "Cola",
-      descripcion: input.descripcion?.trim() || null,
-      is_active: input.is_active,
-      channel_type: input.channel_type?.trim() || null,
-      distribution_strategy: ds,
-      priority: input.priority ?? 0,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", input.id.trim())
-    .eq("empresa_id", ctx.empresa_id);
+  const patch: Record<string, unknown> = {
+    nombre: input.nombre.trim() || "Cola",
+    descripcion: input.descripcion?.trim() || null,
+    is_active: input.is_active,
+    distribution_strategy: ds,
+    priority: input.priority ?? 0,
+    updated_at: new Date().toISOString(),
+  };
+  if (input.channel_type !== undefined) {
+    patch.channel_type = input.channel_type?.trim() || null;
+  }
+  if (input.routing_config !== undefined) {
+    patch.routing_config = input.routing_config ?? {};
+  }
+  const { error } = await ctx.supabase.from("chat_queues").update(patch).eq("id", input.id.trim()).eq("empresa_id", ctx.empresa_id);
   if (error) throw new Error(error.message);
 }
 
@@ -386,19 +391,17 @@ export async function repoLoadQueueEditorBootstrap(ctx: QueueAdminTenantContext,
     repoListUsuariosForQueuePick(ctx),
   ]);
 
-  const labels = ["canales", "vínculos cola–canales", "agentes", "usuarios para asignar"] as const;
-  const bootstrapWarnings: string[] = [];
   const channels = settled[0].status === "fulfilled" ? settled[0].value : [];
   const linked = settled[1].status === "fulfilled" ? settled[1].value : [];
   const agents = settled[2].status === "fulfilled" ? settled[2].value : [];
   const usuarios = settled[3].status === "fulfilled" ? settled[3].value : [];
 
-  settled.forEach((r, i) => {
-    if (r.status === "rejected") {
-      const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
-      bootstrapWarnings.push(`No se pudieron cargar ${labels[i]}: ${msg}`);
-    }
-  });
+  const anyRejected = settled.some((r) => r.status === "rejected");
+  const bootstrapWarnings: string[] = anyRejected
+    ? [
+        "No se cargó toda la información auxiliar (canales, vínculos o agentes). Reintentá la página; si continúa, contactá soporte.",
+      ]
+    : [];
 
   return { queue, channels, linked, agents, usuarios, bootstrapWarnings };
 }

@@ -6,6 +6,12 @@ import { useCallback, useEffect, useState } from "react";
 import type { ChatChannelRow } from "@/lib/chat/actions";
 import type { ChatQueueAdminRow, QueueAgentRow, UsuarioPickRow } from "@/lib/chat/queue-admin-repo";
 import {
+  DEFAULT_QUEUE_ROUTING_CONFIG,
+  parseQueueRoutingConfig,
+  serializeQueueRoutingConfig,
+  type QueueRoutingConfig,
+} from "@/lib/chat/queue-routing-config";
+import {
   apiAddQueueAgent,
   apiDeleteQueue,
   apiQueueEditorBootstrap,
@@ -21,10 +27,22 @@ function hasOmnichannel(slugs: string[]) {
   return slugs.includes("conversaciones") || slugs.includes("omnicanal");
 }
 
-const STRATS: { value: string; label: string }[] = [
-  { value: "least_load", label: "Menor carga" },
-  { value: "round_robin", label: "Round robin" },
-  { value: "manual_pull", label: "Manual (sin auto-asignación)" },
+const STRATS: { value: string; label: string; hint: string }[] = [
+  {
+    value: "round_robin",
+    label: "Circular",
+    hint: "Recorre agentes en orden y vuelve a empezar (1, 2, 3…).",
+  },
+  {
+    value: "least_load",
+    label: "Menor carga",
+    hint: "Asigna al agente con menos chats activos en este momento.",
+  },
+  {
+    value: "manual_pull",
+    label: "Manual",
+    hint: "No autoasigna conversaciones nuevas; queda para toma manual.",
+  },
 ];
 
 export default function EditarColaPage() {
@@ -47,9 +65,10 @@ export default function EditarColaPage() {
   const [nombre, setNombre] = useState("");
   const [descripcion, setDescripcion] = useState("");
   const [isActive, setIsActive] = useState(true);
-  const [channelType, setChannelType] = useState<string>("");
+  const [legacyChannelType, setLegacyChannelType] = useState<string>("");
   const [strategy, setStrategy] = useState("least_load");
   const [priority, setPriority] = useState(0);
+  const [routing, setRouting] = useState<QueueRoutingConfig>(DEFAULT_QUEUE_ROUTING_CONFIG);
 
   const load = useCallback(async () => {
     if (!queueId) return;
@@ -69,9 +88,10 @@ export default function EditarColaPage() {
         setNombre(q.nombre);
         setDescripcion(q.descripcion ?? "");
         setIsActive(q.is_active);
-        setChannelType(q.channel_type ?? "");
+        setLegacyChannelType(q.channel_type ?? "");
         setStrategy(q.distribution_strategy ?? "least_load");
         setPriority(q.priority ?? 0);
+        setRouting(parseQueueRoutingConfig(q.routing_config));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cargar");
@@ -99,9 +119,10 @@ export default function EditarColaPage() {
         nombre,
         descripcion: descripcion || null,
         is_active: isActive,
-        channel_type: channelType || null,
+        channel_type: linked.length > 0 ? null : legacyChannelType.trim() || null,
         distribution_strategy: strategy,
         priority,
+        routing_config: serializeQueueRoutingConfig(routing),
       });
       await apiSetQueueChannelLinks(queueId, linked);
       await load();
@@ -193,13 +214,8 @@ export default function EditarColaPage() {
       )}
 
       {bootstrapWarnings.length > 0 && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 space-y-1">
-          <p className="font-semibold">Algunos datos secundarios no cargaron (la cola sí está disponible):</p>
-          <ul className="list-disc pl-5 space-y-0.5">
-            {bootstrapWarnings.map((w, i) => (
-              <li key={i}>{w}</li>
-            ))}
-          </ul>
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          <p className="font-medium">{bootstrapWarnings[0]}</p>
         </div>
       )}
 
@@ -234,78 +250,274 @@ export default function EditarColaPage() {
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Estrategia</label>
-            <select
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-              value={strategy}
-              onChange={(e) => setStrategy(e.target.value)}
-            >
-              {STRATS.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Prioridad</label>
+            <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Prioridad numérica</label>
             <input
               type="number"
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
               value={priority}
               onChange={(e) => setPriority(Number(e.target.value) || 0)}
             />
+            <p className="text-xs text-slate-400 mt-1">Mayor número = mayor prioridad al elegir cola.</p>
           </div>
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">
-            Filtro legado por tipo (opcional)
+          <label className="flex items-center gap-2 text-sm text-slate-700 sm:mt-6">
+            <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
+            Cola activa
           </label>
-          <select
-            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-            value={channelType}
-            onChange={(e) => setChannelType(e.target.value)}
-          >
-            <option value="">Todos los canales</option>
-            <option value="whatsapp">whatsapp</option>
-            <option value="facebook">facebook</option>
-            <option value="instagram">instagram</option>
-            <option value="linkedin">linkedin</option>
-            <option value="email">email</option>
-          </select>
-          <p className="text-xs text-slate-400 mt-1">
-            Preferí asociar canales explícitos abajo; este campo se mantiene por compatibilidad.
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+        <div>
+          <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wide">Estrategia de distribución</h2>
+          <p className="text-sm text-slate-500 mt-1">Define cómo se reparten los chats nuevos entre los agentes de esta cola.</p>
+        </div>
+        <div className="space-y-3">
+          {STRATS.map((s) => (
+            <label
+              key={s.value}
+              className={`flex cursor-pointer gap-3 rounded-xl border p-3 transition ${
+                strategy === s.value ? "border-sky-400 bg-sky-50/60" : "border-slate-200 hover:border-slate-300"
+              }`}
+            >
+              <input
+                type="radio"
+                name="dist-strat"
+                className="mt-1"
+                checked={strategy === s.value}
+                onChange={() => setStrategy(s.value)}
+              />
+              <span>
+                <span className="font-semibold text-slate-900">{s.label}</span>
+                <span className="block text-xs text-slate-600 mt-0.5">{s.hint}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+        <div>
+          <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wide">Canales asociados a esta cola</h2>
+          <p className="text-sm text-slate-500 mt-1">
+            Elegí uno o varios canales de la empresa. Los chats de esos canales podrán enrutarse a esta cola.
+          </p>
+        </div>
+        {channels.length === 0 ? (
+          <p className="text-sm text-slate-600 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center">
+            Todavía no hay canales configurados en la empresa. Creá un canal en omnicanal y volvé a esta pantalla.
+          </p>
+        ) : (
+          <>
+            <p className="text-xs text-slate-500">
+              {linked.length === 0
+                ? "Ningún canal asociado aún. Marcá los que correspondan."
+                : `${linked.length} canal${linked.length === 1 ? "" : "es"} asociado${linked.length === 1 ? "" : "s"}.`}
+            </p>
+            <ul className="space-y-2 max-h-64 overflow-y-auto pr-1 divide-y divide-slate-100">
+              {channels.map((c) => (
+                <li key={c.id} className="flex items-center gap-3 text-sm pt-2 first:pt-0">
+                  <input
+                    type="checkbox"
+                    checked={linked.includes(c.id)}
+                    onChange={(e) => {
+                      setLinked((prev) =>
+                        e.target.checked ? [...prev, c.id] : prev.filter((x) => x !== c.id)
+                      );
+                    }}
+                    id={`ch-${c.id}`}
+                    className="rounded border-slate-300"
+                  />
+                  <label htmlFor={`ch-${c.id}`} className="cursor-pointer flex-1 min-w-0">
+                    <span className="font-medium text-slate-800">{c.nombre?.trim() || c.type}</span>
+                    <span className="text-slate-400"> · {c.type}</span>
+                    {linked.includes(c.id) && (
+                      <span className="ml-2 text-[10px] font-bold uppercase tracking-wide text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                        Asociado
+                      </span>
+                    )}
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        {linked.length > 0 && (
+          <p className="text-xs text-slate-500">
+            Con canales asociados, el filtro por tipo de canal (legado) no se usa al guardar.
+          </p>
+        )}
+        {linked.length === 0 && (
+          <details className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2 text-sm">
+            <summary className="cursor-pointer font-medium text-slate-700">Compatibilidad avanzada (sin canales asociados)</summary>
+            <p className="text-xs text-slate-500 mt-2 mb-2">
+              Solo si aún no usás la asociación múltiple de canales: filtro histórico por tipo de canal.
+            </p>
+            <select
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
+              value={legacyChannelType}
+              onChange={(e) => setLegacyChannelType(e.target.value)}
+            >
+              <option value="">Todos los tipos (sin filtro por tipo)</option>
+              <option value="whatsapp">WhatsApp</option>
+              <option value="facebook">Facebook</option>
+              <option value="instagram">Instagram</option>
+              <option value="linkedin">LinkedIn</option>
+              <option value="email">Email</option>
+            </select>
+          </details>
+        )}
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+        <div>
+          <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wide">Redistribución por falta de respuesta inicial</h2>
+          <p className="text-sm text-slate-500 mt-1">
+            Aplica solo al primer contacto humano tras asignar un chat nuevo: si el asesor no respondió ni interactuó en el plazo,
+            podés definir qué hacer (la ejecución automática completa puede activarse en una etapa posterior).
           </p>
         </div>
         <label className="flex items-center gap-2 text-sm text-slate-700">
-          <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
-          Cola activa
+          <input
+            type="checkbox"
+            checked={routing.initial_no_response?.enabled ?? false}
+            onChange={(e) =>
+              setRouting((r) => ({
+                ...r,
+                initial_no_response: { ...DEFAULT_QUEUE_ROUTING_CONFIG.initial_no_response!, ...r.initial_no_response, enabled: e.target.checked },
+              }))
+            }
+          />
+          Activar esta regla
         </label>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Tiempo</label>
+            <input
+              type="number"
+              min={1}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+              value={routing.initial_no_response?.value ?? 15}
+              onChange={(e) =>
+                setRouting((r) => ({
+                  ...r,
+                  initial_no_response: {
+                    ...DEFAULT_QUEUE_ROUTING_CONFIG.initial_no_response!,
+                    ...r.initial_no_response,
+                    value: Math.max(1, Number(e.target.value) || 1),
+                  },
+                }))
+              }
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Unidad</label>
+            <select
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+              value={routing.initial_no_response?.unit ?? "minutes"}
+              onChange={(e) =>
+                setRouting((r) => ({
+                  ...r,
+                  initial_no_response: {
+                    ...DEFAULT_QUEUE_ROUTING_CONFIG.initial_no_response!,
+                    ...r.initial_no_response,
+                    unit: e.target.value === "hours" ? "hours" : "minutes",
+                  },
+                }))
+              }
+            >
+              <option value="minutes">Minutos</option>
+              <option value="hours">Horas</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Acción al vencer el plazo</label>
+          <select
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+            value={routing.initial_no_response?.action ?? "reassign_prepare"}
+            onChange={(e) =>
+              setRouting((r) => ({
+                ...r,
+                initial_no_response: {
+                  ...DEFAULT_QUEUE_ROUTING_CONFIG.initial_no_response!,
+                  ...r.initial_no_response,
+                  action: e.target.value === "reassign_auto" ? "reassign_auto" : "reassign_prepare",
+                },
+              }))
+            }
+          >
+            <option value="reassign_prepare">Preparar redistribución (modelo listo; automatización después)</option>
+            <option value="reassign_auto">Redistribuir automáticamente a otro agente (cuando el motor lo aplique)</option>
+          </select>
+        </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-3">
-        <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wide">Canales en esta cola</h2>
-        <ul className="space-y-2 max-h-56 overflow-y-auto pr-1">
-          {channels.map((c) => (
-            <li key={c.id} className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={linked.includes(c.id)}
-                onChange={(e) => {
-                  setLinked((prev) =>
-                    e.target.checked ? [...prev, c.id] : prev.filter((x) => x !== c.id)
-                  );
-                }}
-                id={`ch-${c.id}`}
-              />
-              <label htmlFor={`ch-${c.id}`} className="cursor-pointer flex-1 truncate">
-                <span className="font-medium text-slate-800">{c.nombre ?? c.type}</span>{" "}
-                <span className="text-slate-400">({c.type})</span>
-              </label>
-            </li>
-          ))}
-        </ul>
-        {channels.length === 0 && <p className="text-sm text-slate-500">No hay canales en la empresa.</p>}
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+        <div>
+          <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wide">Relación del cliente con el mismo asesor</h2>
+          <p className="text-sm text-slate-500 mt-1">
+            Si el cliente vuelve a escribir dentro de la ventana, el chat puede volver al mismo asesor. Si pasa el plazo, aplica la
+            distribución normal de la cola.
+          </p>
+        </div>
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={routing.same_advisor_window?.enabled ?? false}
+            onChange={(e) =>
+              setRouting((r) => ({
+                ...r,
+                same_advisor_window: {
+                  ...DEFAULT_QUEUE_ROUTING_CONFIG.same_advisor_window!,
+                  ...r.same_advisor_window,
+                  enabled: e.target.checked,
+                },
+              }))
+            }
+          />
+          Activar ventana de misma asesor
+        </label>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Duración</label>
+            <input
+              type="number"
+              min={1}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+              value={routing.same_advisor_window?.value ?? 24}
+              onChange={(e) =>
+                setRouting((r) => ({
+                  ...r,
+                  same_advisor_window: {
+                    ...DEFAULT_QUEUE_ROUTING_CONFIG.same_advisor_window!,
+                    ...r.same_advisor_window,
+                    value: Math.max(1, Number(e.target.value) || 1),
+                  },
+                }))
+              }
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Unidad</label>
+            <select
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+              value={routing.same_advisor_window?.unit ?? "hours"}
+              onChange={(e) =>
+                setRouting((r) => ({
+                  ...r,
+                  same_advisor_window: {
+                    ...DEFAULT_QUEUE_ROUTING_CONFIG.same_advisor_window!,
+                    ...r.same_advisor_window,
+                    unit: e.target.value === "days" ? "days" : "hours",
+                  },
+                }))
+              }
+            >
+              <option value="hours">Horas</option>
+              <option value="days">Días</option>
+            </select>
+          </div>
+        </div>
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">

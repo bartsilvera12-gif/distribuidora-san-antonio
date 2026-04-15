@@ -14,6 +14,7 @@ config({ path: join(process.cwd(), ".env.local") });
 const FILES = [
   "20260416100000_ensure_omnichannel_etapa1_columns.sql",
   "20260417120000_chat_queues_etapa1_columns_all_schemas.sql",
+  "20260418130000_omnichannel_queue_routing_and_bridge.sql",
 ];
 
 async function main() {

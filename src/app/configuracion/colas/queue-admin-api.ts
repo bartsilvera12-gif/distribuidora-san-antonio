@@ -65,6 +65,7 @@ export async function apiSaveQueue(
     channel_type: string | null;
     distribution_strategy: string;
     priority: number;
+    routing_config?: Record<string, unknown> | null;
   }
 ): Promise<void> {
   const q = encodeURIComponent(queueId.trim());

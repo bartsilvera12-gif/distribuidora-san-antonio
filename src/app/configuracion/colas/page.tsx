@@ -18,8 +18,8 @@ function hasOmnichannelFromModuleAccess(body: {
 
 const STRAT_LABEL: Record<string, string> = {
   least_load: "Menor carga",
-  round_robin: "Round robin",
-  manual_pull: "Manual (pull)",
+  round_robin: "Circular",
+  manual_pull: "Manual (sin autoasignación)",
 };
 
 export default function ConfiguracionColasPage() {

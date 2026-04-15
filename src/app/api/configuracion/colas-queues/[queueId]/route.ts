@@ -38,6 +38,7 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ queue
       channel_type?: string | null;
       distribution_strategy?: string;
       priority?: number;
+      routing_config?: Record<string, unknown> | null;
     };
     await repoSaveQueue(resolved.ctx, {
       id: queueId,
@@ -47,6 +48,7 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ queue
       channel_type: body.channel_type,
       distribution_strategy: typeof body.distribution_strategy === "string" ? body.distribution_strategy : "least_load",
       priority: typeof body.priority === "number" ? body.priority : 0,
+      routing_config: body.routing_config === undefined ? undefined : body.routing_config ?? {},
     });
     return NextResponse.json(successResponse(true));
   } catch (e) {

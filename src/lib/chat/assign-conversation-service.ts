@@ -14,6 +14,8 @@ type QueueRow = {
   nombre: string;
   distribution_strategy: string;
   priority: number;
+  /** Reservado para reglas de primera respuesta / misma asesor (config en UI). */
+  routing_config?: unknown;
 };
 type AgentRow = { id: string; max_conversations: number; priority_in_queue: number };
 
@@ -81,7 +83,7 @@ export async function assignConversation(
 
   const { data: queues, error: qErr } = await supabase
     .from("chat_queues")
-    .select("id, channel_type, nombre, distribution_strategy, priority")
+    .select("id, channel_type, nombre, distribution_strategy, priority, routing_config")
     .eq("empresa_id", empresaId)
     .eq("is_active", true);
 
