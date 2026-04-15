@@ -1,7 +1,9 @@
 "use server";
 
 import {
+  ALL_FALLBACK_CLOSURE_TAXONOMY,
   DEFAULT_CLOSURE_TAXONOMY,
+  EMERGENCY_MODAL_CLOSURE_TAXONOMY,
   isFallbackClosureStateId,
 } from "@/lib/chat/chat-closure-fallback";
 import { requireEmpresaTenantServiceRole } from "@/lib/chat/empresa-tenant-service-role";
@@ -28,10 +30,22 @@ function fallbackOptions(): FinalizeOptionsResult {
   };
 }
 
+/** Opciones mínimas si falla la lectura de estados en BD: el modal nunca queda sin datos. */
+function emergencyModalFallbackOptions(): FinalizeOptionsResult {
+  return {
+    source: "fallback",
+    states: EMERGENCY_MODAL_CLOSURE_TAXONOMY.map((s) => ({
+      id: s.id,
+      label: s.label,
+      substates: s.substates.map((x) => ({ id: x.id, label: x.label })),
+    })),
+  };
+}
+
 export async function loadFinalizeOptionsForConversation(conversationId: string): Promise<FinalizeOptionsResult> {
   const { supabase, empresa_id } = await requireEmpresaTenantServiceRole();
   const id = conversationId.trim();
-  if (!id) throw new Error("Conversación inválida");
+  if (!id) return emergencyModalFallbackOptions();
 
   const { data: conv, error: cErr } = await supabase
     .from("chat_conversations")
@@ -39,8 +53,11 @@ export async function loadFinalizeOptionsForConversation(conversationId: string)
     .eq("id", id)
     .eq("empresa_id", empresa_id)
     .maybeSingle();
-  if (cErr) throw new Error(cErr.message);
-  if (!conv) throw new Error("Conversación no encontrada");
+  if (cErr) {
+    console.error("[loadFinalizeOptionsForConversation] conv:", cErr.message);
+    return emergencyModalFallbackOptions();
+  }
+  if (!conv) return emergencyModalFallbackOptions();
   if (String((conv as { status?: string }).status).toLowerCase() === "closed") {
     throw new Error("La conversación ya está finalizada");
   }
@@ -50,53 +67,59 @@ export async function loadFinalizeOptionsForConversation(conversationId: string)
     return fallbackOptions();
   }
 
-  const { data: states, error: sErr } = await supabase
-    .from("chat_queue_closure_states")
-    .select("id, label, sort_order, is_active")
-    .eq("empresa_id", empresa_id)
-    .eq("queue_id", qid)
-    .eq("is_active", true)
-    .order("sort_order", { ascending: true });
-  if (sErr) {
-    if (sErr.message.includes("chat_queue_closure_states") && sErr.message.includes("does not exist")) {
+  try {
+    const { data: states, error: sErr } = await supabase
+      .from("chat_queue_closure_states")
+      .select("id, label, sort_order, is_active")
+      .eq("empresa_id", empresa_id)
+      .eq("queue_id", qid)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true });
+    if (sErr) {
+      console.error("[loadFinalizeOptionsForConversation] chat_queue_closure_states:", sErr.message);
+      return emergencyModalFallbackOptions();
+    }
+    const st = (states ?? []) as { id: string; label: string }[];
+    if (st.length === 0) {
       return fallbackOptions();
     }
-    throw new Error(sErr.message);
-  }
-  const st = (states ?? []) as { id: string; label: string }[];
-  if (st.length === 0) {
-    return fallbackOptions();
-  }
 
-  const ids = st.map((x) => x.id);
-  const { data: subs, error: subErr } = await supabase
-    .from("chat_queue_closure_substates")
-    .select("id, closure_state_id, label, sort_order, is_active")
-    .eq("empresa_id", empresa_id)
-    .in("closure_state_id", ids)
-    .eq("is_active", true)
-    .order("sort_order", { ascending: true });
-  if (subErr) throw new Error(subErr.message);
-  const byState = new Map<string, { id: string; label: string }[]>();
-  for (const row of subs ?? []) {
-    const sid = (row as { closure_state_id: string }).closure_state_id;
-    const arr = byState.get(sid) ?? [];
-    arr.push({ id: (row as { id: string }).id, label: String((row as { label?: string }).label ?? "") });
-    byState.set(sid, arr);
-  }
+    const ids = st.map((x) => x.id);
+    const { data: subs, error: subErr } = await supabase
+      .from("chat_queue_closure_substates")
+      .select("id, closure_state_id, label, sort_order, is_active")
+      .eq("empresa_id", empresa_id)
+      .in("closure_state_id", ids)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true });
+    if (subErr) {
+      console.error("[loadFinalizeOptionsForConversation] chat_queue_closure_substates:", subErr.message);
+      return emergencyModalFallbackOptions();
+    }
+    const byState = new Map<string, { id: string; label: string }[]>();
+    for (const row of subs ?? []) {
+      const sid = (row as { closure_state_id: string }).closure_state_id;
+      const arr = byState.get(sid) ?? [];
+      arr.push({ id: (row as { id: string }).id, label: String((row as { label?: string }).label ?? "") });
+      byState.set(sid, arr);
+    }
 
-  return {
-    source: "queue",
-    states: st.map((s) => ({
-      id: s.id,
-      label: s.label,
-      substates: byState.get(s.id) ?? [],
-    })),
-  };
+    return {
+      source: "queue",
+      states: st.map((s) => ({
+        id: s.id,
+        label: s.label,
+        substates: byState.get(s.id) ?? [],
+      })),
+    };
+  } catch (e) {
+    console.error("[loadFinalizeOptionsForConversation]", e);
+    return emergencyModalFallbackOptions();
+  }
 }
 
 function resolveFallbackLabels(stateId: string, substateId: string | null): { state: string; sub: string } | null {
-  for (const s of DEFAULT_CLOSURE_TAXONOMY) {
+  for (const s of ALL_FALLBACK_CLOSURE_TAXONOMY) {
     if (s.id !== stateId) continue;
     if (!substateId) {
       if (s.substates.length > 0) return null;

@@ -53,3 +53,30 @@ export const DEFAULT_CLOSURE_TAXONOMY: ReadonlyArray<{
 export function isFallbackClosureStateId(id: string): boolean {
   return id.trim().startsWith("fb:");
 }
+
+/** Cierre mínimo si falla la carga desde BD (migración / red). Ids `fb:*` para validación en servidor. */
+export const EMERGENCY_MODAL_CLOSURE_TAXONOMY: ReadonlyArray<{
+  id: string;
+  label: string;
+  substates: ReadonlyArray<{ id: string; label: string }>;
+}> = [
+  {
+    id: "fb:em:venta",
+    label: "Venta",
+    substates: [
+      { id: "fb:em:venta:concretada", label: "Concretada" },
+      { id: "fb:em:venta:no_concretada", label: "No concretada" },
+    ],
+  },
+  {
+    id: "fb:em:consulta",
+    label: "Consulta",
+    substates: [
+      { id: "fb:em:consulta:resuelta", label: "Resuelta" },
+      { id: "fb:em:consulta:no_resuelta", label: "No resuelta" },
+    ],
+  },
+];
+
+/** Resolución de labels para cierre (DEFAULT + emergencia modal). */
+export const ALL_FALLBACK_CLOSURE_TAXONOMY = [...DEFAULT_CLOSURE_TAXONOMY, ...EMERGENCY_MODAL_CLOSURE_TAXONOMY];

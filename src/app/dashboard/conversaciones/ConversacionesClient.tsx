@@ -561,8 +561,11 @@ export function ConversacionesClient({
         setFinalizeSubstateId(first.substates[0]?.id ?? "");
       }
     } catch (e) {
-      setFinalizeModalError(e instanceof Error ? e.message : "No se pudieron cargar las opciones de cierre");
-      setFinalizeOpen(false);
+      const msg = e instanceof Error ? e.message : "No se pudieron cargar las opciones de cierre";
+      setFinalizeModalError(msg);
+      if (msg.includes("finalizada")) {
+        setFinalizeOpen(false);
+      }
     } finally {
       setFinalizeLoading(false);
     }

@@ -393,10 +393,8 @@ export async function repoListQueueClosureTaxonomy(
     .eq("queue_id", qid)
     .order("sort_order", { ascending: true });
   if (sErr) {
-    if (sErr.message.includes("chat_queue_closure_states") && sErr.message.includes("does not exist")) {
-      return [];
-    }
-    throw new Error(sErr.message);
+    console.error("[repoListQueueClosureTaxonomy] chat_queue_closure_states:", sErr.message);
+    return [];
   }
   const st = (states ?? []) as {
     id: string;
@@ -412,7 +410,16 @@ export async function repoListQueueClosureTaxonomy(
     .eq("empresa_id", ctx.empresa_id)
     .in("closure_state_id", ids)
     .order("sort_order", { ascending: true });
-  if (subErr) throw new Error(subErr.message);
+  if (subErr) {
+    console.error("[repoListQueueClosureTaxonomy] chat_queue_closure_substates:", subErr.message);
+    return st.map((s) => ({
+      id: s.id,
+      label: s.label,
+      sort_order: s.sort_order,
+      is_active: s.is_active !== false,
+      substates: [],
+    }));
+  }
   const byState = new Map<string, QueueClosureSubstateRow[]>();
   for (const row of subs ?? []) {
     const sid = (row as { closure_state_id: string }).closure_state_id;
@@ -573,8 +580,10 @@ export async function repoLoadQueueEditorBootstrap(ctx: QueueAdminTenantContext,
     );
   }
   if (settled[4]?.status === "rejected") {
-    bootstrapWarnings.push(
-      "No se pudieron cargar los estados de cierre de la cola (¿migración pendiente?). Podés seguir usando la cola con la taxonomía por defecto al finalizar."
+    const r = settled[4];
+    console.error(
+      "[repoLoadQueueEditorBootstrap] closure_taxonomy:",
+      r.status === "rejected" ? r.reason : ""
     );
   }
 

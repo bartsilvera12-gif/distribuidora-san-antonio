@@ -95,7 +95,8 @@ export async function fetchChatConversations(
       channel_id,
       flow_code,
       flow_status,
-      human_taken_over
+      human_taken_over,
+      active_flow_session_id
     `
     )
     .eq("empresa_id", empresa_id);
@@ -163,17 +164,22 @@ export async function fetchChatConversations(
     return String((row as { flow_code?: string | null }).flow_code ?? "").trim();
   }
 
-  function isRealAutomatedBotRow(row: Record<string, unknown>): boolean {
-    const fs = String((row as { flow_status?: string | null }).flow_status ?? "");
-    const humanTaken = Boolean((row as { human_taken_over?: boolean }).human_taken_over);
+  /** Bot = modo bot + código en flujo activo + sesión de flujo vigente (sin inferencias ni defaults a “bot”). */
+  function isBotConversationRow(row: Record<string, unknown>): boolean {
+    if (Boolean((row as { human_taken_over?: boolean }).human_taken_over)) return false;
+    const fs = String((row as { flow_status?: string | null }).flow_status ?? "").trim();
+    if (fs !== "bot") return false;
     const fc = rowFlowCode(row);
-    return fs === "bot" && !humanTaken && fc.length > 0 && activeFlowCodeSet.has(fc);
+    if (!fc || !activeFlowCodeSet.has(fc)) return false;
+    const sid = String((row as { active_flow_session_id?: string | null }).active_flow_session_id ?? "").trim();
+    if (!sid) return false;
+    return true;
   }
 
   if (vista === "inbox") {
-    list = list.filter((row) => !isRealAutomatedBotRow(row as Record<string, unknown>));
+    list = list.filter((row) => !isBotConversationRow(row as Record<string, unknown>));
   } else if (vista === "bot") {
-    list = list.filter((row) => isRealAutomatedBotRow(row as Record<string, unknown>));
+    list = list.filter((row) => isBotConversationRow(row as Record<string, unknown>));
   }
   if (list.length === 0) return [];
 
