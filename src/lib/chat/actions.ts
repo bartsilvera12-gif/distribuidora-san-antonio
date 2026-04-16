@@ -21,6 +21,7 @@ import {
   deleteOmnichannelRouteByMetaPhone,
   syncOmnichannelRouteForWhatsappChannel,
 } from "@/lib/chat/omnichannel-route-sync";
+import type { AppSupabaseClient } from "@/lib/supabase/schema";
 
 export type ConversacionesVista = "inbox" | "bot" | "historial";
 
@@ -73,6 +74,48 @@ export type InboxConversation = {
     crm_prospecto_id: string | null;
   };
 };
+
+/**
+ * Último mensaje por conversación (respaldo si el RPC de turnos falla o no está desplegado).
+ * Una subconsulta por id en paralelo por lotes, para no mezclar límites entre conversaciones.
+ */
+async function mapLastMessageByConversation(
+  supabase: AppSupabaseClient,
+  empresaId: string,
+  convIds: string[]
+): Promise<Record<string, { created_at: string; from_me: boolean }>> {
+  if (convIds.length === 0) return {};
+  const unique = [...new Set(convIds.map((x) => x.trim()).filter(Boolean))];
+  const out: Record<string, { created_at: string; from_me: boolean }> = {};
+  const batchSize = 30;
+  for (let i = 0; i < unique.length; i += batchSize) {
+    const batch = unique.slice(i, i + batchSize);
+    await Promise.all(
+      batch.map(async (cid) => {
+        const { data, error } = await supabase
+          .from("chat_messages")
+          .select("conversation_id, created_at, from_me")
+          .eq("empresa_id", empresaId)
+          .eq("conversation_id", cid)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (error) {
+          console.warn("[fetchChatConversations] último mensaje conv", cid, error.message);
+          return;
+        }
+        if (!data) return;
+        const created_at = String((data as { created_at?: string }).created_at ?? "").trim();
+        if (!created_at) return;
+        out[cid] = {
+          created_at,
+          from_me: Boolean((data as { from_me?: boolean }).from_me),
+        };
+      })
+    );
+  }
+  return out;
+}
 
 export async function fetchChatConversations(
   vista: ConversacionesVista = "inbox",
@@ -363,6 +406,14 @@ async function fetchChatConversationsUnsafe(
       }
     } catch (e) {
       console.warn("[fetchChatConversations] awaiting_reply RPC:", e instanceof Error ? e.message : e);
+    }
+    const lastByConv = await mapLastMessageByConversation(supabase, empresa_id, convIdList);
+    for (const id of convIdList) {
+      if (awaitingById[id] != null || clientTurnById[id] != null) continue;
+      const last = lastByConv[id];
+      if (!last?.created_at) continue;
+      if (!last.from_me) awaitingById[id] = last.created_at;
+      else clientTurnById[id] = last.created_at;
     }
   }
 
