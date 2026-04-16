@@ -177,6 +177,9 @@ export async function persistInboundChatMessageAndBump(
   const prevStatus = conversationState.status ?? "open";
   const nextStatus = prevStatus === "closed" ? "pending" : prevStatus;
 
+  const bumpUnread =
+    !fromMe && String(senderType || "contact").toLowerCase() === "contact";
+
   await supabase
     .from("chat_conversations")
     .update({
@@ -186,7 +189,7 @@ export async function persistInboundChatMessageAndBump(
       human_taken_over: conversationState.human_taken_over ?? false,
       last_message_at: timestampIso,
       last_message_preview: preview,
-      unread_count: conversationState.unread_count + 1,
+      unread_count: conversationState.unread_count + (bumpUnread ? 1 : 0),
       status: nextStatus,
       updated_at: new Date().toISOString(),
     })

@@ -9,6 +9,7 @@ import {
   shouldBypassOmnicanalConversationScope,
 } from "@/lib/chat/omnicanal-scope";
 import { insertChatRoutingEvent, updateContactLastRouted } from "@/lib/chat/routing-audit";
+import { isMissingColumnError } from "@/lib/chat/postgres-column-error";
 import type { AppSupabaseClient } from "@/lib/supabase/schema";
 
 /** Fila imposible para forzar 0 resultados en consultas `in`/count cuando el alcance no admite filas. */
@@ -421,18 +422,33 @@ export async function fetchMonitoringDashboard(): Promise<MonitoringDashboard> {
       .eq("activo", true)
       .eq("config_status", "active"),
     (async () => {
+      const colsFull =
+        "id, status, last_message_at, created_at, queue_id, channel_id, contact_id, assigned_agent_id, assignment_wait_code";
+      const colsLegacy =
+        "id, status, last_message_at, created_at, queue_id, channel_id, contact_id, assigned_agent_id";
       let q = supabase
         .from("chat_conversations")
-        .select(
-          "id, status, last_message_at, created_at, queue_id, channel_id, contact_id, assigned_agent_id, assignment_wait_code"
-        )
+        .select(colsFull)
         .eq("empresa_id", empresa_id)
         .is("assigned_agent_id", null)
         .in("status", ["open", "pending"])
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .limit(30);
       q = await scopedConv(q);
-      return await q;
+      let r: any = await q;
+      if (r.error && isMissingColumnError(r.error.message, "assignment_wait_code")) {
+        let q2 = supabase
+          .from("chat_conversations")
+          .select(colsLegacy)
+          .eq("empresa_id", empresa_id)
+          .is("assigned_agent_id", null)
+          .in("status", ["open", "pending"])
+          .order("last_message_at", { ascending: false, nullsFirst: false })
+          .limit(30);
+        q2 = await scopedConv(q2);
+        r = await q2;
+      }
+      return r;
     })(),
     (async () => {
       let q = supabase
@@ -465,10 +481,16 @@ export async function fetchMonitoringDashboard(): Promise<MonitoringDashboard> {
   const agentRows = agentsRes.data ?? [];
   const distinctUsers = new Set(agentRows.map((r) => r.usuario_id as string).filter(Boolean));
 
-  let convList = recentRes.data ?? [];
-  const queueIds = [...new Set(convList.map((c) => (c.queue_id as string | null)?.trim()).filter(Boolean))] as string[];
-  const channelIds = [...new Set(convList.map((c) => (c.channel_id as string | null)?.trim()).filter(Boolean))] as string[];
-  const contactIds = [...new Set(convList.map((c) => (c.contact_id as string | null)?.trim()).filter(Boolean))] as string[];
+  let convList = (recentRes.data ?? []) as Record<string, unknown>[];
+  const queueIds = [
+    ...new Set(convList.map((c: Record<string, unknown>) => (c.queue_id as string | null)?.trim()).filter(Boolean)),
+  ] as string[];
+  const channelIds = [
+    ...new Set(convList.map((c: Record<string, unknown>) => (c.channel_id as string | null)?.trim()).filter(Boolean)),
+  ] as string[];
+  const contactIds = [
+    ...new Set(convList.map((c: Record<string, unknown>) => (c.contact_id as string | null)?.trim()).filter(Boolean)),
+  ] as string[];
 
   let queueNombreById: Record<string, string> = {};
   if (queueIds.length > 0) {
@@ -543,7 +565,7 @@ export async function fetchMonitoringDashboard(): Promise<MonitoringDashboard> {
       }));
   }
 
-  const unassigned_recent: MonitoringUnassignedRow[] = convList.map((row) => {
+  const unassigned_recent: MonitoringUnassignedRow[] = convList.map((row: Record<string, unknown>) => {
     const qid = (row.queue_id as string | null)?.trim() || null;
     const cid = (row.channel_id as string | null)?.trim() || null;
     const ctid = (row.contact_id as string | null)?.trim() || null;
@@ -618,7 +640,26 @@ export async function listChatAgentsDirectory(): Promise<ChatAgentDirectoryRow[]
     }
   }
 
-  const { data, error } = await aq;
+  let { data, error } = await aq;
+
+  if (error && isMissingColumnError(error.message, "operational_status")) {
+    let aq2 = supabase
+      .from("chat_agents")
+      .select("id, queue_id, is_online, max_conversations, usuario_id")
+      .eq("empresa_id", empresa_id)
+      .eq("is_active", true)
+      .order("queue_id", { ascending: true });
+    if (!bypass) {
+      if (scope.agentUsuarioIds.length > 0) {
+        aq2 = aq2.in("usuario_id", scope.agentUsuarioIds);
+      } else {
+        aq2 = aq2.eq("id", OMNICANAL_NO_MATCH_UUID);
+      }
+    }
+    const second = await aq2;
+    data = second.data as typeof data;
+    error = second.error;
+  }
 
   if (error) throw new Error(error.message);
 
@@ -762,11 +803,24 @@ export async function getMyAgentOperationalPresence(): Promise<
   { in_queues: false } | { in_queues: true; status: ChatAgentOperationalStatus }
 > {
   const { supabase, empresa_id, usuario_id } = await requireEmpresaTenantServiceRole();
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("chat_agents")
     .select("operational_status")
     .eq("empresa_id", empresa_id)
     .eq("usuario_id", usuario_id);
+  if (error && isMissingColumnError(error.message, "operational_status")) {
+    const legacy = await supabase
+      .from("chat_agents")
+      .select("id")
+      .eq("empresa_id", empresa_id)
+      .eq("usuario_id", usuario_id);
+    data = legacy.data as typeof data;
+    error = legacy.error;
+    if (error) throw new Error(error.message);
+    const rowsLegacy = data ?? [];
+    if (rowsLegacy.length === 0) return { in_queues: false };
+    return { in_queues: true, status: "ready" };
+  }
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as { operational_status?: string | null }[];
   if (rows.length === 0) return { in_queues: false };
@@ -785,5 +839,10 @@ export async function setMyAgentOperationalPresence(status: ChatAgentOperational
     .update({ operational_status: status, updated_at: new Date().toISOString() })
     .eq("empresa_id", empresa_id)
     .eq("usuario_id", usuario_id);
+  if (error && isMissingColumnError(error.message, "operational_status")) {
+    throw new Error(
+      "La base aún no tiene la columna operational_status en chat_agents. Aplicá la migración 20260430160000_chat_agents_operational_status.sql en el proyecto Supabase."
+    );
+  }
   if (error) throw new Error(error.message);
 }

@@ -17,6 +17,11 @@ export type YCloudPersistPgInput = {
   content: string | null;
   raw_payload: Record<string, unknown>;
   created_at_iso: string;
+  /** Saliente (eco SMB, envío desde app de negocio, etc.). */
+  from_me?: boolean;
+  sender_type?: string;
+  /** Por defecto: solo incrementa unread en mensajes entrantes del contacto. */
+  bump_unread?: boolean;
 };
 
 async function resolveFlowForNewWhatsappConversation(
@@ -173,6 +178,12 @@ export async function persistYCloudInboundMessagePg(input: YCloudPersistPgInput)
 
     const ts = input.created_at_iso.trim() || new Date().toISOString();
     const preview = (input.content ?? "").slice(0, 280);
+    const fromMe = Boolean(input.from_me);
+    const senderType = (input.sender_type ?? (fromMe ? "human" : "contact")).trim() || "contact";
+    const bumpUnread =
+      input.bump_unread !== undefined
+        ? Boolean(input.bump_unread)
+        : !fromMe && senderType.toLowerCase() === "contact";
 
     const convRow = await client.query(
       `SELECT status, unread_count, flow_code, flow_current_node, flow_status, human_taken_over
@@ -197,13 +208,15 @@ export async function persistYCloudInboundMessagePg(input: YCloudPersistPgInput)
       `INSERT INTO ${msgT} (
          empresa_id, conversation_id, wa_message_id, from_me, sender_type, message_type, content, raw_payload, created_at
        ) VALUES (
-         $1::uuid, $2::uuid, $3::text, false, 'contact', $4::text, $5::text, $6::jsonb, $7::timestamptz
+         $1::uuid, $2::uuid, $3::text, $4::boolean, $5::text, $6::text, $7::text, $8::jsonb, $9::timestamptz
        )
        RETURNING id::text`,
       [
         input.empresa_id,
         conversationId,
         ext,
+        fromMe,
+        senderType,
         input.message_type,
         input.content,
         JSON.stringify(input.raw_payload ?? {}),
@@ -214,6 +227,8 @@ export async function persistYCloudInboundMessagePg(input: YCloudPersistPgInput)
 
     const unreadBase = row?.unread_count ?? conv.unread_count ?? 0;
 
+    const unreadNext = bumpUnread ? unreadBase + 1 : unreadBase;
+
     await client.query(
       `UPDATE ${convT}
        SET flow_code = $1::text,
@@ -222,7 +237,7 @@ export async function persistYCloudInboundMessagePg(input: YCloudPersistPgInput)
            human_taken_over = COALESCE($4::boolean, human_taken_over),
            last_message_at = $5::timestamptz,
            last_message_preview = $6::text,
-           unread_count = $7::int + 1,
+           unread_count = $7::int,
            status = $8::text,
            updated_at = now()
        WHERE id = $9::uuid AND empresa_id = $10::uuid`,
@@ -233,7 +248,7 @@ export async function persistYCloudInboundMessagePg(input: YCloudPersistPgInput)
         row?.human_taken_over ?? conv.human_taken_over ?? false,
         ts,
         preview,
-        unreadBase,
+        unreadNext,
         nextStatus,
         conversationId,
         input.empresa_id,

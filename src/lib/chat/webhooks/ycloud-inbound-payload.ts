@@ -5,6 +5,8 @@ export type YCloudWebhookEnvelope = {
   type?: string;
   createTime?: string;
   whatsappInboundMessage?: Record<string, unknown>;
+  /** Eco SMB: mensajes enviados desde la app WhatsApp Business / WhatsApp corporativo. */
+  whatsappMessage?: Record<string, unknown>;
 };
 
 export function parseYCloudWebhookEnvelope(raw: unknown): YCloudWebhookEnvelope | null {
@@ -19,6 +21,20 @@ export function extractInboundIdentifiers(msg: Record<string, unknown>): YCloudI
   if (!from.trim()) return null;
   if (!to.trim() && !wabaId.trim()) return null;
   return { wabaId: wabaId.trim(), to: to.trim(), from: from.trim() };
+}
+
+/**
+ * Eco `whatsapp.smb.message.echoes`: `from` = línea de negocio, `to` = cliente.
+ * Para resolver canal y contacto usamos la misma heurística que inbound: `to` del
+ * identificador debe ser la línea negocio y `from` el teléfono del contacto.
+ */
+export function extractSmbEchoIdentifiersForRouting(msg: Record<string, unknown>): YCloudInboundIdentifiers | null {
+  const wabaId = typeof msg.wabaId === "string" ? msg.wabaId.trim() : "";
+  const businessFrom = typeof msg.from === "string" ? msg.from.trim() : "";
+  const customerTo = typeof msg.to === "string" ? msg.to.trim() : "";
+  if (!customerTo) return null;
+  if (!businessFrom && !wabaId) return null;
+  return { wabaId, to: businessFrom, from: customerTo };
 }
 
 export function extractMessageContent(msg: Record<string, unknown>): {

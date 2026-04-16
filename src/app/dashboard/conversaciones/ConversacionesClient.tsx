@@ -40,6 +40,7 @@ import {
   getErpAttachmentFilename,
   getErpAttachmentPublicUrl,
   getMetaInboundDocumentFilename,
+  getWhatsAppMediaUrlFromRawPayload,
   isImageMimeHint,
 } from "@/lib/chat/message-erp-display";
 import { assignmentWaitBadge, assignmentWaitBadgeClass } from "@/lib/chat/inbox-assignment-labels";
@@ -89,6 +90,12 @@ function parseOutgoingImageMessage(message: ChatMessage): { url: string | null; 
     const cap = getErpAttachmentCaption(message.raw_payload) ?? getErpAttachmentFilename(message.raw_payload);
     return { url: erpUrl, caption: cap };
   }
+  const waUrl = getWhatsAppMediaUrlFromRawPayload(message.raw_payload);
+  if (waUrl) {
+    const imagePayload = (message.raw_payload?.image as { caption?: string } | undefined) ?? {};
+    const cap = typeof imagePayload.caption === "string" ? imagePayload.caption.trim() : "";
+    return { url: waUrl, caption: cap || null };
+  }
   const imagePayload = (message.raw_payload?.image as { link?: string; caption?: string } | undefined) ?? {};
   const link = typeof imagePayload.link === "string" ? imagePayload.link.trim() : "";
   const captionFromPayload = typeof imagePayload.caption === "string" ? imagePayload.caption.trim() : "";
@@ -104,7 +111,23 @@ function parseOutgoingImageMessage(message: ChatMessage): { url: string | null; 
 }
 
 function resolveAttachmentUrl(message: ChatMessage): string | null {
-  return getErpAttachmentPublicUrl(message.raw_payload) ?? parseOutgoingImageMessage(message).url;
+  return (
+    getErpAttachmentPublicUrl(message.raw_payload) ??
+    getWhatsAppMediaUrlFromRawPayload(message.raw_payload) ??
+    parseOutgoingImageMessage(message).url
+  );
+}
+
+function displayFilenameForAttachment(message: ChatMessage): string {
+  const erp = getErpAttachmentFilename(message.raw_payload);
+  if (erp) return erp;
+  const meta = getMetaInboundDocumentFilename(message.raw_payload);
+  if (meta) return meta;
+  const raw = (message.content ?? "").trim();
+  const m = /^\[documento\]\s*(.+)$/i.exec(raw);
+  if (m?.[1]?.trim()) return m[1].trim();
+  if (raw && !raw.startsWith("[")) return raw.slice(0, 120);
+  return message.message_type === "video" ? "Video" : "Archivo";
 }
 
 function tabClass(active: boolean) {
@@ -166,16 +189,24 @@ function badgeEstadoClass(s: string) {
 
 export type ConversacionesClientMode = "inbox" | "historial";
 
+/** Presencia operativa precargada en el servidor (evita parpadeo y fallos solo-cliente). */
+export type ConversacionesInitialOperationalPresence =
+  | { in_queues: false; status: null }
+  | { in_queues: true; status: ChatAgentOperationalStatus };
+
 export function ConversacionesClient({
   mode,
   chatDataSchema,
   agentDisplayName,
+  initialOperationalPresence,
 }: {
   mode: ConversacionesClientMode;
   /** Esquema Postgres de tablas chat_* (zentra_erp o `er_…`). */
   chatDataSchema: string;
   /** Nombre visible del agente logueado (resuelto en servidor). */
   agentDisplayName: string;
+  /** Si viene del RSC, el toggle de presencia puede mostrarse sin esperar la primera server action. */
+  initialOperationalPresence?: ConversacionesInitialOperationalPresence;
 }) {
   const supabaseChat = useMemo(
     () => createBrowserClientForSchema(chatDataSchema),
@@ -197,6 +228,7 @@ export function ConversacionesClient({
   const [uploadingFile, setUploadingFile] = useState(false);
   const [releasingBot, setReleasingBot] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
+  const [messagesError, setMessagesError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [hasActiveChannel, setHasActiveChannel] = useState<boolean | null>(null);
   const [compVals, setCompVals] = useState<ComprobanteValidacionListRow[]>([]);
@@ -214,9 +246,19 @@ export function ConversacionesClient({
   const [listSearch, setListSearch] = useState("");
   const [finalizeOpen, setFinalizeOpen] = useState(false);
   const [finalizeLoading, setFinalizeLoading] = useState(false);
-  const [opPresenceLoaded, setOpPresenceLoaded] = useState(false);
-  const [opInQueues, setOpInQueues] = useState(false);
-  const [opStatus, setOpStatus] = useState<ChatAgentOperationalStatus | null>(null);
+  const [opPresenceLoaded, setOpPresenceLoaded] = useState(
+    mode !== "inbox" || initialOperationalPresence !== undefined
+  );
+  const [opInQueues, setOpInQueues] = useState(
+    mode !== "inbox" ? false : (initialOperationalPresence?.in_queues ?? false)
+  );
+  const [opStatus, setOpStatus] = useState<ChatAgentOperationalStatus | null>(
+    mode !== "inbox"
+      ? null
+      : initialOperationalPresence?.in_queues
+        ? initialOperationalPresence.status
+        : null
+  );
   const [opPresenceBusy, setOpPresenceBusy] = useState(false);
   const [opPresenceErr, setOpPresenceErr] = useState<string | null>(null);
   const [finalizeSaving, setFinalizeSaving] = useState(false);
@@ -263,14 +305,21 @@ export function ConversacionesClient({
   const loadMessages = useCallback(async (conversationId: string, opts?: { silent?: boolean }) => {
     const silent = opts?.silent ?? false;
     if (!silent) setLoadingMsg(true);
+    setMessagesError(null);
     try {
       const qs = new URLSearchParams({ conversation_id: conversationId });
       const res = await fetchWithSupabaseSession(`/api/chat/messages?${qs.toString()}`, {
         cache: "no-store",
       });
       if (!res.ok) {
-        const t = await res.text().catch(() => "");
-        throw new Error(t || `Error ${res.status}`);
+        let detail = "";
+        try {
+          const j = (await res.json()) as { error?: string; message?: string };
+          detail = (j.error || j.message || "").trim();
+        } catch {
+          detail = (await res.text().catch(() => "")).trim();
+        }
+        throw new Error(detail || `Error ${res.status} al cargar mensajes`);
       }
       const json = (await res.json()) as { success?: boolean; data?: Record<string, unknown>[] };
       if (!json.success || !Array.isArray(json.data)) {
@@ -279,7 +328,8 @@ export function ConversacionesClient({
       }
       setMessages(json.data.map(mapRowToMessage));
     } catch (e) {
-      setListError(e instanceof Error ? e.message : "Error al cargar mensajes");
+      setMessages([]);
+      setMessagesError(e instanceof Error ? e.message : "Error al cargar mensajes");
     } finally {
       if (!silent) setLoadingMsg(false);
     }
@@ -350,7 +400,9 @@ export function ConversacionesClient({
       return;
     }
     let cancelled = false;
-    setOpPresenceLoaded(false);
+    if (initialOperationalPresence === undefined) {
+      setOpPresenceLoaded(false);
+    }
     setOpPresenceErr(null);
     void getMyAgentOperationalPresence()
       .then((p) => {
@@ -365,8 +417,10 @@ export function ConversacionesClient({
       })
       .catch((e) => {
         if (cancelled) return;
-        setOpInQueues(false);
-        setOpStatus(null);
+        if (initialOperationalPresence === undefined) {
+          setOpInQueues(false);
+          setOpStatus(null);
+        }
         setOpPresenceErr(e instanceof Error ? e.message : "No se pudo cargar estado operativo");
       })
       .finally(() => {
@@ -375,7 +429,7 @@ export function ConversacionesClient({
     return () => {
       cancelled = true;
     };
-  }, [mode]);
+  }, [mode, initialOperationalPresence]);
 
   const applyOperationalStatus = useCallback(async (next: ChatAgentOperationalStatus) => {
     setOpPresenceErr(null);
@@ -522,6 +576,7 @@ export function ConversacionesClient({
     async (id: string) => {
       stickBottomRef.current = true;
       lastMessageIdRef.current = null;
+      setMessagesError(null);
       setSelectedId(id);
       await loadMessages(id);
       const compOn = conversations.some(
@@ -992,6 +1047,11 @@ export function ConversacionesClient({
       {listError && (
         <div className="bg-red-50 border border-red-200 text-red-800 text-xs rounded-lg px-2 py-1.5 shrink-0">
           {listError}
+        </div>
+      )}
+      {messagesError && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-950 text-xs rounded-lg px-2 py-1.5 shrink-0">
+          {messagesError}
         </div>
       )}
 
@@ -1478,43 +1538,63 @@ export function ConversacionesClient({
                             </div>
                           ) : m.message_type === "document" || m.message_type === "video" ? (
                             <div className="space-y-2">
-                              <div
-                                className={`text-xs font-medium ${m.from_me ? "text-sky-100" : "text-slate-500"}`}
-                              >
-                                {m.message_type === "video" ? "Video" : "Documento"}
-                              </div>
                               {attachUrl ? (
                                 <a
                                   href={attachUrl}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className={`inline-flex items-center gap-2 font-medium underline ${
-                                    m.from_me ? "text-white" : "text-[#0EA5E9]"
+                                  className={`flex items-start gap-3 rounded-xl border px-3 py-2.5 no-underline transition-colors ${
+                                    m.from_me
+                                      ? "border-white/25 bg-sky-500/20 hover:bg-sky-500/30 text-white"
+                                      : "border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-900"
                                   }`}
                                 >
-                                  <span className="text-lg" aria-hidden>
-                                    {m.message_type === "video" ? "▶" : "📄"}
+                                  <span className="text-2xl leading-none shrink-0 select-none" aria-hidden>
+                                    {m.message_type === "video" ? "▶️" : "📎"}
                                   </span>
-                                  <span className="break-all">
-                                    {erpName || metaDocName || "Abrir archivo"}
+                                  <span className="min-w-0 flex-1">
+                                    <span
+                                      className={`block text-[10px] font-bold uppercase tracking-wide ${
+                                        m.from_me ? "text-sky-100" : "text-slate-500"
+                                      }`}
+                                    >
+                                      {m.message_type === "video" ? "Video" : "Documento"}
+                                    </span>
+                                    <span className="block text-sm font-semibold break-words mt-0.5">
+                                      {displayFilenameForAttachment(m)}
+                                    </span>
+                                    <span
+                                      className={`block text-[11px] mt-1 ${
+                                        m.from_me ? "text-sky-100" : "text-slate-500"
+                                      }`}
+                                    >
+                                      Tocá para abrir o descargar
+                                    </span>
                                   </span>
                                 </a>
                               ) : (
-                                <p className="whitespace-pre-wrap break-words">
-                                  {erpName || metaDocName ? (
-                                    <>
-                                      <span className="font-medium">{erpName || metaDocName}</span>
-                                      {m.content ? (
-                                        <>
-                                          <br />
-                                          {m.content}
-                                        </>
-                                      ) : null}
-                                    </>
-                                  ) : (
-                                    m.content
-                                  )}
-                                </p>
+                                <div>
+                                  <div
+                                    className={`text-xs font-medium ${m.from_me ? "text-sky-100" : "text-slate-500"}`}
+                                  >
+                                    {m.message_type === "video" ? "Video" : "Documento"}
+                                  </div>
+                                  <p className="whitespace-pre-wrap break-words mt-1">
+                                    {erpName || metaDocName ? (
+                                      <>
+                                        <span className="font-medium">{erpName || metaDocName}</span>
+                                        {m.content ? (
+                                          <>
+                                            <br />
+                                            {m.content}
+                                          </>
+                                        ) : null}
+                                      </>
+                                    ) : (
+                                      m.content
+                                    )}
+                                  </p>
+                                </div>
                               )}
                             </div>
                           ) : m.message_type === "image" ? (

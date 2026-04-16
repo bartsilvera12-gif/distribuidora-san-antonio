@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { filterConversationIdsByOmnicanalScope } from "@/lib/chat/omnicanal-scope";
+import { createServiceRoleClient } from "@/lib/supabase/service-admin";
 import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
@@ -19,6 +21,8 @@ export async function GET(request: NextRequest) {
     }
 
     const { supabase, auth } = ctx;
+    const usuarioId = (auth.usuarioCatalogId ?? "").trim();
+
     const { data: conv, error: cErr } = await supabase
       .from("chat_conversations")
       .select("id")
@@ -31,6 +35,24 @@ export async function GET(request: NextRequest) {
     }
     if (!conv) {
       return NextResponse.json(errorResponse("Conversación no encontrada"), { status: 404 });
+    }
+
+    if (usuarioId) {
+      try {
+        const catalogSr = createServiceRoleClient();
+        const visible = await filterConversationIdsByOmnicanalScope(
+          supabase,
+          catalogSr,
+          auth.empresa_id,
+          usuarioId,
+          [conversationId]
+        );
+        if (!visible.has(conversationId)) {
+          return NextResponse.json(errorResponse("Sin acceso a esta conversación"), { status: 403 });
+        }
+      } catch (e) {
+        console.error("[api/chat/messages] validación de alcance omnicanal omitida:", e);
+      }
     }
 
     const { data, error } = await supabase

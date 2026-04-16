@@ -11,6 +11,7 @@ import {
   parseComprobanteValidationConfig,
 } from "@/lib/chat/comprobante-validation-types";
 import { requireEmpresaTenantServiceRole } from "@/lib/chat/empresa-tenant-service-role";
+import { isMissingColumnError } from "@/lib/chat/postgres-column-error";
 import {
   appendOmnicanalConversationScopeToQuery,
   getOmnicanalScope,
@@ -91,10 +92,7 @@ export async function fetchChatConversations(
    * Sin embeds desde `chat_conversations`: en esquemas tenant PostgREST suele no tener en caché
    * las FKs hacia `chat_channels` / `chat_queues` / `chat_agents` y falla el select anidado.
    */
-  let q = supabase
-    .from("chat_conversations")
-    .select(
-      `
+  const convSelectWithWait = `
       id,
       status,
       priority,
@@ -110,89 +108,120 @@ export async function fetchChatConversations(
       flow_status,
       human_taken_over,
       active_flow_session_id
-    `
-    )
-    .eq("empresa_id", empresa_id);
+    `;
+  const convSelectLegacy = `
+      id,
+      status,
+      priority,
+      queue_id,
+      assigned_agent_id,
+      last_message_at,
+      last_message_preview,
+      unread_count,
+      contact_id,
+      channel_id,
+      flow_code,
+      flow_status,
+      human_taken_over,
+      active_flow_session_id
+    `;
 
-  if (vista === "inbox") {
-    q = q.in("status", ["open", "pending"]);
-  } else if (vista === "bot") {
-    q = q
-      .eq("human_taken_over", false)
-      .in("status", ["open", "pending"])
-      .not("active_flow_session_id", "is", null);
-  } else if (vista === "historial") {
-    q = q.eq("status", "closed");
-  }
+  const buildFilteredConversationQuery = async (selectStr: string) => {
+    let qb = supabase.from("chat_conversations").select(selectStr).eq("empresa_id", empresa_id);
 
-  if (vista !== "historial") {
-    try {
-      const scope = await getOmnicanalScope(supabase, empresa_id, usuario_id);
-      const bypass = await shouldBypassOmnicanalConversationScope(catalogSr, usuario_id, scope);
-      if (!bypass) {
-        q = await appendOmnicanalConversationScopeToQuery(supabase, empresa_id, scope, q);
-      }
-    } catch (e) {
-      console.error("[fetchChatConversations] alcance omnicanal omitido (inbox estable):", e);
+    if (vista === "inbox") {
+      qb = qb.in("status", ["open", "pending"]);
+    } else if (vista === "bot") {
+      qb = qb
+        .eq("human_taken_over", false)
+        .in("status", ["open", "pending"])
+        .not("active_flow_session_id", "is", null);
+    } else if (vista === "historial") {
+      qb = qb.eq("status", "closed");
     }
-  }
 
-  const assignment = filters?.assignment ?? "all";
-  if (assignment === "mine") {
-    const { data: myAgents, error: maErr } = await supabase
-      .from("chat_agents")
-      .select("id")
-      .eq("empresa_id", empresa_id)
-      .eq("usuario_id", usuario_id)
-      .eq("is_active", true);
-    if (maErr) {
-      console.warn(
-        "[fetchChatConversations] no se pudo cargar chat_agents para filtro «mios»; se listan todas:",
-        maErr.message
-      );
-    } else {
-      const ids = (myAgents ?? []).map((r) => r.id as string);
-      if (ids.length > 0) {
-        q = q.in("assigned_agent_id", ids);
-      } else {
+    if (vista !== "historial") {
+      try {
+        const scope = await getOmnicanalScope(supabase, empresa_id, usuario_id);
+        const bypass = await shouldBypassOmnicanalConversationScope(catalogSr, usuario_id, scope);
+        if (!bypass) {
+          qb = await appendOmnicanalConversationScopeToQuery(supabase, empresa_id, scope, qb);
+        }
+      } catch (e) {
+        console.error("[fetchChatConversations] alcance omnicanal omitido (inbox estable):", e);
+      }
+    }
+
+    const assignment = filters?.assignment ?? "all";
+    if (assignment === "mine") {
+      const { data: myAgents, error: maErr } = await supabase
+        .from("chat_agents")
+        .select("id")
+        .eq("empresa_id", empresa_id)
+        .eq("usuario_id", usuario_id)
+        .eq("is_active", true);
+      if (maErr) {
         console.warn(
-          "[fetchChatConversations] filtro «mios» sin filas en chat_agents para el usuario; se listan todas las conversaciones"
+          "[fetchChatConversations] no se pudo cargar chat_agents para filtro «mios»; se listan todas:",
+          maErr.message
         );
+      } else {
+        const ids = (myAgents ?? []).map((r) => r.id as string);
+        if (ids.length > 0) {
+          qb = qb.in("assigned_agent_id", ids);
+        } else {
+          console.warn(
+            "[fetchChatConversations] filtro «mios» sin filas en chat_agents para el usuario; se listan todas las conversaciones"
+          );
+        }
       }
+    } else if (assignment === "unassigned") {
+      qb = qb.is("assigned_agent_id", null);
     }
-  } else if (assignment === "unassigned") {
-    q = q.is("assigned_agent_id", null);
-  }
 
-  const fq = filters?.queue_id?.trim();
-  if (fq) q = q.eq("queue_id", fq);
+    const fq = filters?.queue_id?.trim();
+    if (fq) qb = qb.eq("queue_id", fq);
 
-  const fs = filters?.status?.trim().toLowerCase();
-  if (fs && ["open", "pending", "closed"].includes(fs)) {
-    q = q.eq("status", fs);
-  }
+    const fs = filters?.status?.trim().toLowerCase();
+    if (fs && ["open", "pending", "closed"].includes(fs)) {
+      qb = qb.eq("status", fs);
+    }
 
-  const fp = filters?.priority?.trim().toLowerCase();
-  if (fp && ["low", "medium", "high"].includes(fp)) {
-    q = q.eq("priority", fp);
-  }
+    const fp = filters?.priority?.trim().toLowerCase();
+    if (fp && ["low", "medium", "high"].includes(fp)) {
+      qb = qb.eq("priority", fp);
+    }
 
-  const { data: convs, error } = await q.order("last_message_at", {
+    return qb;
+  };
+
+  /* PostgREST + scope async: el builder se ensancha a `any` para encadenar `.order` sin choque de genéricos. */
+  let q: any = await buildFilteredConversationQuery(convSelectWithWait);
+  let { data: convs, error } = await q.order("last_message_at", {
     ascending: false,
     nullsFirst: false,
   });
 
+  if (error && isMissingColumnError(error.message, "assignment_wait_code")) {
+    console.warn("[fetchChatConversations] assignment_wait_code ausente; reintento sin columna");
+    q = await buildFilteredConversationQuery(convSelectLegacy);
+    ({ data: convs, error } = await q.order("last_message_at", {
+      ascending: false,
+      nullsFirst: false,
+    }));
+  }
+
   if (error) throw new Error(error.message);
-  let list = convs ?? [];
+  let list = (convs ?? []) as Record<string, unknown>[];
   const totalAfterQuery = list.length;
 
   const sessionIds = [
     ...new Set(
       list
-        .map((row) =>
+        .map((row: Record<string, unknown>) =>
           String((row as { active_flow_session_id?: string | null }).active_flow_session_id ?? "").trim()
         )
-        .filter((id) => id.length > 0)
+        .filter((id: string) => id.length > 0)
     ),
   ];
   const flowSessionById = new Map<string, FlowSessionRowMin>();

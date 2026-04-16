@@ -30,6 +30,34 @@ export function getMetaInboundDocumentFilename(raw: RawPayload): string | null {
   return typeof fn === "string" && fn.trim() ? fn.trim() : null;
 }
 
+/**
+ * URL pública de media WhatsApp/YCloud guardada en `raw_payload` (envelope o mensaje anidado).
+ * No incluye cabeceras de API; algunos enlaces YCloud requieren `X-API-Key` para descarga estable.
+ */
+export function getWhatsAppMediaUrlFromRawPayload(raw: RawPayload): string | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const candidates: unknown[] = [];
+  const wim = r.whatsappInboundMessage;
+  const wmsg = r.whatsappMessage;
+  if (wim && typeof wim === "object" && !Array.isArray(wim)) candidates.push(wim);
+  if (wmsg && typeof wmsg === "object" && !Array.isArray(wmsg)) candidates.push(wmsg);
+  candidates.push(r);
+
+  for (const root of candidates) {
+    if (!root || typeof root !== "object" || Array.isArray(root)) continue;
+    const msg = root as Record<string, unknown>;
+    for (const key of ["image", "video", "audio", "document", "sticker"] as const) {
+      const media = msg[key];
+      if (media && typeof media === "object" && !Array.isArray(media)) {
+        const link = (media as { link?: string }).link;
+        if (typeof link === "string" && /^https?:\/\//i.test(link.trim())) return link.trim();
+      }
+    }
+  }
+  return null;
+}
+
 export function isImageMimeHint(raw: RawPayload, messageType: string): boolean {
   if (messageType === "image" || messageType === "sticker") return true;
   const erp = raw?.erp;
