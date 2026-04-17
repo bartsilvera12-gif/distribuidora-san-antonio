@@ -1,5 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { supabaseServiceRoleClientOptions } from "@/lib/supabase/schema";
+import { getAuthUserForApiRoute } from "@/lib/auth/get-auth-user-for-api-route";
+import { resolveUsuarioErpFromAuthUser } from "@/lib/auth/resolve-usuario-erp";
+import { isBootstrapSuperAdminEmail } from "@/lib/auth/super-admin-bootstrap-email";
 import { NextResponse } from "next/server";
 import { esRolAdminEmpresa } from "@/lib/modulos/resolve-effective-modules";
 
@@ -165,6 +168,91 @@ export async function PATCH(
     }
 
     return NextResponse.json({ success: true });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Error";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
+/**
+ * Elimina la empresa, sus filas en catálogo (CASCADE) y el schema tenant (`BEFORE DELETE` en empresas).
+ * Luego borra usuarios en GoTrue para no dejar sesiones huérfanas.
+ */
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !key) {
+      return NextResponse.json({ error: "Config no disponible" }, { status: 500 });
+    }
+
+    const user = await getAuthUserForApiRoute(request);
+    if (!user?.id) {
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    }
+
+    const supabase = createClient(url, key, { ...supabaseServiceRoleClientOptions });
+    const usuario = await resolveUsuarioErpFromAuthUser(supabase, user);
+    const rolSuper = (usuario?.rol ?? "").trim() === "super_admin";
+    const bootstrapSuper = isBootstrapSuperAdminEmail(user.email);
+    if (!rolSuper && !bootstrapSuper) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 403 });
+    }
+
+    const { data: empresa, error: errEmpresa } = await supabase
+      .from("empresas")
+      .select("id, nombre_empresa")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (errEmpresa) {
+      return NextResponse.json({ error: errEmpresa.message }, { status: 400 });
+    }
+    if (!empresa?.id) {
+      return NextResponse.json({ error: "Empresa no encontrada" }, { status: 404 });
+    }
+
+    const { data: usuariosAuth, error: errU } = await supabase
+      .from("usuarios")
+      .select("auth_user_id")
+      .eq("empresa_id", id);
+
+    if (errU) {
+      return NextResponse.json({ error: errU.message }, { status: 400 });
+    }
+
+    const authUserIds = [
+      ...new Set(
+        (usuariosAuth ?? [])
+          .map((r) => (r as { auth_user_id?: string | null }).auth_user_id)
+          .filter((x): x is string => typeof x === "string" && x.length > 0)
+      ),
+    ];
+
+    const { error: errDel } = await supabase.from("empresas").delete().eq("id", id);
+    if (errDel) {
+      return NextResponse.json(
+        { error: errDel.message },
+        { status: 400 }
+      );
+    }
+
+    for (const authUid of authUserIds) {
+      try {
+        await supabase.auth.admin.deleteUser(authUid);
+      } catch {
+        /* puede estar ya borrado */
+      }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      nombre_empresa: (empresa as { nombre_empresa?: string }).nombre_empresa ?? null,
+    });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Error";
     return NextResponse.json({ error: msg }, { status: 500 });

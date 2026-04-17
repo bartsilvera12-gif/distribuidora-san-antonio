@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { getEmpresas } from "@/lib/empresas/actions";
+import { eliminarEmpresa, getEmpresas } from "@/lib/empresas/actions";
 import type { Empresa } from "@/lib/empresas/actions";
 
 function formatFecha(iso: string) {
@@ -27,6 +27,8 @@ function BadgeEstado({ estado }: { estado: string }) {
 export default function AdminEmpresasPage() {
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [cargando, setCargando] = useState(true);
+  const [eliminandoId, setEliminandoId] = useState<string | null>(null);
+  const [errorLista, setErrorLista] = useState<string | null>(null);
 
   useEffect(() => {
     getEmpresas()
@@ -34,6 +36,25 @@ export default function AdminEmpresasPage() {
       .catch(console.error)
       .finally(() => setCargando(false));
   }, []);
+
+  async function handleEliminar(e: Empresa) {
+    setErrorLista(null);
+    const ok = window.confirm(
+      `¿Eliminar la empresa «${e.nombre_empresa}»?\n\n` +
+        "Se borrarán usuarios del ERP, el esquema de datos de esa empresa (tablas tenant) y las cuentas de inicio de sesión asociadas en Auth. No se puede deshacer."
+    );
+    if (!ok) return;
+    setEliminandoId(e.id);
+    try {
+      await eliminarEmpresa(e.id);
+      setEmpresas((prev) => prev.filter((x) => x.id !== e.id));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setErrorLista(msg);
+    } finally {
+      setEliminandoId(null);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -52,6 +73,12 @@ export default function AdminEmpresasPage() {
           Nueva empresa
         </Link>
       </div>
+
+      {errorLista && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          {errorLista}
+        </div>
+      )}
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
         {cargando ? (
@@ -100,6 +127,14 @@ export default function AdminEmpresasPage() {
                       >
                         Editar
                       </Link>
+                      <button
+                        type="button"
+                        disabled={eliminandoId === e.id}
+                        onClick={() => void handleEliminar(e)}
+                        className="text-xs text-red-600 hover:text-red-800 underline disabled:opacity-50"
+                      >
+                        {eliminandoId === e.id ? "Eliminando…" : "Eliminar"}
+                      </button>
                     </div>
                   </td>
                 </tr>

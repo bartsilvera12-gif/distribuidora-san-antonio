@@ -80,6 +80,18 @@ export async function getEmpresas(): Promise<Empresa[]> {
   return res.json();
 }
 
+/** Solo super_admin (vía API). Borra empresa, schema tenant y usuarios de Auth vinculados. */
+export async function eliminarEmpresa(empresaId: string): Promise<void> {
+  const res = await fetchWithSupabaseSession(`/api/admin/empresas/${empresaId}`, {
+    method: "DELETE",
+    cache: "no-store",
+  });
+  const json = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) {
+    throw new Error(typeof json.error === "string" ? json.error : "No se pudo eliminar la empresa");
+  }
+}
+
 export async function getModulos(): Promise<Modulo[]> {
   const res = await fetchWithSupabaseSession("/api/admin/modulos");
   if (!res.ok) throw new Error("Error al cargar módulos");
