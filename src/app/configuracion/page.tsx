@@ -3,16 +3,21 @@
 import Link from "next/link";
 import {
   BarChart3,
+  ClipboardList,
   FileText,
   GitBranch,
+  Hash,
   Inbox,
+  Landmark,
   LayoutGrid,
   MessageCircle,
+  Percent,
   Receipt,
   SlidersHorizontal,
   UsersRound,
 } from "lucide-react";
-import { useEffect, useRef, useState, type ComponentType } from "react";
+import { useEffect, useRef, useState } from "react";
+import { SettingsModuleCard } from "@/components/config/SettingsModuleCard";
 import MontoInput from "@/components/ui/MontoInput";
 import { getConfig, saveConfig, resetConfig } from "@/lib/config/storage";
 import { getCurrentUser } from "@/lib/auth";
@@ -30,93 +35,27 @@ const fLabel  = "block text-xs font-semibold text-slate-500 uppercase tracking-w
 const fInput  = "w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0EA5E9] bg-white";
 const fSelect = "w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0EA5E9] bg-white";
 
+/** Misma envuelta visual que las cards de Canales (`OmnichannelChannelCard`). */
 function Card({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-      {children}
-    </div>
-  );
+  return <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">{children}</div>;
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 pb-2 border-b border-gray-100">
-      {children}
-    </h4>
-  );
+  return <h4 className="mb-4 text-xs font-bold uppercase tracking-wider text-slate-500">{children}</h4>;
 }
 
 function HelpText({ children }: { children: React.ReactNode }) {
-  return <p className="text-xs text-gray-400 mt-1.5 leading-relaxed">{children}</p>;
-}
-
-type ConfigModuleCardProps = {
-  title: string;
-  description: string;
-  icon: ComponentType<{ className?: string }>;
-  badge?: string;
-  disabled?: boolean;
-  href?: string;
-  onSelect?: () => void;
-};
-
-function ConfigModuleCard({
-  title,
-  description,
-  icon: Icon,
-  badge,
-  disabled,
-  href,
-  onSelect,
-}: ConfigModuleCardProps) {
-  const inner = (
-    <>
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-50 to-white text-sky-600 ring-1 ring-sky-100/90">
-          <Icon className="h-5 w-5" aria-hidden />
-        </div>
-        {badge ? (
-          <span className="shrink-0 rounded-full border border-slate-200/90 bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
-            {badge}
-          </span>
-        ) : null}
-      </div>
-      <div className="mt-3 min-w-0">
-        <h3 className="text-sm font-semibold tracking-tight text-slate-900">{title}</h3>
-        <p className="mt-1 text-xs text-slate-500 leading-relaxed line-clamp-3">{description}</p>
-      </div>
-      <p className="mt-4 text-xs font-semibold text-[#0EA5E9] transition-colors group-hover:text-[#0284C7]">
-        {href && !disabled ? "Abrir módulo →" : disabled ? "Contratá omnicanal para habilitar" : "Editar aquí →"}
-      </p>
-    </>
-  );
-
-  const shell =
-    "group flex h-full w-full flex-col rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm outline-none transition-all hover:border-sky-200/90 hover:shadow-md focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2";
-
-  if (href && !disabled) {
-    return (
-      <Link href={href} className={`${shell} hover:-translate-y-px`}>
-        {inner}
-      </Link>
-    );
-  }
-
-  return (
-    <button type="button" disabled={disabled} onClick={onSelect} className={`${shell} disabled:cursor-not-allowed disabled:opacity-55`}>
-      {inner}
-    </button>
-  );
+  return <p className="mt-1.5 text-xs leading-relaxed text-slate-400">{children}</p>;
 }
 
 function MetricCard({
   label, value, sub,
 }: { label: string; value: string | number; sub?: string }) {
   return (
-    <div className="bg-gray-50 rounded-lg px-4 py-3">
-      <p className="text-xs text-gray-400 mb-0.5">{label}</p>
-      <p className="text-sm font-bold text-gray-800 tabular-nums">{value}</p>
-      {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+    <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+      <p className="mb-0.5 text-xs text-slate-400">{label}</p>
+      <p className="text-sm font-bold tabular-nums text-slate-800">{value}</p>
+      {sub && <p className="mt-0.5 text-xs text-slate-400">{sub}</p>}
     </div>
   );
 }
@@ -258,7 +197,11 @@ export default function ConfiguracionPage() {
 
   const facturaPreview = `${form.prefijo_factura}${String(form.numeracion_inicial).padStart(6, "0")}`;
 
-  const omnicanalBadge = hasConversacionesModulo ? "Activo" : "No habilitado";
+  const omnicanalModuleBadge = hasConversacionesModulo
+    ? ({ label: "Activo", tone: "active" as const })
+    : ({ label: "Inactivo", tone: "inactive" as const });
+
+  const editorBadge = { label: "Editor", tone: "neutral" as const };
 
   return (
     <div className="space-y-10 max-w-6xl pb-10">
@@ -303,83 +246,101 @@ export default function ConfiguracionPage() {
         </div>
         <ul className="m-0 grid list-none gap-4 p-0 sm:grid-cols-2 xl:grid-cols-3">
           <li>
-            <ConfigModuleCard
+            <SettingsModuleCard
               title="Facturación"
+              subtitle="GLOBAL · DOCUMENTOS"
               description="Numeración, condiciones de pago y acceso a SIFEN / facturación electrónica."
               icon={Receipt}
+              badge={editorBadge}
               onSelect={() => selectTab("facturacion")}
             />
           </li>
           <li>
-            <ConfigModuleCard
+            <SettingsModuleCard
               title="Políticas del sistema"
+              subtitle="GLOBAL · COMERCIAL"
               description="Descuentos máximos, retención de clientes y límites por empresa."
               icon={FileText}
+              badge={editorBadge}
               onSelect={() => selectTab("politicas")}
             />
           </li>
           <li>
-            <ConfigModuleCard
+            <SettingsModuleCard
               title="Preferencias"
+              subtitle="GLOBAL · LOCALIZACIÓN"
               description="Moneda base, zona horaria, idioma y formato de fecha."
               icon={SlidersHorizontal}
+              badge={editorBadge}
               onSelect={() => selectTab("preferencias")}
             />
           </li>
           <li>
-            <ConfigModuleCard
+            <SettingsModuleCard
               title="Métricas"
+              subtitle="GLOBAL · OBJETIVOS"
               description="Metas comerciales y financieras para tableros y seguimiento."
               icon={BarChart3}
+              badge={editorBadge}
               onSelect={() => selectTab("metricas")}
             />
           </li>
           <li>
-            <ConfigModuleCard
+            <SettingsModuleCard
               title="Configuración CRM"
+              subtitle="GLOBAL · PIPELINE"
               description="Etapas del pipeline y columnas del embudo por empresa."
               icon={LayoutGrid}
+              badge={editorBadge}
               onSelect={() => selectTab("crm")}
             />
           </li>
           <li>
-            <ConfigModuleCard
+            <SettingsModuleCard
               title="Canales y comunicación"
+              subtitle="OMNICANAL · MENSAJERÍA"
               description="WhatsApp, redes y email: credenciales y estado de conexión."
               icon={MessageCircle}
-              badge={omnicanalBadge}
+              badge={omnicanalModuleBadge}
               href={hasConversacionesModulo ? "/configuracion/canales" : undefined}
               disabled={!hasConversacionesModulo}
+              actionLabel={hasConversacionesModulo ? "Editar" : "Sin acceso"}
             />
           </li>
           <li>
-            <ConfigModuleCard
+            <SettingsModuleCard
               title="Colas y enrutamiento"
+              subtitle="OMNICANAL · ROUTING"
               description="Reglas de asignación y prioridad de conversaciones entrantes."
               icon={Inbox}
-              badge={omnicanalBadge}
+              badge={omnicanalModuleBadge}
               href={hasConversacionesModulo ? "/configuracion/colas" : undefined}
               disabled={!hasConversacionesModulo}
+              actionLabel={hasConversacionesModulo ? "Editar" : "Sin acceso"}
             />
           </li>
           <li>
-            <ConfigModuleCard
+            <SettingsModuleCard
               title="Flujos conversacionales"
+              subtitle="OMNICANAL · AUTOMACIÓN"
               description="Automatizaciones del hilo conversacional y ramas por canal."
               icon={GitBranch}
-              badge={omnicanalBadge}
+              badge={omnicanalModuleBadge}
               href={hasConversacionesModulo ? "/configuracion/conversaciones/flujos" : undefined}
               disabled={!hasConversacionesModulo}
+              actionLabel={hasConversacionesModulo ? "Editar" : "Sin acceso"}
             />
           </li>
           <li>
-            <ConfigModuleCard
+            <SettingsModuleCard
               title="Equipos y supervisión"
+              subtitle="OMNICANAL · EQUIPOS"
               description="Relaciones supervisor → agente para monitoreo y reporting operativo."
               icon={UsersRound}
-              badge={omnicanalBadge}
+              badge={omnicanalModuleBadge}
               href={hasConversacionesModulo ? "/configuracion/omnicanal-equipos" : undefined}
               disabled={!hasConversacionesModulo}
+              actionLabel={hasConversacionesModulo ? "Editar" : "Sin acceso"}
             />
           </li>
         </ul>
@@ -413,16 +374,23 @@ export default function ConfiguracionPage() {
         {tab === "facturacion" && (
           <>
             <Card>
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div>
-                  <SectionTitle>SIFEN / Facturación electrónica</SectionTitle>
-                  <p className="text-sm text-gray-600 -mt-2">
-                    Timbrado, CSC, certificado .p12 y ambiente SET. Opcional: las empresas sin SIFEN no se ven afectadas.
-                  </p>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex min-w-0 gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700">
+                    <Landmark className="h-5 w-5 shrink-0" aria-hidden />
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                      SIFEN / Facturación electrónica
+                    </h4>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                      Timbrado, CSC, certificado .p12 y ambiente SET. Opcional: las empresas sin SIFEN no se ven afectadas.
+                    </p>
+                  </div>
                 </div>
                 <Link
                   href="/configuracion/facturacion-electronica"
-                  className="shrink-0 inline-flex items-center justify-center px-4 py-2.5 rounded-lg text-sm font-semibold bg-[#0EA5E9] text-white hover:bg-[#0284C7] transition-colors shadow-sm"
+                  className="inline-flex shrink-0 items-center justify-center rounded-xl bg-[#0EA5E9] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#0284C7]"
                 >
                   Configurar SIFEN
                 </Link>
@@ -430,68 +398,87 @@ export default function ConfiguracionPage() {
             </Card>
 
             <Card>
-              <SectionTitle>Numeración de documentos</SectionTitle>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className={fLabel}>Prefijo de factura</label>
-                  <input type="text" name="prefijo_factura" value={form.prefijo_factura}
-                    onChange={handleChange} placeholder="FAC-" className={fInput} />
-                  <HelpText>Prefijo que antecede al número correlativo (ej: FAC-, FT-, VTA-).</HelpText>
+              <div className="flex flex-col gap-4 sm:flex-row">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 sm:mt-0.5">
+                  <Hash className="h-5 w-5" aria-hidden />
                 </div>
-                <div>
-                  <label className={fLabel}>Numeración inicial</label>
-                  <input type="number" name="numeracion_inicial" value={form.numeracion_inicial}
-                    onChange={handleChange} min={1} step={1} className={fInput} />
-                  <HelpText>Número desde el cual comienza la secuencia de facturas.</HelpText>
-                </div>
-              </div>
+                <div className="min-w-0 flex-1">
+                  <SectionTitle>Numeración de documentos</SectionTitle>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className={fLabel}>Prefijo de factura</label>
+                      <input type="text" name="prefijo_factura" value={form.prefijo_factura}
+                        onChange={handleChange} placeholder="FAC-" className={fInput} />
+                      <HelpText>Prefijo que antecede al número correlativo (ej: FAC-, FT-, VTA-).</HelpText>
+                    </div>
+                    <div>
+                      <label className={fLabel}>Numeración inicial</label>
+                      <input type="number" name="numeracion_inicial" value={form.numeracion_inicial}
+                        onChange={handleChange} min={1} step={1} className={fInput} />
+                      <HelpText>Número desde el cual comienza la secuencia de facturas.</HelpText>
+                    </div>
+                  </div>
 
-              {/* Preview */}
-              <div className="mt-4 flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                <span className="text-xs text-gray-500">Vista previa:</span>
-                <span className="font-mono text-sm font-bold text-gray-800 bg-white px-3 py-1 rounded border border-gray-200">
-                  {facturaPreview}
-                </span>
-                <span className="text-xs text-gray-400">→</span>
-                <span className="font-mono text-xs text-gray-500">
-                  {form.prefijo_factura}{String(form.numeracion_inicial + 1).padStart(6, "0")}
-                </span>
+                  <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3">
+                    <span className="text-xs text-slate-500">Vista previa:</span>
+                    <span className="rounded-lg border border-slate-200 bg-white px-3 py-1 font-mono text-sm font-bold text-slate-800">
+                      {facturaPreview}
+                    </span>
+                    <span className="text-xs text-slate-400">→</span>
+                    <span className="font-mono text-xs text-slate-500">
+                      {form.prefijo_factura}{String(form.numeracion_inicial + 1).padStart(6, "0")}
+                    </span>
+                  </div>
+                </div>
               </div>
             </Card>
 
             <Card>
-              <SectionTitle>Condiciones de pago</SectionTitle>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className={fLabel}>Días de vencimiento por defecto</label>
-                  <div className="relative">
-                    <input type="number" name="dias_vencimiento_default"
-                      value={form.dias_vencimiento_default}
-                      onChange={handleChange} min={0} max={365} step={1} className={fInput} />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">días</span>
-                  </div>
-                  <HelpText>Plazo aplicado automáticamente a facturas a crédito sin plazo definido.</HelpText>
+              <div className="flex flex-col gap-4 sm:flex-row">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 sm:mt-0.5">
+                  <Percent className="h-5 w-5" aria-hidden />
                 </div>
-                <div>
-                  <label className={fLabel}>Interés moratorio</label>
-                  <div className="relative">
-                    <input type="number" name="interes_moratorio" value={form.interes_moratorio}
-                      onChange={handleChange} min={0} max={100} step={0.1} className={fInput} />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">% mens.</span>
+                <div className="min-w-0 flex-1">
+                  <SectionTitle>Condiciones de pago</SectionTitle>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className={fLabel}>Días de vencimiento por defecto</label>
+                      <div className="relative">
+                        <input type="number" name="dias_vencimiento_default"
+                          value={form.dias_vencimiento_default}
+                          onChange={handleChange} min={0} max={365} step={1} className={fInput} />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">días</span>
+                      </div>
+                      <HelpText>Plazo aplicado automáticamente a facturas a crédito sin plazo definido.</HelpText>
+                    </div>
+                    <div>
+                      <label className={fLabel}>Interés moratorio</label>
+                      <div className="relative">
+                        <input type="number" name="interes_moratorio" value={form.interes_moratorio}
+                          onChange={handleChange} min={0} max={100} step={0.1} className={fInput} />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">% mens.</span>
+                      </div>
+                      <HelpText>Porcentaje mensual aplicado sobre el saldo vencido impago.</HelpText>
+                    </div>
                   </div>
-                  <HelpText>Porcentaje mensual aplicado sobre el saldo vencido impago.</HelpText>
                 </div>
               </div>
             </Card>
 
-            {/* Resumen facturación */}
             <Card>
-              <SectionTitle>Resumen actual</SectionTitle>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <MetricCard label="Prefijo"      value={config.prefijo_factura} />
-                <MetricCard label="Nro. inicial" value={config.numeracion_inicial} />
-                <MetricCard label="Vencimiento"  value={`${config.dias_vencimiento_default} días`} />
-                <MetricCard label="Interés mora" value={`${config.interes_moratorio}% mens.`} />
+              <div className="flex flex-col gap-4 sm:flex-row">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 sm:mt-0.5">
+                  <ClipboardList className="h-5 w-5" aria-hidden />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <SectionTitle>Resumen actual</SectionTitle>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <MetricCard label="Prefijo"      value={config.prefijo_factura} />
+                    <MetricCard label="Nro. inicial" value={config.numeracion_inicial} />
+                    <MetricCard label="Vencimiento"  value={`${config.dias_vencimiento_default} días`} />
+                    <MetricCard label="Interés mora" value={`${config.interes_moratorio}% mens.`} />
+                  </div>
+                </div>
               </div>
             </Card>
           </>
