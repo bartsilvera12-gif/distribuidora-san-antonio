@@ -19,13 +19,16 @@ BEGIN
         OR n.nspname LIKE 'erp\_%' ESCAPE '\'
       )
   LOOP
+    -- %L evita el bug de comillas en format() (no usar ''open'' dentro del patrón).
     EXECUTE format(
       $f$
       CREATE INDEX IF NOT EXISTS idx_chat_conv_emp_unassigned_recent
       ON %I.chat_conversations (empresa_id, last_message_at DESC NULLS LAST)
-      WHERE assigned_agent_id IS NULL AND status IN (''open'', ''pending'')
+      WHERE assigned_agent_id IS NULL AND status IN (%L, %L)
       $f$,
-      r.sch
+      r.sch,
+      'open',
+      'pending'
     );
   END LOOP;
 END;

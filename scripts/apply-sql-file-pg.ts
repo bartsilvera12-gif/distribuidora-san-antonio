@@ -16,12 +16,13 @@ if (!file) {
   process.exit(1);
 }
 
+/** Prioriza SUPABASE_DB_URL (remota directa típica del proyecto) sobre poolers locales. */
 const url =
+  process.env.SUPABASE_DB_URL?.trim() ||
   process.env.DIRECT_URL?.trim() ||
-  process.env.DATABASE_URL?.trim() ||
-  process.env.SUPABASE_DB_URL?.trim();
+  process.env.DATABASE_URL?.trim();
 if (!url) {
-  console.error("Falta DIRECT_URL o DATABASE_URL en .env.local");
+  console.error("Falta SUPABASE_DB_URL, DIRECT_URL o DATABASE_URL en .env.local");
   process.exit(1);
 }
 
