@@ -155,7 +155,11 @@ function PlanDetailContent() {
       plantilla_operativa: itemsNorm.length > 0 ? { items: itemsNorm } : undefined,
     });
 
-    if (actualizado) router.push("/planes");
+    if (!actualizado.ok) {
+      setFormError(actualizado.error);
+      return;
+    }
+    router.push("/planes");
   }
 
   async function handleToggleEstado() {
@@ -166,7 +170,11 @@ function PlanDetailContent() {
   }
 
   async function handleEliminar() {
-    await deletePlan(id);
+    const r = await deletePlan(id);
+    if (!r.ok) {
+      setFormError(r.error);
+      return;
+    }
     router.push("/planes");
   }
 

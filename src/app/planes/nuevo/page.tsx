@@ -40,6 +40,7 @@ export default function NuevoPlanPage() {
   });
 
   const [error, setError] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
     const { name, value } = e.target;
@@ -59,19 +60,28 @@ export default function NuevoPlanPage() {
       setError("El precio debe ser mayor a 0."); return;
     }
 
-    const guardado = await savePlan({
-      nombre:          form.nombre.trim(),
-      descripcion:     form.descripcion.trim() || undefined,
-      precio:          parseFloat(form.precio),
-      moneda:          form.moneda,
-      periodicidad:    form.periodicidad,
-      limite_usuarios: form.limite_usuarios ? parseInt(form.limite_usuarios, 10) : null,
-      limite_clientes: form.limite_clientes ? parseInt(form.limite_clientes, 10) : null,
-      limite_facturas: form.limite_facturas ? parseInt(form.limite_facturas, 10) : null,
-      estado:          form.estado,
-    });
+    setGuardando(true);
+    try {
+      const guardado = await savePlan({
+        nombre:          form.nombre.trim(),
+        descripcion:     form.descripcion.trim() || undefined,
+        precio:          parseFloat(form.precio),
+        moneda:          form.moneda,
+        periodicidad:    form.periodicidad,
+        limite_usuarios: form.limite_usuarios ? parseInt(form.limite_usuarios, 10) : null,
+        limite_clientes: form.limite_clientes ? parseInt(form.limite_clientes, 10) : null,
+        limite_facturas: form.limite_facturas ? parseInt(form.limite_facturas, 10) : null,
+        estado:          form.estado,
+      });
 
-    if (guardado) router.push("/planes");
+      if (!guardado.ok) {
+        setError(guardado.error);
+        return;
+      }
+      router.push("/planes");
+    } finally {
+      setGuardando(false);
+    }
   }
 
   return (
@@ -234,9 +244,10 @@ export default function NuevoPlanPage() {
         <div className="flex items-center gap-3">
           <button
             type="submit"
-            className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold px-6 py-2.5 rounded-lg transition-colors shadow-sm active:scale-95"
+            disabled={guardando}
+            className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold px-6 py-2.5 rounded-lg transition-colors shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Guardar plan
+            {guardando ? "Guardando…" : "Guardar plan"}
           </button>
           <Link
             href="/planes"
