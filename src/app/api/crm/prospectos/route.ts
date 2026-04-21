@@ -28,6 +28,12 @@ export async function GET(request: NextRequest) {
     if (pool && isLikelyUnexposedTenantChatSchema(dataSchema)) {
       const pgList = await listProspectosForEmpresaPg(pool, dataSchema, ctx.auth.empresa_id);
       if (pgList !== null) {
+        console.info("[crm-funnel][list]", "postgres_ok", {
+          empresa_id: ctx.auth.empresa_id,
+          data_schema: dataSchema,
+          modo: "postgres_directo",
+          count: pgList.length,
+        });
         return NextResponse.json(successResponse(pgList));
       }
       return NextResponse.json(
@@ -37,6 +43,12 @@ export async function GET(request: NextRequest) {
     }
 
     const items = await listProspectosForEmpresa(ctx.supabase, ctx.auth.empresa_id);
+    console.info("[crm-funnel][list]", "postgrest_ok", {
+      empresa_id: ctx.auth.empresa_id,
+      data_schema: dataSchema,
+      modo: "postgrest",
+      count: items.length,
+    });
     return NextResponse.json(successResponse(items));
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Error";

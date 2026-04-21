@@ -104,6 +104,12 @@ export function createTenantPgChatSupabaseShim(opts: TenantPgChatSupabaseShimOpt
     }
 
     select(columns?: string, opts?: { count: "exact"; head?: boolean }) {
+      /** Tras `.update()`, `.select(cols)` significa `RETURNING cols` (PostgREST). */
+      if (this.op === "update") {
+        if (columns != null && columns !== "") this.returningCols = columns;
+        if (opts?.count === "exact") this.selectCountOpts = opts;
+        return this;
+      }
       if (columns != null && columns !== "") this.cols = columns;
       if (opts?.count === "exact") this.selectCountOpts = opts;
       this.op = "select";
@@ -309,9 +315,29 @@ export function createTenantPgChatSupabaseShim(opts: TenantPgChatSupabaseShimOpt
             return `"${col}" = ${serializeCell(col, val, params)}`;
           });
           const wh = this.buildWhere(params);
-          const q = `UPDATE ${tsql} SET ${sets.join(", ")} ${wh}`.trim();
-          await pool.query(q, params);
-          return { data: null, error: null };
+          const ret =
+            this.returningCols != null && String(this.returningCols).trim() !== ""
+              ? `RETURNING ${this.returningCols}`
+              : "";
+          const q = `UPDATE ${tsql} SET ${sets.join(", ")} ${wh} ${ret}`.trim();
+          const r = await pool.query(q, params);
+          const rows = r.rows ?? [];
+          if (!ret) {
+            return { data: null, error: null };
+          }
+          if (this.terminal === "maybeSingle") {
+            if (rows.length > 1) {
+              return { data: null, error: pgErr("múltiples filas para maybeSingle") };
+            }
+            return { data: rows[0] ?? null, error: null };
+          }
+          if (this.terminal === "single") {
+            if (rows.length !== 1) {
+              return { data: null, error: pgErr(rows.length === 0 ? "no rows" : "múltiples filas") };
+            }
+            return { data: rows[0], error: null };
+          }
+          return { data: rows, error: null };
         }
 
         if (this.op === "upsert" && this.upsertRows?.length && this.upsertConflict) {

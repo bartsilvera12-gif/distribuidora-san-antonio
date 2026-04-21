@@ -1,0 +1,110 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getChatServiceClientForEmpresa } from "@/app/api/chat/_chat-service-client";
+import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
+import { successResponse, errorResponse } from "@/lib/api/response";
+import { API_ERRORS } from "@/lib/api/errors";
+import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
+import { getChatPostgresPool } from "@/lib/supabase/chat-pg-pool";
+import { isLikelyUnexposedTenantChatSchema } from "@/lib/supabase/chat-data-schema";
+
+/**
+ * GET /api/sorteos — lista sorteos del tenant (Postgres shim si schema no expuesto).
+ */
+export async function GET(request: NextRequest) {
+  try {
+    const ctx = await getTenantSupabaseFromAuth(request);
+    if (!ctx) {
+      return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
+    }
+    const empresaId = ctx.auth.empresa_id;
+    const dataSchema = await fetchDataSchemaForEmpresaId(empresaId);
+    const pool = getChatPostgresPool();
+    const modo =
+      pool && isLikelyUnexposedTenantChatSchema(dataSchema) ? "postgres_shim" : "postgrest_schema";
+
+    console.info("[sorteos][list]", {
+      empresa_id: empresaId,
+      data_schema: dataSchema,
+      modo,
+    });
+
+    const sb = await getChatServiceClientForEmpresa(empresaId);
+    const { data, error } = await sb
+      .from("sorteos")
+      .select("*")
+      .eq("empresa_id", empresaId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      return NextResponse.json(errorResponse(error.message), { status: 400 });
+    }
+    return NextResponse.json(successResponse(data ?? []));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Error";
+    return NextResponse.json(errorResponse(msg), { status: 500 });
+  }
+}
+
+export type SorteoCreateBody = {
+  nombre?: string;
+  descripcion?: string | null;
+  precio_por_boleto?: number;
+  max_boletos?: number;
+  fecha_sorteo?: string | null;
+  estado?: string;
+  datos_bancarios?: Record<string, unknown>;
+  imagen_url?: string | null;
+};
+
+/**
+ * POST /api/sorteos
+ */
+export async function POST(request: NextRequest) {
+  try {
+    const ctx = await getTenantSupabaseFromAuth(request);
+    if (!ctx) {
+      return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
+    }
+    const empresaId = ctx.auth.empresa_id;
+    const dataSchema = await fetchDataSchemaForEmpresaId(empresaId);
+    const pool = getChatPostgresPool();
+    const modo =
+      pool && isLikelyUnexposedTenantChatSchema(dataSchema) ? "postgres_shim" : "postgrest_schema";
+
+    const body = (await request.json().catch(() => ({}))) as SorteoCreateBody;
+    const nombre = typeof body.nombre === "string" ? body.nombre.trim() : "";
+    if (!nombre) {
+      return NextResponse.json(errorResponse("nombre es obligatorio"), { status: 400 });
+    }
+
+    const sb = await getChatServiceClientForEmpresa(empresaId);
+    const row = {
+      empresa_id: empresaId,
+      nombre,
+      descripcion: body.descripcion?.trim() || null,
+      precio_por_boleto: Number(body.precio_por_boleto) || 0,
+      max_boletos: Number(body.max_boletos) || 0,
+      fecha_sorteo: body.fecha_sorteo || null,
+      estado: (body.estado as string)?.trim() || "activo",
+      datos_bancarios: body.datos_bancarios && typeof body.datos_bancarios === "object" ? body.datos_bancarios : {},
+      imagen_url: body.imagen_url?.trim() || null,
+    };
+
+    const { data, error } = await sb.from("sorteos").insert(row).select("*").single();
+    if (error) {
+      return NextResponse.json(errorResponse(error.message), { status: 400 });
+    }
+
+    console.info("[sorteos][create]", {
+      empresa_id: empresaId,
+      data_schema: dataSchema,
+      modo,
+      sorteo_id: (data as { id?: string })?.id,
+    });
+
+    return NextResponse.json(successResponse(data));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Error";
+    return NextResponse.json(errorResponse(msg), { status: 500 });
+  }
+}

@@ -1,4 +1,4 @@
-import { getEmpresaId } from "@/lib/db/empresa";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
 import type {
   Sorteo,
@@ -31,29 +31,28 @@ function mapSorteo(r: Record<string, unknown>): Sorteo {
 }
 
 export async function getSorteos(): Promise<Sorteo[]> {
-  const supabase = await getBrowserSupabaseForEmpresaData();
-  const { data, error } = await supabase
-    .from("sorteos")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  if (error) throw new Error(error.message);
-  return (data ?? []).map((r) => mapSorteo(r as Record<string, unknown>));
+  const res = await fetchWithSupabaseSession("/api/sorteos", { cache: "no-store" });
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(t || `${res.status}`);
+  }
+  const json = (await res.json()) as { success?: boolean; data?: unknown[] };
+  if (!json.success || !Array.isArray(json.data)) return [];
+  return json.data.map((r) => mapSorteo(r as Record<string, unknown>));
 }
 
 export async function getSorteoById(id: string): Promise<Sorteo | null> {
-  const supabase = await getBrowserSupabaseForEmpresaData();
-  let q = supabase.from("sorteos").select("*").eq("id", id);
-  try {
-    const empresaId = await getEmpresaId();
-    q = q.eq("empresa_id", empresaId);
-  } catch {
-    /* Sin empresa en perfil: el acceso lo define RLS (p. ej. super_admin). */
+  const res = await fetchWithSupabaseSession(`/api/sorteos/${encodeURIComponent(id)}`, {
+    cache: "no-store",
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(t || `${res.status}`);
   }
-  const { data, error } = await q.maybeSingle();
-
-  if (error) throw new Error(error.message);
-  return data ? mapSorteo(data as Record<string, unknown>) : null;
+  const json = (await res.json()) as { success?: boolean; data?: Record<string, unknown> };
+  if (!json.success || !json.data) return null;
+  return mapSorteo(json.data);
 }
 
 export type SorteoInput = {
@@ -68,12 +67,10 @@ export type SorteoInput = {
 };
 
 export async function createSorteo(input: SorteoInput): Promise<Sorteo> {
-  const supabase = await getBrowserSupabaseForEmpresaData();
-  const empresa_id = await getEmpresaId();
-  const { data, error } = await supabase
-    .from("sorteos")
-    .insert({
-      empresa_id,
+  const res = await fetchWithSupabaseSession("/api/sorteos", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
       nombre: input.nombre.trim(),
       descripcion: input.descripcion?.trim() || null,
       precio_por_boleto: input.precio_por_boleto,
@@ -82,19 +79,21 @@ export async function createSorteo(input: SorteoInput): Promise<Sorteo> {
       estado: input.estado,
       datos_bancarios: input.datos_bancarios,
       imagen_url: input.imagen_url?.trim() || null,
-    })
-    .select("*")
-    .single();
-
-  if (error) throw new Error(error.message);
-  return mapSorteo(data as Record<string, unknown>);
+    }),
+  });
+  const json = (await res.json()) as { success?: boolean; data?: Record<string, unknown>; error?: string };
+  if (!res.ok) {
+    throw new Error(json.error || `${res.status}`);
+  }
+  if (!json.success || !json.data) throw new Error("Respuesta inválida");
+  return mapSorteo(json.data);
 }
 
 export async function updateSorteo(id: string, input: SorteoInput): Promise<Sorteo> {
-  const supabase = await getBrowserSupabaseForEmpresaData();
-  let q = supabase
-    .from("sorteos")
-    .update({
+  const res = await fetchWithSupabaseSession(`/api/sorteos/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
       nombre: input.nombre.trim(),
       descripcion: input.descripcion?.trim() || null,
       precio_por_boleto: input.precio_por_boleto,
@@ -103,19 +102,14 @@ export async function updateSorteo(id: string, input: SorteoInput): Promise<Sort
       estado: input.estado,
       datos_bancarios: input.datos_bancarios,
       imagen_url: input.imagen_url?.trim() || null,
-    })
-    .eq("id", id);
-  try {
-    const empresaId = await getEmpresaId();
-    q = q.eq("empresa_id", empresaId);
-  } catch {
-    /* Sin empresa en perfil: actualización acotada por RLS. */
+    }),
+  });
+  const json = (await res.json()) as { success?: boolean; data?: Record<string, unknown>; error?: string };
+  if (!res.ok) {
+    throw new Error(json.error || `${res.status}`);
   }
-  const { data, error } = await q.select("*").single();
-
-  if (error) throw new Error(error.message);
-  if (!data) throw new Error("No se pudo actualizar el sorteo.");
-  return mapSorteo(data as Record<string, unknown>);
+  if (!json.success || !json.data) throw new Error("No se pudo actualizar el sorteo.");
+  return mapSorteo(json.data);
 }
 
 export async function getSorteoConversaciones(): Promise<SorteoConversacion[]> {

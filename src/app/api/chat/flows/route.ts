@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getChatServiceClientForEmpresa } from "@/app/api/chat/_chat-service-client";
 import { getAuthWithRol } from "@/lib/middleware/auth";
+import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
+import { getChatPostgresPool } from "@/lib/supabase/chat-pg-pool";
+import { isLikelyUnexposedTenantChatSchema } from "@/lib/supabase/chat-data-schema";
 
 export async function GET(request: NextRequest) {
   try {
@@ -8,14 +11,50 @@ export async function GET(request: NextRequest) {
     if (!auth?.empresa_id) {
       return NextResponse.json({ ok: false, error: "No autenticado" }, { status: 401 });
     }
-    const supabase = await getChatServiceClientForEmpresa(auth.empresa_id);
+    const empresaId = auth.empresa_id;
+    const dataSchema = await fetchDataSchemaForEmpresaId(empresaId);
+    const pool = getChatPostgresPool();
+    const modo =
+      pool && isLikelyUnexposedTenantChatSchema(dataSchema) ? "postgres_shim" : "postgrest_schema";
 
+    console.info("[bot-config][flow-list]", {
+      empresa_id: empresaId,
+      data_schema: dataSchema,
+      modo,
+    });
+
+    const supabase = await getChatServiceClientForEmpresa(empresaId);
+
+    /** Sin embed PostgREST (el shim Postgres no interpreta `sorteos(nombre)`). */
     const { data: flows, error: fErr } = await supabase
       .from("chat_flows")
-      .select("id, flow_code, label, channel, activo, updated_at, sorteo_id, sorteos(nombre)")
-      .eq("empresa_id", auth.empresa_id)
+      .select("id, flow_code, label, channel, activo, updated_at, sorteo_id")
+      .eq("empresa_id", empresaId)
       .order("updated_at", { ascending: false });
     if (fErr) return NextResponse.json({ ok: false, error: fErr.message }, { status: 400 });
+
+    const sorteoIds = [
+      ...new Set(
+        (flows ?? [])
+          .map((f) => (f.sorteo_id as string | null) ?? null)
+          .filter((x): x is string => typeof x === "string" && x.length > 0)
+      ),
+    ];
+    const nombrePorSorteo: Record<string, string> = {};
+    if (sorteoIds.length > 0) {
+      const { data: sorteosRows, error: sErr } = await supabase
+        .from("sorteos")
+        .select("id, nombre")
+        .eq("empresa_id", empresaId)
+        .in("id", sorteoIds);
+      if (!sErr) {
+        for (const s of sorteosRows ?? []) {
+          const id = (s as { id?: string }).id;
+          const nombre = (s as { nombre?: string }).nombre;
+          if (id) nombrePorSorteo[id] = nombre ?? "";
+        }
+      }
+    }
 
     const codes = (flows ?? []).map((f) => f.flow_code as string);
     let counts: Array<{ flow_code: string; node_count: number }> = [];
@@ -23,7 +62,7 @@ export async function GET(request: NextRequest) {
       const { data: nodes } = await supabase
         .from("chat_flow_nodes")
         .select("flow_code")
-        .eq("empresa_id", auth.empresa_id)
+        .eq("empresa_id", empresaId)
         .in("flow_code", codes);
       const byCode: Record<string, number> = {};
       for (const n of nodes ?? []) {
@@ -37,9 +76,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       ok: true,
       items: (flows ?? []).map((f) => {
-        const join = f.sorteos as { nombre?: string } | { nombre?: string }[] | null | undefined;
-        const sorteoNombre =
-          join && !Array.isArray(join) ? join.nombre : Array.isArray(join) && join[0] ? join[0].nombre : null;
+        const sid = (f.sorteo_id as string | null) ?? null;
         return {
           id: f.id,
           flow_code: f.flow_code,
@@ -47,8 +84,8 @@ export async function GET(request: NextRequest) {
           channel: f.channel,
           activo: f.activo !== false,
           updated_at: f.updated_at,
-          sorteo_id: (f.sorteo_id as string | null) ?? null,
-          sorteo_nombre: sorteoNombre ?? null,
+          sorteo_id: sid,
+          sorteo_nombre: sid ? nombrePorSorteo[sid] ?? null : null,
           node_count: byFlow.get(f.flow_code as string) ?? 0,
         };
       }),
@@ -65,6 +102,12 @@ export async function POST(request: NextRequest) {
     if (!auth?.empresa_id) {
       return NextResponse.json({ ok: false, error: "No autenticado" }, { status: 401 });
     }
+    const empresaId = auth.empresa_id;
+    const dataSchema = await fetchDataSchemaForEmpresaId(empresaId);
+    const pool = getChatPostgresPool();
+    const modo =
+      pool && isLikelyUnexposedTenantChatSchema(dataSchema) ? "postgres_shim" : "postgrest_schema";
+
     const body = (await request.json().catch(() => ({}))) as {
       flow_code?: string;
       label?: string;
@@ -75,10 +118,10 @@ export async function POST(request: NextRequest) {
     if (!flowCode) {
       return NextResponse.json({ ok: false, error: "flow_code requerido" }, { status: 400 });
     }
-    const supabase = await getChatServiceClientForEmpresa(auth.empresa_id);
+    const supabase = await getChatServiceClientForEmpresa(empresaId);
 
     const { error: iErr } = await supabase.from("chat_flows").insert({
-      empresa_id: auth.empresa_id,
+      empresa_id: empresaId,
       flow_code: flowCode,
       label: body.label?.trim() || flowCode,
       channel: body.channel?.trim() || "whatsapp",
@@ -93,11 +136,11 @@ export async function POST(request: NextRequest) {
         .select(
           "node_code, message_text, node_type, is_active, save_as_field, next_node_code, crm_action_type, crm_action_config"
         )
-        .eq("empresa_id", auth.empresa_id)
+        .eq("empresa_id", empresaId)
         .eq("flow_code", source);
       if (sourceNodes?.length) {
         const insertRows = sourceNodes.map((n) => ({
-          empresa_id: auth.empresa_id,
+          empresa_id: empresaId,
           flow_code: flowCode,
           node_code: n.node_code,
           message_text: n.message_text,
@@ -116,12 +159,12 @@ export async function POST(request: NextRequest) {
         const { data: newNodes } = await supabase
           .from("chat_flow_nodes")
           .select("id, node_code")
-          .eq("empresa_id", auth.empresa_id)
+          .eq("empresa_id", empresaId)
           .eq("flow_code", flowCode);
         const { data: oldNodes } = await supabase
           .from("chat_flow_nodes")
           .select("id, node_code")
-          .eq("empresa_id", auth.empresa_id)
+          .eq("empresa_id", empresaId)
           .eq("flow_code", source);
         const newByCode = new Map((newNodes ?? []).map((n) => [n.node_code as string, n.id as string]));
         const oldByCode = new Map((oldNodes ?? []).map((n) => [n.id as string, n.node_code as string]));
@@ -151,6 +194,15 @@ export async function POST(request: NextRequest) {
         }
       }
     }
+
+    console.info("[bot-config][flow-save]", {
+      empresa_id: empresaId,
+      data_schema: dataSchema,
+      modo,
+      action: "create",
+      flow_code: flowCode,
+      duplicated_from: source ?? null,
+    });
 
     return NextResponse.json({ ok: true, flow_code: flowCode });
   } catch (e) {

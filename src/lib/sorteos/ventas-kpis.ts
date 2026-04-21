@@ -6,6 +6,8 @@ import {
 } from "@/lib/supabase/server";
 import { resolveEmpresaDataSchema } from "@/lib/supabase/schema";
 import { asuncionDayBoundsUtc, asuncionMonthBoundsUtc } from "@/lib/sorteos/kpis-time-bounds";
+import { getChatPostgresPool, quoteSchemaTable } from "@/lib/supabase/chat-pg-pool";
+import { assertAllowedChatDataSchema, isLikelyUnexposedTenantChatSchema } from "@/lib/supabase/chat-data-schema";
 
 /**
  * KPIs de ventas de sorteos (página principal).
@@ -64,10 +66,46 @@ export async function getSorteosVentasKpis(): Promise<SorteosVentasKpis> {
     .eq("id", empresaId)
     .maybeSingle();
   const schema = resolveEmpresaDataSchema((emp as { data_schema?: string | null } | null)?.data_schema);
-  const supabase = await createSupabaseServerClientWithDbSchema(schema);
 
   const day = asuncionDayBoundsUtc();
   const month = asuncionMonthBoundsUtc();
+
+  const pool = getChatPostgresPool();
+  if (pool && isLikelyUnexposedTenantChatSchema(schema)) {
+    const sch = assertAllowedChatDataSchema(schema);
+    const tsql = quoteSchemaTable(sch, "sorteo_entradas");
+    try {
+      const [dayR, monthR] = await Promise.all([
+        pool.query(
+          `SELECT cantidad_boletos, monto_total, estado_pago FROM ${tsql}
+           WHERE empresa_id = $1::uuid AND created_at >= $2::timestamptz AND created_at <= $3::timestamptz`,
+          [empresaId, day.start, day.end]
+        ),
+        pool.query(
+          `SELECT cantidad_boletos, monto_total, estado_pago FROM ${tsql}
+           WHERE empresa_id = $1::uuid AND created_at >= $2::timestamptz AND created_at <= $3::timestamptz`,
+          [empresaId, month.start, month.end]
+        ),
+      ]);
+      const sD = sumRows((dayR.rows ?? []) as Parameters<typeof sumRows>[0]);
+      const sM = sumRows((monthR.rows ?? []) as Parameters<typeof sumRows>[0]);
+      console.info("[sorteos][kpis]", {
+        empresa_id: empresaId,
+        data_schema: schema,
+        modo: "postgres_directo",
+      });
+      return {
+        boletosHoy: sD.boletos,
+        montoHoy: sD.monto,
+        boletosMes: sM.boletos,
+        montoMes: sM.monto,
+      };
+    } catch (e) {
+      console.error("[sorteos][kpis]", "pg_error", e instanceof Error ? e.message : e);
+    }
+  }
+
+  const supabase = await createSupabaseServerClientWithDbSchema(schema);
 
   const [dayRes, monthRes] = await Promise.all([
     supabase

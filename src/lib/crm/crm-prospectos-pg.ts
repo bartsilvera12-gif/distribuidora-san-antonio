@@ -459,3 +459,28 @@ export async function prospectoExistsForEmpresaPg(
   }
 }
 
+/** Etapas activas en el mismo schema CRM que prospectos (`crm_etapas`). */
+export async function listCrmEtapasActivasPg(
+  pool: Pool,
+  tenantDataSchema: string,
+  empresaId: string
+): Promise<Record<string, unknown>[] | null> {
+  const resolved = await resolveCrmProspectosSchemaForTenant(pool, tenantDataSchema);
+  if (!resolved) return null;
+  const sch = assertAllowedChatDataSchema(resolved.crmSchema);
+  const ce = quoteSchemaTable(sch, "crm_etapas");
+  try {
+    const r = await pool.query(
+      `SELECT *
+       FROM ${ce}
+       WHERE empresa_id = $1::uuid AND activo = true
+       ORDER BY orden ASC NULLS LAST`,
+      [empresaId]
+    );
+    return (r.rows ?? []) as Record<string, unknown>[];
+  } catch (e) {
+    console.error("[crm-prospectos-pg] etapas:", e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+

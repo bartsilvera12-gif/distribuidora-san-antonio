@@ -312,11 +312,13 @@ export async function saveProspectoFromWebhook(datos: {
   return rowToProspecto(prospecto, []);
 }
 
-/** Actualiza prospecto. */
+/** Actualiza prospecto vía API tenant (Postgres directo en schemas `erp_*` no expuestos). */
 export async function updateProspecto(
   id: string,
   datos: Partial<Omit<Prospecto, "id" | "numero_control" | "notas" | "fecha_creacion">>
 ): Promise<Prospecto | null> {
+  if (typeof window === "undefined") return null;
+
   const patch: Record<string, unknown> = {};
   if (datos.empresa !== undefined) patch.empresa = datos.empresa;
   if (datos.contacto !== undefined) patch.contacto = datos.contacto;
@@ -332,21 +334,23 @@ export async function updateProspecto(
   if (datos.cliente_creado !== undefined) patch.cliente_creado = datos.cliente_creado;
   patch.fecha_actualizacion = new Date().toISOString();
 
-  const supabase = await browserDataClient();
-  const { data, error } = await supabase
-    .from("crm_prospectos")
-    .update(patch)
-    .eq("id", id)
-    .select()
-    .single();
-
-  if (error) {
-    console.error("[crm] updateProspecto:", error.message);
+  try {
+    const res = await fetchWithSupabaseSession(`/api/crm/prospectos/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    const json = (await res.json()) as { success?: boolean; data?: Prospecto; error?: string };
+    if (!res.ok) {
+      console.error("[crm] updateProspecto API:", res.status, json.error);
+      return null;
+    }
+    if (!json.success || !json.data) return null;
+    return json.data;
+  } catch (e) {
+    console.error("[crm] updateProspecto:", e);
     return null;
   }
-
-  const prospecto = await getProspecto(id);
-  return prospecto;
 }
 
 /** Cambia la etapa del prospecto. */
