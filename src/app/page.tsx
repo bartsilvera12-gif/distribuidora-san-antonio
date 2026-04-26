@@ -953,24 +953,37 @@ function DashComercial({
 
 // ── Dashboard Financiero ──────────────────────────────────────────────────────
 
-/** Monto en una sola línea "Gs. N"; tipografía responsiva antes de partir texto. */
+/**
+ * Monto "Gs. N" · `kpi`: mantiene prefijo y número juntos, tamaño con `cqi` (el padre define `container-type`).
+ * Sin kpi: tipografía en clamp por viewport, permite salto.
+ */
 function FinMontoGs({
   monto,
   className = "text-slate-900",
   negativo,
   dense,
+  kpi,
 }: {
   monto: number;
   className?: string;
-  /** Si true, muestra signo menos y valor absoluto. */
   negativo?: boolean;
-  /** Menos margen superior (bloques secundarios). */
   dense?: boolean;
+  kpi?: boolean;
 }) {
   const texto =
     negativo && monto < 0
       ? `− Gs. ${formatGs(Math.abs(monto))}`
       : `Gs. ${formatGs(monto)}`;
+  if (kpi) {
+    return (
+      <p
+        className={`min-w-0 w-full text-left font-bold leading-none tabular-nums whitespace-nowrap [font-size:clamp(0.65rem,5.5cqi+0.15rem,1.45rem)] ${className}`}
+        title={texto}
+      >
+        {texto}
+      </p>
+    );
+  }
   return (
     <p
       className={`${dense ? "mt-1" : "mt-3"} min-w-0 w-full max-w-full break-words whitespace-normal text-left font-bold tabular-nums leading-snug text-[clamp(0.8rem,2.4vw,1.65rem)] sm:text-[clamp(0.85rem,2.2vw,1.75rem)] ${className}`}
@@ -1207,42 +1220,54 @@ function DashFinanciero({
 
   const finCard =
     "min-w-0 overflow-hidden rounded-2xl border border-slate-200/90 bg-white p-6 shadow-sm shadow-slate-200/50 transition-shadow hover:shadow-md sm:p-7";
+  /** Caja de consulta (inline-size) para `cqi`; alinea al fondo y estira con la card. */
+  const finKpiValueWrap =
+    "flex min-h-0 w-full min-w-0 flex-1 [container-type:inline-size] items-end";
+  const finKpiCard = `${finCard} flex h-full min-h-[9.5rem] flex-col`;
   const finAccent = "#2563EB";
 
   return (
     <div className="space-y-6 rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50 to-white p-4 sm:space-y-8 sm:p-6 md:p-8">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4 xl:gap-5">
-        <motion.div whileHover={{ y: -2 }} className={finCard}>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Facturado (del período)</p>
-          <p className="text-[10px] text-slate-400">Σ monto, emisiones en rango (sin anuladas)</p>
-          <FinMontoGs monto={facturadoCohortPeriodo} />
+      <div className="grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 xl:grid-cols-4 xl:gap-5">
+        <motion.div whileHover={{ y: -2 }} className={finKpiCard}>
+          <p className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Facturado del período</p>
+          <div className={finKpiValueWrap}>
+            <FinMontoGs kpi monto={facturadoCohortPeriodo} />
+          </div>
         </motion.div>
-        <motion.div whileHover={{ y: -2 }} className={finCard}>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Cobrado (sobre el período)</p>
-          <p className="text-[10px] text-slate-400">Facturado − pendiente, misma coorte</p>
-          <FinMontoGs monto={recaudadoCohortPeriodo} className="text-[#2563EB]" />
+        <motion.div whileHover={{ y: -2 }} className={finKpiCard}>
+          <p className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Cobrado del período</p>
+          <div className={finKpiValueWrap}>
+            <FinMontoGs kpi monto={recaudadoCohortPeriodo} className="text-[#2563EB]" />
+          </div>
         </motion.div>
-        <motion.div whileHover={{ y: -2 }} className={finCard}>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Pendiente (cartera)</p>
-          <p className="text-[10px] text-slate-400">Σ saldo, facturas con emisión en rango</p>
-          <FinMontoGs
-            monto={carteraPendienteCohort}
-            negativo={carteraPendienteCohort < 0}
-            className={
-              carteraPendienteCohort > 0
-                ? "text-amber-600"
-                : carteraPendienteCohort < 0
-                  ? "text-emerald-600"
-                  : "text-slate-900"
-            }
-          />
+        <motion.div whileHover={{ y: -2 }} className={finKpiCard}>
+          <p className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Pendiente del período</p>
+          <div className={finKpiValueWrap}>
+            <FinMontoGs
+              kpi
+              monto={carteraPendienteCohort}
+              negativo={carteraPendienteCohort < 0}
+              className={
+                carteraPendienteCohort > 0
+                  ? "text-amber-600"
+                  : carteraPendienteCohort < 0
+                    ? "text-emerald-600"
+                    : "text-slate-900"
+              }
+            />
+          </div>
         </motion.div>
-        <motion.div whileHover={{ y: -2 }} className={finCard}>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">% de cobranza</p>
-          <p className="text-[10px] text-slate-400">Recaudado / facturado, coherente con los KPIs</p>
-          <p className="mt-2 text-2xl font-bold tabular-nums tracking-tight text-slate-900 sm:text-3xl break-words leading-snug">
-            {pctCobranzaCohort == null ? "—" : `${pctCobranzaCohort.toFixed(1)}%`}
-          </p>
+        <motion.div whileHover={{ y: -2 }} className={finKpiCard}>
+          <p className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-500">% de cobranza</p>
+          <div className={finKpiValueWrap}>
+            <p
+              className="min-w-0 w-full text-left font-bold tabular-nums leading-none text-slate-900 whitespace-nowrap [font-size:clamp(0.7rem,5.5cqi+0.15rem,1.5rem)]"
+              title={pctCobranzaCohort == null ? "—" : `${pctCobranzaCohort.toFixed(1)}%`}
+            >
+              {pctCobranzaCohort == null ? "—" : `${pctCobranzaCohort.toFixed(1)}%`}
+            </p>
+          </div>
         </motion.div>
       </div>
 
