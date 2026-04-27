@@ -5,6 +5,7 @@ import { montosFacturaItemParaInsert } from "./factura-item-montos";
 import { buildSifenCancelacionPreview, normalizePlazoCancelacionHoras } from "@/lib/sifen/sifen-cancelacion-rules";
 import { aplicarPlanPendienteSiVencido } from "./suscripcion-plan-pendiente";
 import { emitEvent, EVENT_TYPES } from "@/lib/integrations/events";
+import { registrarClienteHistorialCambioPlan } from "@/lib/auditoria/cliente-historial-servidor";
 import type { CasoCambioPlan, CambioPlanContexto, ModoCambioPlan } from "./cambio-plan-cliente-types";
 
 export type { CasoCambioPlan, CambioPlanContexto, ModoCambioPlan } from "./cambio-plan-cliente-types";
@@ -372,7 +373,27 @@ export async function ejecutarCambioPlanCliente(
       .eq("empresa_id", empresaId);
     if (e2) throw new Error(e2.message);
 
+    await registrarClienteHistorialCambioPlan(supabase, {
+      auth,
+      empresaId,
+      clienteId,
+      suscripcionId: suscId,
+      planAnteriorId: planIdAntes,
+      planNuevoId: pRow.id,
+      modo: "proximo_mes",
+      facturaId: null,
+      planPendienteVigenteDesde: vig,
+      detalle: {
+        empresa_id: empresaId,
+        plan_pendiente_vigente_desde: vig,
+        factura_id_periodo: ctx0.factura_id_periodo,
+        precio_nuevo: nuevoPrecio,
+        moneda_nueva: monedaNueva,
+      },
+    });
     await emitEvent(EVENT_TYPES.suscripcion_plan_cambiada, {
+      empresa_id: empresaId,
+      at: new Date().toISOString(),
       suscripcion_id: suscId,
       cliente_id: clienteId,
       plan_anterior_id: planIdAntes,
@@ -404,7 +425,26 @@ export async function ejecutarCambioPlanCliente(
       .eq("empresa_id", empresaId);
     if (e1) throw new Error(e1.message);
 
+    await registrarClienteHistorialCambioPlan(supabase, {
+      auth,
+      empresaId,
+      clienteId,
+      suscripcionId: suscId,
+      planAnteriorId: planIdAntes,
+      planNuevoId: pRow.id,
+      modo: "inmediato",
+      facturaId: null,
+      planPendienteVigenteDesde: null,
+      detalle: {
+        empresa_id: empresaId,
+        factura_id_periodo: null,
+        precio_nuevo: nuevoPrecio,
+        moneda_nueva: monedaNueva,
+      },
+    });
     await emitEvent(EVENT_TYPES.suscripcion_plan_cambiada, {
+      empresa_id: empresaId,
+      at: new Date().toISOString(),
       suscripcion_id: suscId,
       cliente_id: clienteId,
       plan_anterior_id: planIdAntes,
@@ -431,7 +471,26 @@ export async function ejecutarCambioPlanCliente(
       planId: pRow.id,
     });
 
+    await registrarClienteHistorialCambioPlan(supabase, {
+      auth,
+      empresaId,
+      clienteId,
+      suscripcionId: suscId,
+      planAnteriorId: planIdAntes,
+      planNuevoId: pRow.id,
+      modo: "actualizar_factura_pendiente",
+      facturaId: ctx0.factura_id_periodo,
+      planPendienteVigenteDesde: null,
+      detalle: {
+        empresa_id: empresaId,
+        precio_nuevo: nuevoPrecio,
+        moneda_nueva: monedaNueva,
+        factura_afectada_id: ctx0.factura_id_periodo,
+      },
+    });
     await emitEvent(EVENT_TYPES.suscripcion_plan_cambiada, {
+      empresa_id: empresaId,
+      at: new Date().toISOString(),
       suscripcion_id: suscId,
       cliente_id: clienteId,
       plan_anterior_id: planIdAntes,

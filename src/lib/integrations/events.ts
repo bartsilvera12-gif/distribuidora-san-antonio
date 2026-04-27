@@ -17,6 +17,8 @@ export type EventType = (typeof EVENT_TYPES)[keyof typeof EVENT_TYPES];
 
 /**
  * Emite un evento. Registra en consola y envía webhook si WEBHOOK_URL está configurada.
+ * No escribe en base de datos. Para trazas persistentes (p. ej. cambio de plan)
+ * usar además `cliente_historial` desde la capa de negocio.
  */
 export async function emitEvent(eventName: EventType, payload: Record<string, unknown>) {
   console.log(`[ERP Event] ${eventName}`, payload);

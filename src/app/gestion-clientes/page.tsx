@@ -14,6 +14,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { ModalCambioPlanGestion } from "@/components/gestion-clientes/ModalCambioPlanGestion";
+import { ModalHistorialClienteGestion } from "@/components/gestion-clientes/ModalHistorialClienteGestion";
 import { RegistrarPagoModal } from "@/components/pagos/RegistrarPagoModal";
 import { SifenEstadoBadge } from "@/components/sifen/SifenEstadoBadge";
 import { useFacturaSifenEstados } from "@/hooks/useFacturaSifenEstados";
@@ -623,6 +624,7 @@ function GestionClientesPageInner() {
   const [facturas,  setFacturas]  = useState<Factura[]>([]);
   const [modalFacturacion, setModalFacturacion] = useState(false);
   const [modalCambioPlan, setModalCambioPlan] = useState(false);
+  const [modalHistorialCliente, setModalHistorialCliente] = useState(false);
   const [facturaCobroModal, setFacturaCobroModal] = useState<Factura | null>(null);
   const [facturasDetalleAbierto, setFacturasDetalleAbierto] = useState(true);
   const [panelFiltrosFacturas, setPanelFiltrosFacturas] = useState(false);
@@ -974,7 +976,12 @@ function GestionClientesPageInner() {
                     onClick={() => setModalCambioPlan(true)}
                   />
                   <BotonOperativo label="Cambio fecha venc." icon="📅" />
-                  <BotonOperativo label="Historial cliente" icon="🕐" />
+                  <BotonOperativo
+                    label="Historial cliente"
+                    icon="🕐"
+                    activo
+                    onClick={() => setModalHistorialCliente(true)}
+                  />
                 </div>
               </section>
 
@@ -1204,6 +1211,13 @@ function GestionClientesPageInner() {
               getClientes().then(setClientes);
             }
           }}
+        />
+      )}
+      {modalHistorialCliente && selected && (
+        <ModalHistorialClienteGestion
+          clienteId={selected.id}
+          clienteNombre={clienteNombre(selected)}
+          onClose={() => setModalHistorialCliente(false)}
         />
       )}
       <RegistrarPagoModal
