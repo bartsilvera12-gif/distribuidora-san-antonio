@@ -389,6 +389,20 @@ function flowDataHasResolvableQty(data: Record<string, string>): boolean {
 }
 
 /**
+ * Si no hay cantidad inferible del flujo, usa **1** como último recurso (evita órdenes vacías).
+ */
+export function applyCantidadFallbackOneIfMissing(data: Record<string, string>): Record<string, string> {
+  let out = enrichFlowDataForSorteoParse({ ...data });
+  if (flowDataHasResolvableQty(out)) return out;
+  out = { ...out };
+  out[SORTEO_COMPRA_FIELD.cantidad] = "1";
+  out[SORTEO_COMPRA_FIELD.snapCantidad] = "1";
+  out["cantidad_boletos"] = "1";
+  out["sorteo_cantidad_opcion"] = "1";
+  return out;
+}
+
+/**
  * Completa cantidad desde el texto visible de la opción si el payload no trajo cantidad explícita.
  */
 export function enrichFlowDataForSorteoParse(data: Record<string, string>): Record<string, string> {
@@ -631,8 +645,12 @@ function sorteoOrderContextPairs(data: EnsureSorteoOrderCreatedData): [string, s
   const pairs: [string, string][] = [
     [F.sorteo_entrada_id, data.entradaId],
     [F.numero_orden, no],
+    ["sorteo_orden_codigo", no],
     [F.numeros_cupon, comma],
     [F.numeros_cupon_lineas, lines],
+    ["sorteo_cupones_texto", comma],
+    ["sorteo_cupones", comma],
+    ["cantidad", String(data.cantidadBoletos)],
     [F.sorteo_nombre, data.sorteoNombre],
     [F.orden_cantidad_boletos, String(data.cantidadBoletos)],
     [F.orden_monto_total, String(data.montoTotal)],

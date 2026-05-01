@@ -20,6 +20,7 @@ import {
 import type { SupabaseAdmin } from "@/lib/chat/types";
 import { ensureActiveFlowSessionForConversation } from "@/lib/chat/flow-session-service";
 import {
+  applyCantidadFallbackOneIfMissing,
   applySorteoInteractiveCommercialContract,
   buildChatFlowDataUpsertsForSorteoOrder,
   buildSorteoOrderFlowVarOverrides,
@@ -2430,6 +2431,210 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       }
     }
 
+    let sorteoOrderMerge: Record<string, string> | undefined;
+
+    if (
+      pipeline.kind === "resolved" &&
+      pipeline.advance &&
+      state.flow_code?.trim() &&
+      imgFlowSid
+    ) {
+      const sendCtxOrd = await getConversationSendContext(state.id);
+      const dataSchemaTag = await fetchDataSchemaForEmpresaId(state.empresa_id);
+
+      const rawFdImg = await getConversationFlowDataMap({
+        empresaId: state.empresa_id,
+        conversationId: state.id,
+        flowCode: state.flow_code,
+        flowSessionId: imgFlowSid,
+        traceReadContext: "before_finalize_sorteo_on_image",
+      });
+      let hydFdImg = await hydrateFlowDataFromSessionEvents(
+        state.id,
+        state.flow_code as string,
+        rawFdImg,
+        imgFlowSid
+      );
+      const trimFd = (s: string | undefined) => (s ?? "").trim();
+      if (!trimFd(hydFdImg[SORTEO_COMPROBANTE_URL_FIELD])) {
+        hydFdImg[SORTEO_COMPROBANTE_URL_FIELD] = publicUrl;
+      }
+      if (!trimFd(hydFdImg[SORTEO_COMPROBANTE_MEDIA_ID_FIELD])) {
+        hydFdImg[SORTEO_COMPROBANTE_MEDIA_ID_FIELD] = params.mediaId;
+      }
+      hydFdImg = applyCantidadFallbackOneIfMissing(hydFdImg);
+
+      const sorteoIdPre = await getSorteoIdForChatFlow(supabase, state.empresa_id, state.flow_code as string);
+
+      console.info(FLOW_SORTEO_LOG, "[order-create]", "[start]", {
+        conversation_id: state.id,
+        flow_session_id: imgFlowSid,
+        flow_code: state.flow_code,
+        empresa_id: state.empresa_id,
+      });
+      console.info(FLOW_SORTEO_LOG, "[order-create]", "[context]", {
+        schema: dataSchemaTag,
+        conversation_id: state.id,
+        flow_session_id: imgFlowSid,
+        sorteo_id: sorteoIdPre,
+        media_id: params.mediaId,
+        cantidad_hint:
+          trimFd(hydFdImg.cantidad) ||
+          trimFd(hydFdImg.sorteo_snap_cantidad) ||
+          trimFd(hydFdImg.sorteo_cantidad_opcion) ||
+          null,
+        flow_data_keys: Object.keys(hydFdImg).sort(),
+      });
+
+      const notifySorteoImageErr = async (text: string) => {
+        const send = await flowSendText(sendCtxOrd, text);
+        if (send.ok) {
+          await persistOutgoingMessage({
+            conversation: state,
+            content: text,
+            messageType: "text",
+            waMessageId: send.waMessageId,
+            raw: send.raw,
+            senderType: "system",
+            automationSource: "flow_engine",
+          });
+        }
+      };
+
+      if (!sorteoIdPre) {
+        console.error(FLOW_SORTEO_LOG, "[order-create]", "[missing_sorteo_id]", {
+          schema: dataSchemaTag,
+          conversation_id: state.id,
+          flow_session_id: imgFlowSid,
+          flow_code: state.flow_code,
+          empresa_id: state.empresa_id,
+        });
+        await notifySorteoImageErr(
+          "Recibimos tu comprobante, pero este flujo no está vinculado a un sorteo en el sistema. Un operador te va a contactar."
+        );
+        return {
+          ok: false,
+          status: "missing_sorteo_id",
+          error: "chat_flows.sorteo_id no configurado para este flujo",
+        };
+      }
+
+      const finImg = await finalizeSorteoOrderFromConfirmedFlowData(supabase, {
+        empresaId: state.empresa_id,
+        conversationId: state.id,
+        flowCode: state.flow_code as string,
+        flowSessionId: imgFlowSid,
+        whatsappNumero: sendCtxOrd.toDigits,
+        flowData: hydFdImg,
+      });
+
+      if (!finImg.ok) {
+        console.error(FLOW_SORTEO_LOG, "[order-create]", "[error]", {
+          schema: dataSchemaTag,
+          conversation_id: state.id,
+          flow_session_id: imgFlowSid,
+          flow_code: state.flow_code,
+          sorteo_id: sorteoIdPre,
+          cantidad_hint:
+            trimFd(hydFdImg.cantidad) ||
+            trimFd(hydFdImg.sorteo_snap_cantidad) ||
+            trimFd(hydFdImg.sorteo_cantidad_opcion) ||
+            null,
+          media_id: params.mediaId,
+          message: finImg.message,
+        });
+        await notifySorteoImageErr(
+          finImg.message?.trim() ||
+            "No pudimos registrar tu compra en el sorteo. Intentá de nuevo en unos minutos o contactá soporte."
+        );
+        return { ok: false, status: "sorteo_order_failed", error: finImg.message };
+      }
+
+      if (finImg.ok && finImg.skipped) {
+        let detail: string;
+        if (finImg.reason === "sin_comprobante_en_sesion") {
+          detail =
+            "No encontramos el comprobante de esta compra. Enviá la imagen del comprobante y volvé a intentar.";
+        } else if (finImg.reason === "flow_sin_sorteo_id") {
+          detail = "Este flujo no está vinculado a un sorteo.";
+        } else if (finImg.reason === "datos_flujo_incompletos") {
+          detail = await getSorteoDatosIncompletosMessage(supabase, state.empresa_id, state.flow_code as string);
+        } else if (finImg.reason === "comprobante_no_validado") {
+          detail = await mensajeClienteComprobanteNoValido(
+            supabase,
+            state.id,
+            typeof finImg.comprobanteEstado === "string" ? finImg.comprobanteEstado : ""
+          );
+        } else {
+          detail = await getSorteoDatosIncompletosMessage(supabase, state.empresa_id, state.flow_code as string);
+        }
+        console.warn(FLOW_SORTEO_LOG, "[order-create]", "[skipped]", {
+          reason: finImg.reason,
+          conversation_id: state.id,
+          flow_session_id: imgFlowSid,
+        });
+        await notifySorteoImageErr(detail);
+        return { ok: false, status: "sorteo_finalize_skipped", error: detail };
+      }
+
+      sorteoOrderMerge = buildSorteoOrderFlowVarOverrides(finImg);
+      const ctxRowsImg = buildChatFlowDataUpsertsForSorteoOrder(
+        state.empresa_id,
+        state.id,
+        state.flow_code as string,
+        imgFlowSid,
+        finImg
+      );
+      const { error: ctxErrImg } = await supabase
+        .from("chat_flow_data")
+        .upsert(ctxRowsImg, { onConflict: "flow_session_id,field_name" });
+      if (ctxErrImg) {
+        console.error(FLOW_SORTEO_LOG, "[order-create]", "[error]", {
+          schema: dataSchemaTag,
+          conversation_id: state.id,
+          flow_session_id: imgFlowSid,
+          phase: "chat_flow_data_upsert_after_order",
+          message: ctxErrImg.message,
+        });
+        await notifySorteoImageErr(
+          "Tu compra quedó registrada pero hubo un error al guardar el detalle en el chat. Si no ves tu número, escribí a soporte."
+        );
+      }
+
+      console.info(FLOW_SORTEO_LOG, "[order-create]", "[success]", {
+        entrada_id: finImg.entradaId,
+        numero_orden: finImg.numeroOrden,
+        cupones_count: finImg.cupones.length,
+        sorteo_id: finImg.sorteoId,
+      });
+      console.info(FLOW_SORTEO_LOG, "[coupon-create]", "[success]", {
+        count: finImg.cupones.length,
+        entrada_id: finImg.entradaId,
+      });
+
+      await insertFlowEvent({
+        empresaId: state.empresa_id,
+        conversationId: state.id,
+        flowCode: state.flow_code,
+        nodeCode: currentNode.node_code,
+        flowSessionId: imgFlowSid,
+        eventType: "sorteo_order_ensured",
+        payload: {
+          idempotent: finImg.idempotent,
+          entrada_id: finImg.entradaId,
+          numero_orden: finImg.numeroOrden,
+          cantidad_boletos: finImg.cantidadBoletos,
+          monto_total: finImg.montoTotal,
+          precio_fuente: finImg.precioFuente,
+          promo_nombre: finImg.promoNombre,
+          sorteo_id: finImg.sorteoId,
+          sorteo_nombre: finImg.sorteoNombre,
+          cupones: finImg.cupones.map((c) => c.numero_cupon),
+          trigger: "comprobante_imagen",
+        },
+      });
+    }
+
     if (!currentNode.next_node_code) {
       return { ok: true, status: "captured_no_next_node" };
     }
@@ -2463,6 +2668,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       mergeFlowVars: {
         sorteo_comprobante_url: publicUrl,
         comprobante_recibido: "sí",
+        ...(sorteoOrderMerge ?? {}),
       },
     });
     if (!sent.ok) {
