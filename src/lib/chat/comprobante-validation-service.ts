@@ -52,7 +52,6 @@ export type ExtractedReceiptFields = {
 /** Heurística liviana para comprobantes PY / transferencias (no reemplaza revisión humana). */
 export function extractReceiptFieldsFromOcr(fullText: string): ExtractedReceiptFields {
   const t = fullText || "";
-  const lines = t.split(/\r?\n/).map((l) => l.trim());
 
   let monto = "";
   const montoRe = /(?:Gs\.?\s*|₲\s*|PYG\s*)?(\d{1,3}(?:\.\d{3})+|\d{4,})/gi;
@@ -289,7 +288,17 @@ async function insertValidationRow(
     })
     .select("id")
     .single();
-  if (error) throw new Error(error.message);
+  if (error) {
+    const msg = error.message ?? "";
+    if (/chat_comprobante_validaciones_channel_id_fkey/i.test(msg)) {
+      console.error("[flow-comprobante-val][fk-channel_id]", {
+        channel_id: input.channel_id,
+        hint:
+          "La FK de channel_id debe referenciar chat_channels del mismo schema tenant que chat_comprobante_validaciones. Si apunta a public o zentra_erp, ejecutá en SQL Editor: SELECT zentra_erp.neura_fix_foreign_keys_retarget_from_public('<tu_schema>'); o la migración 20260527120000_fix_tenant_chat_comprobante_validaciones_channel_fk.sql",
+      });
+    }
+    throw new Error(msg);
+  }
   const id = (data as { id?: string })?.id;
   if (!id) throw new Error("No se pudo crear registro de validación");
   return id;

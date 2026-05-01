@@ -2236,6 +2236,28 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       };
     }
 
+    const { data: convChannelSnap } = await supabase
+      .from("chat_conversations")
+      .select("channel_id")
+      .eq("id", state.id)
+      .eq("empresa_id", state.empresa_id)
+      .maybeSingle();
+    const channelIdFromConversation =
+      typeof convChannelSnap?.channel_id === "string" && convChannelSnap.channel_id.trim()
+        ? convChannelSnap.channel_id.trim()
+        : state.channel_id?.trim() ?? "";
+    if (
+      channelIdFromConversation &&
+      state.channel_id?.trim() &&
+      channelIdFromConversation !== state.channel_id.trim()
+    ) {
+      console.warn("[flow-engine] processImageReply channel_id alineado desde chat_conversations", {
+        conversationId: state.id,
+        estado_flujo: state.channel_id,
+        conversacion: channelIdFromConversation,
+      });
+    }
+
     flowTrace("process_image_reply_state", {
       conversation_id: state.id,
       empresa_id: state.empresa_id,
@@ -2249,7 +2271,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     const { data: chCfgImg } = await supabase
       .from("chat_channels")
       .select("config")
-      .eq("id", state.channel_id)
+      .eq("id", channelIdFromConversation)
       .maybeSingle();
     const valSettings = parseComprobanteValidationConfig(chCfgImg?.config);
 
@@ -2283,7 +2305,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       supabase,
       empresaId: state.empresa_id,
       conversationId: state.id,
-      channelId: state.channel_id,
+      channelId: channelIdFromConversation,
       flowCode: state.flow_code,
       flowSessionId: imgFlowSid,
       mediaId: params.mediaId,
