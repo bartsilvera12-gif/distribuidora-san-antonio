@@ -8,10 +8,12 @@ import { persistOutgoingChatMessage } from "@/lib/chat/outgoing-message-persist"
 import { resolveOutboundTextContextFromIds } from "@/lib/chat/outbound-send-dispatch";
 import { sendWhatsAppImage } from "@/lib/chat/whatsapp-send-service";
 import { sendYCloudWhatsappMediaViaLink } from "@/lib/chat/ycloud-send-service";
+import type { EnsureSorteoOrderCreatedData } from "@/lib/sorteos/sorteo-order-from-chat";
+import { flowDataStubFromEntrada } from "@/lib/sorteos/sorteo-ticket-admin";
 import {
-  parseSorteoParticipantFromFlowData,
-  type EnsureSorteoOrderCreatedData,
-} from "@/lib/sorteos/sorteo-order-from-chat";
+  buildSorteoTicketRenderData,
+  sorteoTicketRenderDataLogPayload,
+} from "@/lib/sorteos/sorteo-ticket-render-data";
 import {
   normalizeTicketImageConfig,
   SORTEO_TICKET_DEFAULT_STUB,
@@ -100,6 +102,62 @@ async function loadSorteoRowForTicket(input: {
     ticket_delivery_mode: pg.ticket_delivery_mode as SorteoTicketDeliveryMode | undefined,
     ticket_image_config: pg.ticket_image_config,
   };
+}
+
+async function loadChatFlowDataNewestPerField(
+  sb: AppSupabaseClient,
+  conversationId: string
+): Promise<Record<string, string>> {
+  const cid = conversationId.trim();
+  if (!cid) return {};
+  const { data, error } = await sb
+    .from("chat_flow_data")
+    .select("field_name, field_value, updated_at")
+    .eq("conversation_id", cid)
+    .order("updated_at", { ascending: false });
+  if (error || !data?.length) {
+    if (error) {
+      console.warn("[sorteo-ticket] chat_flow_data_load_warn", { message: error.message });
+    }
+    return {};
+  }
+  const out: Record<string, string> = {};
+  for (const row of data as { field_name?: string; field_value?: unknown }[]) {
+    const fn = typeof row.field_name === "string" ? row.field_name.trim() : "";
+    if (!fn || fn in out) continue;
+    out[fn] = String(row.field_value ?? "").trim();
+  }
+  return out;
+}
+
+async function mergeFlowDataForTicketRender(params: {
+  supabase: AppSupabaseClient;
+  conversationId: string | null;
+  entradaId: string;
+  flowData: Record<string, string>;
+}): Promise<Record<string, string>> {
+  const chatMap = params.conversationId?.trim()
+    ? await loadChatFlowDataNewestPerField(params.supabase, params.conversationId)
+    : {};
+  /** Base: historial del chat; no pisar con vacíos del caller (p. ej. stub de regenerar). */
+  const merged: Record<string, string> = { ...chatMap };
+  for (const [k, v] of Object.entries(params.flowData)) {
+    const t = (v ?? "").trim();
+    if (t) merged[k] = t;
+  }
+  try {
+    const stub = await flowDataStubFromEntrada(params.supabase, params.entradaId);
+    for (const [k, v] of Object.entries(stub)) {
+      const cur = (merged[k] ?? "").trim();
+      const nv = (v ?? "").trim();
+      if (!cur && nv) merged[k] = nv;
+    }
+  } catch (e) {
+    console.warn("[sorteo-ticket] entrada_stub_merge_skip", {
+      message: e instanceof Error ? e.message : String(e),
+    });
+  }
+  return merged;
 }
 
 export type MaybeGenerateAndSendSorteoTicketDeliveryInput = {
@@ -219,24 +277,32 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
   const templateRevision = current ? current.template_revision : maxRev + 1;
   const deliveryId = current?.id;
 
+  const flowDataMerged = await mergeFlowDataForTicketRender({
+    supabase: db,
+    conversationId,
+    entradaId,
+    flowData,
+  });
+  const normalized = buildSorteoTicketRenderData({
+    flowData: flowDataMerged,
+    orderResult,
+    sorteoNombreCatalog: sorteoNombre,
+  });
+  console.info("[sorteo-ticket] render_data_resolved", {
+    entradaId,
+    sorteoId,
+    trigger,
+    ...sorteoTicketRenderDataLogPayload(normalized),
+  });
+
   const payloadSnapshot = {
     trigger,
     idempotent: orderResult.idempotent,
-    cupones: orderResult.cupones.map((c) => c.numero_cupon),
-    sorteo_nombre: orderResult.sorteoNombre,
+    cupones: normalized.cupones,
+    sorteo_nombre: normalized.sorteoNombre,
   };
 
-  const participant = parseSorteoParticipantFromFlowData(flowData);
-  const cuponNumbers = orderResult.cupones.map((c) => c.numero_cupon).filter(Boolean);
-  const telefono = (flowData["celular"] ?? flowData["telefono"] ?? "").trim();
-  const clienteNombre =
-    participant?.nombre_completo ||
-    (flowData["nombre_completo"] ?? flowData["nombre"] ?? "").trim() ||
-    "";
-  const documento =
-    participant?.cedula ||
-    (flowData["documento"] ?? flowData["cedula"] ?? flowData["ci"] ?? "").trim() ||
-    "";
+  const numeroOrdenRow = (normalized.numeroOrden || "").trim() || String(orderResult.numeroOrden);
 
   let rowId = deliveryId ?? "";
   if (!rowId) {
@@ -251,10 +317,10 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
           flowSessionId && /^[0-9a-f-]{36}$/i.test(flowSessionId.trim()) ? flowSessionId.trim() : null,
         delivery_mode: effectiveMode,
         status: "pending",
-        cliente_nombre: clienteNombre || null,
-        cliente_documento: documento || null,
-        telefono: telefono || null,
-        numero_orden: String(orderResult.numeroOrden),
+        cliente_nombre: normalized.clienteNombre.trim() || null,
+        cliente_documento: normalized.documento.trim() || null,
+        telefono: normalized.telefono.trim() || null,
+        numero_orden: numeroOrdenRow,
         cupones: orderResult.cupones.map((c) => ({ id: c.id, numero_cupon: c.numero_cupon })),
         payload_snapshot: payloadSnapshot,
         config_snapshot: config as Record<string, unknown>,
@@ -324,12 +390,12 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
 
     const renderInput: SorteoTicketRenderInput = {
       empresaNombre,
-      sorteoNombre: orderResult.sorteoNombre || sorteoNombre,
-      clienteNombre: clienteNombre || undefined,
-      documento: documento || undefined,
-      telefono: telefono || undefined,
-      numeroOrden: String(orderResult.numeroOrden),
-      cupones: cuponNumbers,
+      sorteoNombre: (normalized.sorteoNombre || orderResult.sorteoNombre || sorteoNombre).trim(),
+      clienteNombre: normalized.clienteNombre.trim() || undefined,
+      documento: normalized.documento.trim() || undefined,
+      telefono: normalized.telefono.trim() || undefined,
+      numeroOrden: (normalized.numeroOrden || "").trim() || String(orderResult.numeroOrden),
+      cupones: normalized.cupones,
       fechaHora,
       config,
       logoBytes: logoDl?.bytes ?? null,

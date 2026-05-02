@@ -141,11 +141,11 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
   if (showTel && input.telefono?.trim()) {
     rows.push({ label: "Teléfono", value: input.telefono.trim() });
   }
-  if (showOrd) {
-    rows.push({ label: "Nº de orden", value: input.numeroOrden });
+  if (showOrd && String(input.numeroOrden ?? "").trim()) {
+    rows.push({ label: "Nº de orden", value: String(input.numeroOrden).trim() });
   }
-  if (showSorteoNom) {
-    rows.push({ label: "Sorteo", value: input.sorteoNombre });
+  if (showSorteoNom && input.sorteoNombre?.trim()) {
+    rows.push({ label: "Sorteo", value: input.sorteoNombre.trim() });
   }
 
   let rowY = cardTop + 56;
@@ -162,8 +162,12 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
 
   const cardH = Math.max(120 + rows.length * 78, 200);
   const cupY = cardTop + cardH + 80;
-  const cupones = showCup ? input.cupones : [];
-  const cupSvg = cuponesAutoSvg(cupones, cupY + 40, primary, secondary);
+  const cupones = showCup ? input.cupones.filter((c) => String(c).trim()) : [];
+  const cupSvg =
+    cupones.length > 0
+      ? `<text x="${WA / 2}" y="${cupY}" text-anchor="middle" font-size="26" font-weight="700" fill="${accent}" letter-spacing="0.05em">CUPONES</text>
+  ${cuponesAutoSvg(cupones, cupY + 40, primary, secondary)}`
+      : "";
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${WA}" height="${HA}" viewBox="0 0 ${WA} ${HA}">
@@ -183,7 +187,6 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
   )}</text>
   <rect x="${cardX}" y="${cardTop}" width="${cardW}" height="${cardH}" rx="${CARD_RX}" fill="#ffffff" filter="url(#cardShadow)"/>
   ${rowSvg}
-  <text x="${WA / 2}" y="${cupY}" text-anchor="middle" font-size="26" font-weight="700" fill="${accent}" letter-spacing="0.05em">CUPONES</text>
   ${cupSvg}
   <text x="${WA / 2}" y="${HA - PAD - (footer ? 56 : 28)}" text-anchor="middle" font-size="24" fill="${secondary}">${esc(
     input.fechaHora
@@ -231,39 +234,54 @@ function buildCustomTemplateOverlaySvg(
 
   type MetaRow = { text: string; fs: number; color: string; weight: number };
   const buildMetaRows = (scale: number): MetaRow[] => {
-    const r = (n: number) => Math.max(12, Math.round(n * scale));
-    return [
-      {
-        text: input.clienteNombre?.trim() || "—",
-        fs: r(layout.cliente_nombre.fontSize),
+    const r = (n: number) => Math.max(14, Math.round(n * scale));
+    const rows: MetaRow[] = [];
+    const cn = input.clienteNombre?.trim();
+    if (cn) {
+      rows.push({
+        text: cn,
+        fs: r(Math.max(layout.cliente_nombre.fontSize, 26)),
         color: colName,
         weight: 650,
-      },
-      {
-        text: `Documento: ${input.documento?.trim() || "—"}`,
-        fs: r(layout.cliente_documento.fontSize),
+      });
+    }
+    const doc = input.documento?.trim();
+    if (doc) {
+      rows.push({
+        text: `Documento: ${doc}`,
+        fs: r(Math.max(layout.cliente_documento.fontSize, 22)),
         color: colDoc,
         weight: 600,
-      },
-      {
-        text: `Teléfono: ${input.telefono?.trim() || "—"}`,
-        fs: r(layout.telefono.fontSize),
+      });
+    }
+    const tel = input.telefono?.trim();
+    if (tel) {
+      rows.push({
+        text: `Teléfono: ${tel}`,
+        fs: r(Math.max(layout.telefono.fontSize, 22)),
         color: colTel,
         weight: 600,
-      },
-      {
-        text: `Nº orden: ${String(input.numeroOrden ?? "")}`,
-        fs: r(layout.numero_orden.fontSize),
+      });
+    }
+    const ord = String(input.numeroOrden ?? "").trim();
+    if (ord) {
+      rows.push({
+        text: `Nº orden: ${ord}`,
+        fs: r(Math.max(layout.numero_orden.fontSize, 28)),
         color: colOrd,
-        weight: 650,
-      },
-      {
-        text: `Sorteo: ${input.sorteoNombre?.trim() || "—"}`,
-        fs: r(layout.sorteo_nombre.fontSize),
+        weight: 700,
+      });
+    }
+    const sn = input.sorteoNombre?.trim();
+    if (sn) {
+      rows.push({
+        text: `Sorteo: ${sn}`,
+        fs: r(Math.max(layout.sorteo_nombre.fontSize, 22)),
         color: colSort,
         weight: 600,
-      },
-    ];
+      });
+    }
+    return rows;
   };
 
   const metaLineH = (rows: MetaRow[]) => {
@@ -316,14 +334,14 @@ function buildCustomTemplateOverlaySvg(
 
   const cx = w / 2;
   if (cupones.length === 0) {
-    y += Math.round(30 * scale);
-    pieces.push(
-      `<text x="${cx}" y="${y}" text-anchor="middle" font-family="${font}" font-size="${Math.round(28 * scale)}" font-weight="600" fill="${colCup}">—</text>`
-    );
+    /* Sin cupones resueltos: no dibujar placeholder */
   } else if (cupones.length <= 6) {
     const fs = Math.min(
-      72,
-      Math.max(46, Math.round((layout.cupones.fontSize + (6 - Math.min(cupones.length, 6)) * 2) * scale))
+      84,
+      Math.max(
+        52,
+        Math.round((layout.cupones.fontSize + (6 - Math.min(cupones.length, 6)) * 3) * scale)
+      )
     );
     const step = Math.round(fs * 1.2);
     for (let i = 0; i < cupones.length; i++) {
