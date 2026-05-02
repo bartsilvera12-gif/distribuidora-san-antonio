@@ -17,7 +17,7 @@ import {
   SORTEO_TICKET_DEFAULT_STUB,
   type SorteoTicketDeliveryMode,
 } from "@/lib/sorteos/sorteo-ticket-types";
-import { buildSorteoTicketSvg, renderSorteoTicketPng, type SorteoTicketRenderInput } from "@/lib/sorteos/sorteo-ticket-render";
+import { renderTicketPngUnified, type SorteoTicketRenderInput } from "@/lib/sorteos/sorteo-ticket-render";
 import {
   createSignedUrlForTicket,
   downloadAssetIfExists,
@@ -26,6 +26,7 @@ import {
   SORTEO_TICKET_GENERATED_BUCKET,
   sorteoTicketAssetBackgroundPath,
   sorteoTicketAssetLogoPath,
+  sorteoTicketAssetTemplateCandidates,
   sorteoTicketGeneratedPath,
   uploadGeneratedTicketPng,
 } from "@/lib/sorteos/sorteo-ticket-storage";
@@ -301,6 +302,21 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
     }
     const bgDl = await downloadAssetIfExists(supabase, SORTEO_TICKET_ASSETS_BUCKET, bgPath);
 
+    let templateDl: { bytes: Buffer; mime: string } | null = null;
+    if ((config.design_mode ?? "auto") === "custom_template") {
+      const tb = config.custom_template_storage_bucket?.trim() || SORTEO_TICKET_ASSETS_BUCKET;
+      const tp = config.custom_template_storage_path?.trim();
+      if (tp) {
+        templateDl = await downloadAssetIfExists(supabase, tb, tp);
+      }
+      if (!templateDl) {
+        for (const cand of sorteoTicketAssetTemplateCandidates(empresaId, sorteoId)) {
+          templateDl = await downloadAssetIfExists(supabase, SORTEO_TICKET_ASSETS_BUCKET, cand);
+          if (templateDl) break;
+        }
+      }
+    }
+
     const fechaHora = new Date().toLocaleString("es-PY", {
       dateStyle: "short",
       timeStyle: "short",
@@ -320,10 +336,11 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
       logoMime: logoDl?.mime ?? null,
       backgroundBytes: bgDl?.bytes ?? null,
       backgroundMime: bgDl?.mime ?? null,
+      templateBytes: templateDl?.bytes ?? null,
+      templateMime: templateDl?.mime ?? null,
     };
 
-    const svg = buildSorteoTicketSvg(renderInput);
-    const { png, hash } = await renderSorteoTicketPng(svg);
+    const { png, hash } = await renderTicketPngUnified(renderInput);
     const genPath = sorteoTicketGeneratedPath(empresaId, sorteoId, entradaId, templateRevision);
     const up = await uploadGeneratedTicketPng(supabase, genPath, png);
     if (up.error) {

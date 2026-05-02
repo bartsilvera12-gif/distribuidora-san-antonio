@@ -13,6 +13,11 @@ export function sorteoTicketAssetBackgroundPath(empresaId: string, sorteoId: str
   return `${empresaId}/${sorteoId}/background.png`;
 }
 
+/** Plantilla base completa (PNG/JPG/WebP subidos como template.*). */
+export function sorteoTicketAssetTemplatePath(empresaId: string, sorteoId: string): string {
+  return `${empresaId}/${sorteoId}/template.png`;
+}
+
 /** Posibles paths en Storage para logo (upload puede usar .png / .webp / .jpg). */
 export function sorteoTicketAssetLogoCandidates(empresaId: string, sorteoId: string): string[] {
   const base = `${empresaId}/${sorteoId}`;
@@ -23,6 +28,11 @@ export function sorteoTicketAssetLogoCandidates(empresaId: string, sorteoId: str
 export function sorteoTicketAssetBackgroundCandidates(empresaId: string, sorteoId: string): string[] {
   const base = `${empresaId}/${sorteoId}`;
   return [`${base}/background.png`, `${base}/background.webp`, `${base}/background.jpg`];
+}
+
+export function sorteoTicketAssetTemplateCandidates(empresaId: string, sorteoId: string): string[] {
+  const base = `${empresaId}/${sorteoId}`;
+  return [`${base}/template.png`, `${base}/template.webp`, `${base}/template.jpg`];
 }
 
 export function sorteoTicketGeneratedPath(

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getSorteoById, updateSorteo } from "@/lib/sorteos/actions";
 import type { SorteoEstado, SorteoTicketDeliveryMode } from "@/lib/sorteos/types";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
-import { normalizeTicketImageConfig } from "@/lib/sorteos/sorteo-ticket-types";
+import { normalizeTicketImageConfig, type SorteoTicketDesignMode } from "@/lib/sorteos/sorteo-ticket-types";
 
 const SORTEO_TICKET_ASSETS_BUCKET = "sorteo-ticket-assets";
 const MAX_ASSET_BYTES = 4 * 1024 * 1024;
@@ -110,6 +110,7 @@ export default function EditarSorteoPage() {
   /** Preview por archivo existente en Storage sin fila en config (legado). */
   const [legacyLogoUrl, setLegacyLogoUrl] = useState<string | null>(null);
   const [legacyBgUrl, setLegacyBgUrl] = useState<string | null>(null);
+  const [legacyTemplateUrl, setLegacyTemplateUrl] = useState<string | null>(null);
 
   type AssetPhase = "idle" | "uploading" | "ok" | "error";
   const [logoPickName, setLogoPickName] = useState<string | null>(null);
@@ -122,8 +123,14 @@ export default function EditarSorteoPage() {
   const [bgPhase, setBgPhase] = useState<AssetPhase>("idle");
   const [bgMsg, setBgMsg] = useState<string | null>(null);
 
+  const [templatePickName, setTemplatePickName] = useState<string | null>(null);
+  const [templateObjectUrl, setTemplateObjectUrl] = useState<string | null>(null);
+  const [templatePhase, setTemplatePhase] = useState<AssetPhase>("idle");
+  const [templateMsg, setTemplateMsg] = useState<string | null>(null);
+
   const logoInputRef = useRef<HTMLInputElement>(null);
   const bgInputRef = useRef<HTMLInputElement>(null);
+  const templateInputRef = useRef<HTMLInputElement>(null);
 
   const textFields = useCallback(
     () => ({
@@ -206,6 +213,10 @@ export default function EditarSorteoPage() {
     typeof ticketImageConfigBase.background_storage_path === "string"
       ? ticketImageConfigBase.background_storage_path
       : "";
+  const depTemplatePath =
+    typeof ticketImageConfigBase.custom_template_storage_path === "string"
+      ? ticketImageConfigBase.custom_template_storage_path
+      : "";
 
   useEffect(() => {
     if (!empresaId || !id) return;
@@ -234,11 +245,24 @@ export default function EditarSorteoPage() {
   }, [empresaId, id, depBgPath]);
 
   useEffect(() => {
+    if (!empresaId || !id) return;
+    const base = `${empresaId}/${id}`;
+    if (depTemplatePath) {
+      setLegacyTemplateUrl(null);
+      return;
+    }
+    const urls = [`${base}/template.png`, `${base}/template.webp`, `${base}/template.jpg`].map(publicTicketAssetUrl);
+    setLegacyTemplateUrl(null);
+    probePublicImage(urls, (u) => setLegacyTemplateUrl(u));
+  }, [empresaId, id, depTemplatePath]);
+
+  useEffect(() => {
     return () => {
       if (logoObjectUrl) URL.revokeObjectURL(logoObjectUrl);
       if (bgObjectUrl) URL.revokeObjectURL(bgObjectUrl);
+      if (templateObjectUrl) URL.revokeObjectURL(templateObjectUrl);
     };
-  }, [logoObjectUrl, bgObjectUrl]);
+  }, [logoObjectUrl, bgObjectUrl, templateObjectUrl]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -424,6 +448,106 @@ export default function EditarSorteoPage() {
     }
   }
 
+  async function onTemplateFile(files: FileList | null) {
+    const f = files?.[0];
+    if (!f || !id) return;
+    setTemplateMsg(null);
+    setTemplatePhase("idle");
+    const err = validateAssetFile(f);
+    if (err) {
+      setTemplatePhase("error");
+      setTemplateMsg(err);
+      return;
+    }
+    if (templateObjectUrl) URL.revokeObjectURL(templateObjectUrl);
+    const ou = URL.createObjectURL(f);
+    setTemplateObjectUrl(ou);
+    setTemplatePickName(f.name);
+    setTemplatePhase("uploading");
+
+    const dims = await new Promise<{ w: number; h: number }>((resolve) => {
+      const im = new Image();
+      im.onload = () =>
+        resolve({
+          w: im.naturalWidth || 1080,
+          h: im.naturalHeight || 1350,
+        });
+      im.onerror = () => resolve({ w: 1080, h: 1350 });
+      im.src = ou;
+    });
+
+    const fd = new FormData();
+    fd.set("sorteo_id", id);
+    fd.set("kind", "template");
+    fd.set("file", f);
+    try {
+      const res = await fetchWithSupabaseSession("/api/sorteos/ticket-assets", {
+        method: "POST",
+        body: fd,
+      });
+      const raw = await res.text();
+      if (!res.ok) {
+        setTemplatePhase("error");
+        setTemplateMsg(raw || `Error ${res.status}`);
+        return;
+      }
+      const json = JSON.parse(raw) as { success?: boolean; data?: { bucket?: string; path?: string } };
+      const bucket = json.data?.bucket;
+      const path = json.data?.path;
+      if (!json.success || !bucket || !path) {
+        setTemplatePhase("error");
+        setTemplateMsg("Respuesta inválida del servidor.");
+        return;
+      }
+      const nextBase = {
+        ...ticketCfgRef.current,
+        design_mode: "custom_template" satisfies SorteoTicketDesignMode,
+        custom_template_storage_bucket: bucket,
+        custom_template_storage_path: path,
+        custom_template_width: dims.w,
+        custom_template_height: dims.h,
+      };
+      await persistTicketConfig(nextBase);
+      URL.revokeObjectURL(ou);
+      setTemplateObjectUrl(null);
+      setTemplatePickName(null);
+      setLegacyTemplateUrl(null);
+      setTemplatePhase("ok");
+      setTemplateMsg("Plantilla base cargada. Los datos del comprador se dibujarán encima al generar el ticket.");
+    } catch (e) {
+      setTemplatePhase("error");
+      setTemplateMsg(e instanceof Error ? e.message : "Error al subir");
+    }
+  }
+
+  async function removeTemplate() {
+    if (!id) return;
+    setTemplateMsg(null);
+    try {
+      const res = await fetchWithSupabaseSession(
+        `/api/sorteos/ticket-assets?sorteo_id=${encodeURIComponent(id)}&kind=template`,
+        { method: "DELETE" }
+      );
+      if (!res.ok) {
+        setTemplatePhase("error");
+        setTemplateMsg(await res.text());
+        return;
+      }
+      const next = { ...ticketCfgRef.current };
+      delete next.custom_template_storage_bucket;
+      delete next.custom_template_storage_path;
+      delete next.custom_template_width;
+      delete next.custom_template_height;
+      await persistTicketConfig(next);
+      setLegacyTemplateUrl(null);
+      setTemplatePhase("idle");
+      setTemplateMsg("Plantilla quitada. Si el diseño sigue en “Plantilla personalizada”, el ticket usará el modo automático hasta que subas otra imagen.");
+    } catch (e) {
+      setTemplatePhase("error");
+      setTemplateMsg(e instanceof Error ? e.message : "Error");
+    }
+  }
+
   async function removeLogo() {
     if (!id) return;
     setLogoMsg(null);
@@ -490,8 +614,31 @@ export default function EditarSorteoPage() {
       : legacyLogoUrl;
   const bgPreviewSrc = bgObjectUrl ? bgObjectUrl : bgPathStored ? publicTicketAssetUrl(bgPathStored) : legacyBgUrl;
 
+  const templatePathStored =
+    typeof ticketImageConfigBase.custom_template_storage_path === "string"
+      ? ticketImageConfigBase.custom_template_storage_path
+      : null;
+  const templatePreviewSrc = templateObjectUrl
+    ? templateObjectUrl
+    : templatePathStored
+      ? publicTicketAssetUrl(templatePathStored)
+      : legacyTemplateUrl;
+
   const hasLogoOnServer = Boolean(logoPathStored || legacyLogoUrl);
   const hasBgOnServer = Boolean(bgPathStored || legacyBgUrl);
+  const hasTemplateOnServer = Boolean(templatePathStored || legacyTemplateUrl);
+
+  const designMode: SorteoTicketDesignMode =
+    ticketImageConfigBase.design_mode === "custom_template" ? "custom_template" : "auto";
+
+  const templateW =
+    typeof ticketImageConfigBase.custom_template_width === "number"
+      ? ticketImageConfigBase.custom_template_width
+      : null;
+  const templateH =
+    typeof ticketImageConfigBase.custom_template_height === "number"
+      ? ticketImageConfigBase.custom_template_height
+      : null;
 
   if (cargando) {
     return <div className="py-16 text-center text-slate-400 text-sm animate-pulse">Cargando…</div>;
@@ -660,6 +807,26 @@ export default function EditarSorteoPage() {
               <option value="image_only">Solo ticket en imagen</option>
             </select>
           </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Diseño del ticket</label>
+            <select
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
+              value={designMode}
+              onChange={(e) => {
+                const v = e.target.value as SorteoTicketDesignMode;
+                setTicketImageConfigBase((prev) => ({ ...prev, design_mode: v }));
+              }}
+            >
+              <option value="auto">Automático</option>
+              <option value="custom_template">Plantilla personalizada</option>
+            </select>
+            <p className="text-xs text-slate-500 mt-1">
+              <strong className="font-medium text-slate-700">Automático:</strong> comprobante vertical con logo, datos en
+              bloques y cupón destacado (~1080×1350).{" "}
+              <strong className="font-medium text-slate-700">Plantilla personalizada:</strong> subís una imagen base con
+              marca y estilo; el sistema solo escribe los datos del comprador y los cupones encima.
+            </p>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-slate-600 mb-1">Título en el ticket</label>
@@ -697,6 +864,99 @@ export default function EditarSorteoPage() {
               placeholder="Listo, generamos tu comprobante…"
             />
           </div>
+
+          {designMode === "custom_template" && (
+            <div className="rounded-xl border-2 border-violet-400/80 bg-white p-4 space-y-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Plantilla base del ticket</p>
+                <p className="text-xs text-slate-600 mt-1">
+                  Subí PNG, JPG o WebP (máx. {MAX_ASSET_BYTES / (1024 * 1024)} MB). Recomendado:{" "}
+                  <span className="font-medium">1080×1350</span> u orientación story{" "}
+                  <span className="font-medium">1080×1920</span>. El ERP dibujará encima nombre, documento, teléfono, Nº de
+                  orden, sorteo y cupones (posiciones por defecto; más adelante se podrá ajustar con editor visual).
+                </p>
+              </div>
+              <input
+                ref={templateInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="sr-only"
+                onChange={(e) => {
+                  void onTemplateFile(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => templateInputRef.current?.click()}
+                  disabled={templatePhase === "uploading"}
+                  className="inline-flex items-center rounded-lg bg-violet-700 px-3 py-2 text-sm font-medium text-white hover:bg-violet-800 disabled:opacity-50"
+                >
+                  {hasTemplateOnServer ? "Cambiar plantilla base" : "Subir plantilla base del ticket"}
+                </button>
+                {hasTemplateOnServer && (
+                  <button
+                    type="button"
+                    onClick={() => void removeTemplate()}
+                    className="text-sm text-red-700 hover:underline"
+                  >
+                    Quitar plantilla
+                  </button>
+                )}
+              </div>
+              {templatePathStored && (
+                <p className="text-xs text-emerald-800 font-medium">
+                  Hay una plantilla registrada en el sorteo
+                  {templateW != null && templateH != null ? (
+                    <>
+                      {" "}
+                      ({templateW}×{templateH}px)
+                    </>
+                  ) : null}
+                  .
+                </p>
+              )}
+              {!templatePathStored && legacyTemplateUrl && (
+                <p className="text-xs text-amber-800">
+                  Hay un archivo template.* en Storage de una subida anterior (sin path en config). Subí de nuevo para
+                  registrar dimensiones y bucket/path.
+                </p>
+              )}
+              {templatePickName && (
+                <p className="text-xs text-slate-700">
+                  Archivo: <span className="font-medium break-all">{templatePickName}</span>
+                </p>
+              )}
+              {templatePhase === "uploading" && (
+                <p className="text-xs font-medium text-violet-800">Subiendo plantilla…</p>
+              )}
+              {templatePhase === "ok" && templateMsg && (
+                <p className="text-xs font-medium text-emerald-800">{templateMsg}</p>
+              )}
+              {templatePhase === "error" && templateMsg && (
+                <p className="text-xs text-red-700" role="alert">
+                  {templateMsg}
+                </p>
+              )}
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-2 overflow-hidden">
+                <div className="mx-auto max-w-[280px] max-h-[360px] overflow-auto rounded-md border border-slate-200 bg-white shadow-inner">
+                  {templatePreviewSrc ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={templatePreviewSrc}
+                      alt="Vista previa plantilla base"
+                      className="w-full h-auto object-contain max-h-[340px]"
+                    />
+                  ) : (
+                    <div className="flex min-h-[160px] items-center justify-center px-4 text-center text-xs text-slate-400">
+                      Aún no hay plantilla. Subí una imagen para ver la vista previa.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
             {/* Logo uploader */}

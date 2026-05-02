@@ -2,7 +2,38 @@
 
 export type SorteoTicketDeliveryMode = "text_only" | "text_and_image" | "image_only";
 
+/** Render: SVG automático vs imagen base subida + texto encima */
+export type SorteoTicketDesignMode = "auto" | "custom_template";
+
+/** Posición de un campo dinámico sobre plantilla personalizada (coords px en imagen base). */
+export type SorteoTicketCustomFieldLayout = {
+  x: number;
+  y: number;
+  fontSize: number;
+  color: string;
+};
+
+/** Defaults MVP para overlay sobre plantilla (1080×1350 típico). */
+export const DEFAULT_CUSTOM_TEMPLATE_FIELDS: Record<string, SorteoTicketCustomFieldLayout> = {
+  cliente_nombre: { x: 90, y: 520, fontSize: 34, color: "#111827" },
+  cliente_documento: { x: 90, y: 575, fontSize: 30, color: "#374151" },
+  telefono: { x: 90, y: 625, fontSize: 30, color: "#374151" },
+  numero_orden: { x: 90, y: 685, fontSize: 32, color: "#111827" },
+  sorteo_nombre: { x: 90, y: 740, fontSize: 30, color: "#374151" },
+  cupones: { x: 90, y: 900, fontSize: 52, color: "#111827" },
+};
+
 export type SorteoTicketImageConfig = {
+  /** Automático (SVG) o plantilla imagen completa */
+  design_mode?: SorteoTicketDesignMode;
+  /** Bucket/path de la plantilla base (normalmente sorteo-ticket-assets) */
+  custom_template_storage_bucket?: string;
+  custom_template_storage_path?: string;
+  /** Dimensiones detectadas al subir (overlay SVG) */
+  custom_template_width?: number;
+  custom_template_height?: number;
+  /** Coordenadas por campo para texto sobre plantilla */
+  custom_template_fields?: Partial<Record<string, SorteoTicketCustomFieldLayout>>;
   /** Título visible en el PNG */
   title?: string;
   /** Caption de WhatsApp al enviar la imagen */
@@ -35,4 +66,26 @@ export const SORTEO_TICKET_DEFAULT_STUB =
 export function normalizeTicketImageConfig(raw: unknown): SorteoTicketImageConfig {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   return raw as SorteoTicketImageConfig;
+}
+
+/** Merge defaults de campos sobre plantilla para render. */
+export function mergeCustomTemplateFields(
+  cfg: SorteoTicketImageConfig
+): Record<string, SorteoTicketCustomFieldLayout> {
+  const partial = cfg.custom_template_fields ?? {};
+  const out: Record<string, SorteoTicketCustomFieldLayout> = {};
+  for (const key of Object.keys(DEFAULT_CUSTOM_TEMPLATE_FIELDS)) {
+    const def = DEFAULT_CUSTOM_TEMPLATE_FIELDS[key]!;
+    const o = partial[key];
+    out[key] =
+      o && typeof o === "object"
+        ? {
+            x: typeof o.x === "number" ? o.x : def.x,
+            y: typeof o.y === "number" ? o.y : def.y,
+            fontSize: typeof o.fontSize === "number" ? o.fontSize : def.fontSize,
+            color: typeof o.color === "string" ? o.color : def.color,
+          }
+        : { ...def };
+  }
+  return out;
 }
