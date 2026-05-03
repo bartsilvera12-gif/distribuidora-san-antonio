@@ -741,16 +741,21 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         state.active_flow_session_id
       );
       if (already) {
+        const nodeForCapture = await getNode(state.empresa_id, flowCode, nodeCode);
+        const acceptsAlreadyPresented = Boolean(
+          nodeForCapture?.node_type === "text" && nodeForCapture.save_as_field?.trim()
+        );
         console.info(logPrefix, "skip: node_already_sent", {
           conversationId: state.id,
           flowCode,
           nodeCode,
+          acceptsInboundTextAsCapture: acceptsAlreadyPresented,
         });
         return {
           ok: true,
           status: "already_presented",
           presentedNow: false,
-          acceptsInboundTextAsCapture: false,
+          acceptsInboundTextAsCapture: acceptsAlreadyPresented,
         };
       }
 
@@ -2565,6 +2570,36 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         raw: params.rawPayload,
       },
     });
+
+    try {
+      const fdAudit = await getConversationFlowDataMap({
+        empresaId: state.empresa_id,
+        conversationId: state.id,
+        flowCode: state.flow_code,
+        flowSessionId: textFlowSid,
+        traceReadContext: "sorteo_manual_next_inbound_audit",
+      });
+      if ((fdAudit[FLOW_SORTEO_PENDIENTE_DATOS_PARTICIPANTE_FIELD] ?? "").trim() === "si") {
+        await insertFlowEvent({
+          empresaId: state.empresa_id,
+          conversationId: state.id,
+          flowCode: state.flow_code,
+          nodeCode: currentNode.node_code,
+          flowSessionId: textFlowSid,
+          eventType: "sorteo_manual_approval_next_inbound_processed",
+          payload: {
+            field_name: currentNode.save_as_field ?? null,
+            next_node_code: currentNode.next_node_code ?? null,
+            resultado: currentNode.next_node_code ? "capture_ok_will_advance" : "capture_ok_no_next",
+          },
+        });
+      }
+    } catch (e) {
+      console.warn("[sorteo-manual-approval] next_inbound_audit_failed", {
+        conversationId: state.id,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
 
     if (!currentNode.next_node_code) {
       return { ok: true, status: "captured_no_next_node" };

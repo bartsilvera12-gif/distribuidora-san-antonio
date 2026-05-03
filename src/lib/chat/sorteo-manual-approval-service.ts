@@ -238,6 +238,24 @@ export async function approveComprobanteAndCloseSorteoPurchase(input: {
       missing: missingKinds,
     });
 
+    if (
+      row.estado_validacion === "aprobado_manual" &&
+      String(row.motivo_validacion ?? "").trim() === MOTIVO_VALIDACION_ASESOR_PENDIENTE_DATOS
+    ) {
+      logManual("idempotent-pending-skip", {
+        schema: dataSchema,
+        empresa_id: input.empresaId,
+        validation_id: row.id,
+      });
+      return {
+        ok: true,
+        mode: "pending_participant_data",
+        reused: true,
+        missingFields: missingKinds,
+        nextNodeCode: null,
+      };
+    }
+
     const resumeTarget = await findResumeNodeForMissingFields(
       tenantSb,
       input.empresaId,

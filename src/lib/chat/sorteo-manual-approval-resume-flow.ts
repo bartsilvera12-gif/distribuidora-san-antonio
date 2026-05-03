@@ -218,6 +218,8 @@ export async function runManualApprovalResumeParticipantFlow(input: {
   });
   if (fdErr) throw new Error(fdErr.message);
 
+  const nowIso = new Date().toISOString();
+
   await input.supabase
     .from("chat_flow_sessions")
     .update({
@@ -228,6 +230,19 @@ export async function runManualApprovalResumeParticipantFlow(input: {
     .eq("id", sid)
     .eq("empresa_id", input.empresaId);
 
+  /** Una sola sesión activa por conversación: el motor y chat_flow_data usan active_flow_session_id. */
+  await input.supabase
+    .from("chat_flow_sessions")
+    .update({
+      status: "abandoned",
+      ended_at: nowIso,
+      end_reason: "manual_approval_resume_other_sessions",
+    })
+    .eq("empresa_id", input.empresaId)
+    .eq("conversation_id", input.conversationId)
+    .eq("status", "active")
+    .neq("id", sid);
+
   const adv = await advanceConversationToNode(input.supabase, {
     conversationId: input.conversationId,
     empresaId: input.empresaId,
@@ -235,6 +250,16 @@ export async function runManualApprovalResumeParticipantFlow(input: {
     nextNodeCode: input.nextNodeCode,
   });
   if (!adv.ok) throw new Error(adv.error ?? "advanceConversationToNode");
+
+  const { error: convSidErr } = await input.supabase
+    .from("chat_conversations")
+    .update({
+      active_flow_session_id: sid,
+      updated_at: nowIso,
+    })
+    .eq("id", input.conversationId)
+    .eq("empresa_id", input.empresaId);
+  if (convSidErr) throw new Error(convSidErr.message);
 
   await input.supabase.from("chat_flow_events").insert({
     empresa_id: input.empresaId,
@@ -250,6 +275,21 @@ export async function runManualApprovalResumeParticipantFlow(input: {
       approved_by: input.usuarioId,
       approval_source: "inbox_manual",
       note: input.note || null,
+    },
+  });
+
+  await input.supabase.from("chat_flow_events").insert({
+    empresa_id: input.empresaId,
+    conversation_id: input.conversationId,
+    flow_code: fc,
+    node_code: input.nextNodeCode,
+    flow_session_id: sid,
+    event_type: "sorteo_manual_approval_resume_node_set",
+    payload: {
+      validation_id: input.validationId,
+      active_flow_session_id: sid,
+      flow_current_node: input.nextNodeCode,
+      reason: "manual_approval_pending_data",
     },
   });
 
