@@ -46,7 +46,8 @@
     "qa:sorteo-ticket": "tsx ./scripts/qa-sorteo-ticket-delivery.ts",
     "verify:sorteo-ticket-overlay": "tsx ./scripts/verify-sorteo-ticket-overlay-png.ts",
     "db:apply-chat-campaigns-migration": "tsx scripts/apply-chat-campaigns-migration.ts",
-    "verify:ocr-ref-dup": "tsx scripts/verify-ocr-ref-strong-dup-rules.ts"
+    "verify:ocr-ref-dup": "tsx scripts/verify-ocr-ref-strong-dup-rules.ts",
+    "vercel:check-deploy": "tsx scripts/check-vercel-deploy.ts"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
