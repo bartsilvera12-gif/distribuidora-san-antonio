@@ -272,6 +272,15 @@ function omnicanalRoleShortLabel(role: string | null): string | null {
   return null;
 }
 
+const CHAT_LIST_DEBUG = process.env.NEXT_PUBLIC_CHAT_LIST_DEBUG === "true";
+function chatListUiLog(
+  sub: "initial-data" | "refetch-start" | "refetch-result" | "set-conversations" | "filters-applied" | "tab-split" | "refetch-preserve",
+  payload: Record<string, unknown>
+) {
+  if (!CHAT_LIST_DEBUG) return;
+  console.info(`[chat-ui][${sub}]`, { ...payload, timestamp: new Date().toISOString() });
+}
+
 export type ConversacionesClientMode = "inbox" | "historial";
 
 /** Presencia operativa precargada en el servidor (evita parpadeo y fallos solo-cliente). */
@@ -311,6 +320,10 @@ export function ConversacionesClient({
     mode === "historial" ? "historial" : vistaParam === "bot" ? "bot" : "inbox";
 
   const [conversations, setConversations] = useState<InboxConversation[]>([]);
+  const conversationsRef = useRef<InboxConversation[]>([]);
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -404,13 +417,79 @@ export function ConversacionesClient({
   const loadConversations = useCallback(
     async (opts?: { silent?: boolean }) => {
       const silent = opts?.silent ?? false;
+      const sp = new URLSearchParams(inboxFilterKey);
+      const filters = parseInboxFilters(sp);
+      const previousCount = conversationsRef.current.length;
+      if (silent) {
+        chatListUiLog("refetch-start", {
+          activeTab: vista,
+          previous_count: previousCount,
+          source: "loadConversations",
+          reason: "silent",
+          filters: filters ?? null,
+        });
+      }
       try {
-        const sp = new URLSearchParams(inboxFilterKey);
-        const filters = parseInboxFilters(sp);
-        const rows = await fetchChatConversations(vista, filters);
-        setConversations(rows);
+        const { conversations: rows, base_row_count: baseRowCount } = await fetchChatConversations(
+          vista,
+          filters
+        );
+        if (silent) {
+          chatListUiLog("refetch-result", {
+            activeTab: vista,
+            previous_count: previousCount,
+            next_count: rows.length,
+            base_row_count: baseRowCount,
+            source: "fetchChatConversations",
+            reason: "ok",
+            filters: filters ?? null,
+          });
+        }
+        const preserveSilentEmpty =
+          silent && rows.length === 0 && previousCount > 0 && baseRowCount === 0;
+        if (preserveSilentEmpty) {
+          chatListUiLog("refetch-preserve", {
+            activeTab: vista,
+            previous_count: previousCount,
+            next_count: 0,
+            base_row_count: baseRowCount,
+            source: "fetchChatConversations",
+            reason: "silent_empty_keeps_previous",
+            filters: filters ?? null,
+          });
+        } else {
+          chatListUiLog("set-conversations", {
+            activeTab: vista,
+            previous_count: previousCount,
+            next_count: rows.length,
+            base_row_count: baseRowCount,
+            source: "fetchChatConversations",
+            reason: silent ? "silent_replace" : "load",
+            filters: filters ?? null,
+          });
+          setConversations(rows);
+        }
+        if (!silent && previousCount === 0) {
+          chatListUiLog("initial-data", {
+            activeTab: vista,
+            previous_count: 0,
+            next_count: rows.length,
+            base_row_count: baseRowCount,
+            source: "first_fetch",
+            reason: "hydrated",
+            filters: filters ?? null,
+          });
+        }
         setListError(null);
       } catch (e) {
+        chatListUiLog("refetch-result", {
+          activeTab: vista,
+          previous_count: previousCount,
+          source: "fetchChatConversations",
+          reason: "error",
+          error: e instanceof Error ? e.message : String(e),
+          filters: filters ?? null,
+        });
         setListError(e instanceof Error ? e.message : "Error al cargar conversaciones");
       } finally {
         if (!silent) {

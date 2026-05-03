@@ -21,6 +21,7 @@ import {
 } from "@/lib/chat/comprobante-validation-types";
 import { requireEmpresaTenantServiceRole } from "@/lib/chat/empresa-tenant-service-role";
 import { isMissingColumnError } from "@/lib/chat/postgres-column-error";
+import { logChatListClassificationInvariant } from "@/lib/chat/chat-list-classification-invariant";
 import {
   appendOmnicanalConversationScopeToQuery,
   getOmnicanalScope,
@@ -114,6 +115,12 @@ export type InboxConversation = {
   };
 };
 
+export type ChatConversationsFetchResult = {
+  conversations: InboxConversation[];
+  /** Filas que devolvió la query base antes del split Inbox/Bot (o cerradas en historial). */
+  base_row_count: number;
+};
+
 /**
  * Último mensaje por conversación (respaldo si el RPC de turnos falla o no está desplegado).
  * Una subconsulta por id en paralelo por lotes, para no mezclar límites entre conversaciones.
@@ -159,13 +166,9 @@ async function mapLastMessageByConversation(
 export async function fetchChatConversations(
   vista: ConversacionesVista = "inbox",
   filters?: ChatInboxFilters
-): Promise<InboxConversation[]> {
-  try {
-    return await fetchChatConversationsUnsafe(vista, filters);
-  } catch (e) {
-    console.error("[fetchChatConversations] fatal (inbox vacío):", e);
-    return [];
-  }
+): Promise<ChatConversationsFetchResult> {
+  /** No devolver [] ante error: el cliente podría borrar el listado; debe lanzar para preservar estado previo. */
+  return fetchChatConversationsUnsafe(vista, filters);
 }
 
 type BotTabClassifyCtx = {
@@ -255,10 +258,43 @@ async function logBotTabClassificationSamplePostgrest(
 async function fetchChatConversationsUnsafe(
   vista: ConversacionesVista = "inbox",
   filters?: ChatInboxFilters
-): Promise<InboxConversation[]> {
+): Promise<ChatConversationsFetchResult> {
   const { supabase, catalogSr, empresa_id, usuario_id, dataSchema } = await requireEmpresaTenantServiceRole();
 
   const poolInbox = getChatPostgresPool();
+  const useTenantPg = Boolean(poolInbox && isLikelyUnexposedTenantChatSchema(dataSchema));
+  const scopeLog = await getOmnicanalScope(supabase, empresa_id, usuario_id, {
+    tenantDataSchema: dataSchema,
+  });
+  const bypassLog = await shouldBypassOmnicanalConversationScope(catalogSr, usuario_id, scopeLog);
+  const ts = new Date().toISOString();
+  console.info("[chat-list][fetch-start]", {
+    vista,
+    schema: dataSchema,
+    empresa_id,
+    source: useTenantPg ? "tenant_pg" : "postgrest",
+    timestamp: ts,
+  });
+  console.info("[chat-list][scope]", {
+    schema: dataSchema,
+    empresa_id,
+    bypass: bypassLog,
+    role: scopeLog.role,
+    queue_ids_len: scopeLog.queueIds.length,
+    agent_usuario_ids_len: scopeLog.agentUsuarioIds.length,
+    is_admin_scope: isOmnicanalAdminScope(scopeLog),
+    timestamp: ts,
+  });
+  console.info("[chat-list][filters]", {
+    vista,
+    assignment: filters?.assignment ?? "all",
+    queue_id: filters?.queue_id ?? null,
+    channel_id: filters?.channel_id ?? null,
+    status: filters?.status ?? null,
+    priority: filters?.priority ?? null,
+    timestamp: ts,
+  });
+
   if (poolInbox && isLikelyUnexposedTenantChatSchema(dataSchema)) {
     return fetchChatConversationsFromTenantPg(poolInbox, dataSchema, vista, filters, {
       supabase,
@@ -280,7 +316,7 @@ async function fetchChatConversationsUnsafe(
   const activeFlowCatalogRowCount = (activeFlowRows ?? []).length;
 
   if (vista === "bot" && activeFlowCatalogRowCount === 0) {
-    return [];
+    return { conversations: [], base_row_count: 0 };
   }
 
   /**
@@ -466,10 +502,17 @@ async function fetchChatConversationsUnsafe(
 
   if (error) {
     console.warn("[fetchChatConversations] listado conversaciones no disponible:", error.message);
-    return [];
+    throw new Error(`[fetchChatConversations] listado conversaciones: ${error.message}`);
   }
   let list = (convs ?? []) as Record<string, unknown>[];
   const totalAfterQuery = list.length;
+  console.info("[chat-list][fetch-result]", {
+    source: "postgrest",
+    schema: dataSchema,
+    empresa_id,
+    total_fetched: totalAfterQuery,
+    timestamp: new Date().toISOString(),
+  });
 
   const sessionIds = [
     ...new Set(
@@ -605,6 +648,18 @@ async function fetchChatConversationsUnsafe(
     });
   }
 
+  logChatListClassificationInvariant({
+    vista,
+    source: "postgrest",
+    schema: dataSchema,
+    empresa_id,
+    totalAfterQuery,
+    listAfterTabSplit: list,
+    botTabCount: botLikeCount,
+    baseRows: listBeforeBotTabSplit,
+    classifyCtx,
+  });
+
   if (vista === "inbox") {
     console.info("[chat-list][inbox]", {
       empresa_id,
@@ -681,7 +736,9 @@ async function fetchChatConversationsUnsafe(
     }
   }
 
-  if (list.length === 0) return [];
+  if (list.length === 0) {
+    return { conversations: [], base_row_count: totalAfterQuery };
+  }
 
   const convIdList = list.map((row) => String((row as { id?: unknown }).id ?? "").trim()).filter(Boolean);
   const awaitingById: Record<string, string | null> = {};
@@ -879,7 +936,7 @@ async function fetchChatConversationsUnsafe(
     }
   }
 
-  return list.map((row) => {
+  const mapped = list.map((row) => {
     const c = byId[row.contact_id as string] as
       | { id?: string; name?: string | null; phone_number?: string; cliente_id?: string | null; crm_prospecto_id?: string | null }
       | undefined;
@@ -932,6 +989,7 @@ async function fetchChatConversationsUnsafe(
       awaiting_client_reply_since: clientTurnById[row.id as string] ?? null,
     };
   });
+  return { conversations: mapped, base_row_count: totalAfterQuery };
 }
 
 /** True si la empresa tiene al menos un flujo de chat activo (tab Bot en inbox). */

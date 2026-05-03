@@ -13,6 +13,7 @@ import {
   loadActiveFlowSessionsByConversationForInboxListPg,
 } from "@/lib/chat/inbox-list-flow-sessions";
 import { parseComprobanteValidationConfig } from "@/lib/chat/comprobante-validation-types";
+import { logChatListClassificationInvariant } from "@/lib/chat/chat-list-classification-invariant";
 import {
   getOmnicanalScope,
   isOmnicanalAdminScope,
@@ -25,6 +26,7 @@ import { pgSelectChatAgentIdsForUsuarios } from "@/lib/chat/omnicanal-scope-pg";
 import type { AppSupabaseClient } from "@/lib/supabase/schema";
 import { quoteSchemaTable } from "@/lib/supabase/chat-pg-pool";
 import type {
+  ChatConversationsFetchResult,
   ChatInboxFilters,
   ConversacionesVista,
   InboxConversation,
@@ -257,7 +259,7 @@ export async function fetchChatConversationsFromTenantPg(
   vista: ConversacionesVista,
   filters: ChatInboxFilters | undefined,
   ctx: FlowCtx
-): Promise<InboxConversation[]> {
+): Promise<ChatConversationsFetchResult> {
   const { supabase, catalogSr, empresa_id, usuario_id } = ctx;
 
   const { rows: activeFlowRows, matchSet: activeFlowCodeSet } = await pgLoadActiveFlowsForClassification(
@@ -267,7 +269,7 @@ export async function fetchChatConversationsFromTenantPg(
   );
   const activeFlowCatalogRowCount = activeFlowRows.length;
   if (vista === "bot" && activeFlowCatalogRowCount === 0) {
-    return [];
+    return { conversations: [], base_row_count: 0 };
   }
 
   const scope = await getOmnicanalScope(supabase, empresa_id, usuario_id, {
@@ -361,6 +363,13 @@ export async function fetchChatConversationsFromTenantPg(
     [];
 
   const totalAfterQuery = list.length;
+  console.info("[chat-list][fetch-result]", {
+    source: "tenant_pg",
+    schema: dataSchema,
+    empresa_id,
+    total_fetched: totalAfterQuery,
+    timestamp: new Date().toISOString(),
+  });
 
   const sessionIds = [
     ...new Set(
@@ -495,6 +504,18 @@ export async function fetchChatConversationsFromTenantPg(
     });
   }
 
+  logChatListClassificationInvariant({
+    vista,
+    source: "tenant_pg",
+    schema: dataSchema,
+    empresa_id,
+    totalAfterQuery,
+    listAfterTabSplit: list,
+    botTabCount,
+    baseRows: listBeforeBotTabSplit,
+    classifyCtx,
+  });
+
   if (rowsSnapshotForLogs.length > 0) {
     const contactIds = [
       ...new Set(
@@ -560,7 +581,9 @@ export async function fetchChatConversationsFromTenantPg(
     }
   }
 
-  if (list.length === 0) return [];
+  if (list.length === 0) {
+    return { conversations: [], base_row_count: totalAfterQuery };
+  }
 
   const convIdList = list.map((row) => String(row.id ?? "").trim()).filter(Boolean);
 
@@ -771,7 +794,7 @@ export async function fetchChatConversationsFromTenantPg(
       ? String(row.priority)
       : "medium";
 
-  return list.map((row) => {
+  const mapped = list.map((row) => {
     const c = byId[row.contact_id as string] as
       | {
           id?: string;
@@ -829,4 +852,5 @@ export async function fetchChatConversationsFromTenantPg(
       awaiting_client_reply_since: clientTurnById[rid] ?? null,
     };
   });
+  return { conversations: mapped as InboxConversation[], base_row_count: totalAfterQuery };
 }
