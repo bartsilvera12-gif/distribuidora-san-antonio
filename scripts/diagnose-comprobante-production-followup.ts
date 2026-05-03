@@ -62,7 +62,7 @@ async function main() {
     const refVal = String(
       (refRows.rows[0] as { ocr_referencia?: string } | undefined)?.ocr_referencia ?? ""
     ).trim();
-    const strongRef = refVal.length >= 10;
+    const strongRef = refVal.length >= 12;
 
     if (refVal) {
       const olderSameRef = await client.query(
