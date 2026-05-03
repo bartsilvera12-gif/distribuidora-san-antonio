@@ -2111,6 +2111,232 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       }
     }
 
+    /**
+     * Muchos flujos usan un botón "Confirmado" sin `confirmar_orden_sorteo` que solo avanza al nodo
+     * `compra_realizada`. Sin ejecutar finalize aquí, el mensaje final sale con placeholders vacíos.
+     */
+    if (
+      !wantsSorteoFinalize &&
+      sorteoLinked &&
+      flowSidInteractive &&
+      selected.next_node_code?.trim() &&
+      !sorteoTicketPackage
+    ) {
+      const nextCodeProbe = selected.next_node_code.trim();
+      const nextNodeProbeLazy = await getNode(
+        state.empresa_id,
+        state.flow_code as string,
+        nextCodeProbe
+      );
+      const isLazyFinalTarget = isSorteoFinalTicketNode(nextCodeProbe, {
+        nodeMessageTemplate: nextNodeProbeLazy?.message_text ?? null,
+      });
+      const Flazy = CHAT_FLOW_SORTEO_CONTEXT_FIELDS;
+      const rawFdLazy = await getConversationFlowDataMap({
+        empresaId: state.empresa_id,
+        conversationId: state.id,
+        flowCode: state.flow_code,
+        flowSessionId: flowSidInteractive,
+        traceReadContext: "lazy_finalize_probe",
+      });
+      const hydFdLazy = await hydrateFlowDataFromSessionEvents(
+        state.id,
+        state.flow_code as string,
+        rawFdLazy,
+        flowSidInteractive
+      );
+      const hasEntradaLazy = Boolean(
+        String((hydFdLazy as Record<string, string>)[Flazy.sorteo_entrada_id] ?? "").trim()
+      );
+      if (isLazyFinalTarget && !hasEntradaLazy) {
+        const schemaClose = await fetchDataSchemaForEmpresaId(state.empresa_id);
+        console.info("[sorteo-close][pre-finalize]", {
+          schema: schemaClose,
+          empresa_id: state.empresa_id,
+          conversation_id: state.id,
+          flow_session_id: flowSidInteractive,
+          next_node_code: nextCodeProbe,
+          trigger: "advance_to_final_without_finalize_payload",
+        });
+        const sendCtxLazy = await getConversationSendContext(state.id);
+        const notifyLazyErr = async (text: string) => {
+          const send = await flowSendText(sendCtxLazy, text);
+          if (send.ok) {
+            await persistOutgoingMessage({
+              conversation: state,
+              content: text,
+              messageType: "text",
+              waMessageId: send.waMessageId,
+              raw: send.raw,
+              senderType: "system",
+              automationSource: "flow_engine",
+            });
+          }
+        };
+        const finLazy = await finalizeSorteoOrderFromConfirmedFlowData(supabase, {
+          empresaId: state.empresa_id,
+          conversationId: state.id,
+          flowCode: state.flow_code as string,
+          flowSessionId: flowSidInteractive,
+          whatsappNumero: sendCtxLazy.toDigits,
+          flowData: hydFdLazy as Record<string, string>,
+        });
+        const entradaSlice =
+          finLazy.ok && !finLazy.skipped ? String(finLazy.entradaId).slice(0, 8) : "";
+        console.info("[sorteo-close][order-result]", {
+          schema: schemaClose,
+          empresa_id: state.empresa_id,
+          conversation_id: state.id,
+          flow_session_id: flowSidInteractive,
+          entrada_id_prefix: entradaSlice ? `${entradaSlice}…` : null,
+          numero_orden_present: Boolean(
+            finLazy.ok && !finLazy.skipped && finLazy.numeroOrden != null
+          ),
+          cupones_count:
+            finLazy.ok && !finLazy.skipped ? (finLazy.cupones?.length ?? 0) : 0,
+          skipped: finLazy.ok ? finLazy.skipped : undefined,
+          reason: finLazy.ok && finLazy.skipped ? finLazy.reason : undefined,
+        });
+        if (!finLazy.ok) {
+          console.info("[sorteo-close][prevent-empty-final-message]", {
+            schema: schemaClose,
+            conversation_id: state.id,
+            phase: "finalize_failed",
+          });
+          await notifyLazyErr(finLazy.message);
+          return { ok: false, status: "sorteo_lazy_finalize_failed", error: finLazy.message };
+        }
+        if (finLazy.skipped) {
+          let detailLazy: string;
+          if (finLazy.reason === "sin_comprobante_en_sesion") {
+            detailLazy =
+              "No encontramos el comprobante de esta compra. Enviá la imagen del comprobante y volvé a confirmar.";
+          } else if (finLazy.reason === "flow_sin_sorteo_id") {
+            detailLazy = "Este flujo no está vinculado a un sorteo.";
+          } else if (finLazy.reason === "datos_flujo_incompletos") {
+            detailLazy = await getSorteoDatosIncompletosMessage(
+              supabase,
+              state.empresa_id,
+              state.flow_code as string
+            );
+          } else if (finLazy.reason === "comprobante_no_validado") {
+            detailLazy = await mensajeClienteComprobanteNoValido(
+              supabase,
+              state.id,
+              typeof finLazy.comprobanteEstado === "string" ? finLazy.comprobanteEstado : "",
+              typeof finLazy.comprobanteMotivo === "string" ? finLazy.comprobanteMotivo : undefined
+            );
+          } else {
+            detailLazy = await getSorteoDatosIncompletosMessage(
+              supabase,
+              state.empresa_id,
+              state.flow_code as string
+            );
+          }
+          console.info("[sorteo-close][prevent-empty-final-message]", {
+            schema: schemaClose,
+            conversation_id: state.id,
+            phase: "finalize_skipped",
+            reason: finLazy.reason,
+          });
+          await notifyLazyErr(detailLazy);
+          return { ok: false, status: "sorteo_lazy_finalize_skipped", error: detailLazy };
+        }
+
+        sorteoOrderMerge = buildSorteoOrderFlowVarOverrides(finLazy);
+        const ctxRowsLazy = buildChatFlowDataUpsertsForSorteoOrder(
+          state.empresa_id,
+          state.id,
+          state.flow_code as string,
+          flowSidInteractive,
+          finLazy
+        );
+        const { error: ctxErrLazy } = await supabase
+          .from("chat_flow_data")
+          .upsert(ctxRowsLazy, { onConflict: "flow_session_id,field_name" });
+        if (ctxErrLazy) {
+          console.info("[sorteo-close][prevent-empty-final-message]", {
+            schema: schemaClose,
+            conversation_id: state.id,
+            phase: "flow_data_upsert_failed",
+          });
+          await notifyLazyErr("No se pudo guardar el resultado de la compra. Intentá confirmar de nuevo.");
+          return {
+            ok: false,
+            status: "sorteo_lazy_context_failed",
+            error: ctxErrLazy.message,
+          };
+        }
+        console.info("[sorteo-close][flow-data-upserted]", {
+          schema: schemaClose,
+          empresa_id: state.empresa_id,
+          conversation_id: state.id,
+          flow_session_id: flowSidInteractive,
+        });
+        await insertFlowEvent({
+          empresaId: state.empresa_id,
+          conversationId: state.id,
+          flowCode: state.flow_code,
+          nodeCode: currentNode.node_code,
+          flowSessionId: flowSidInteractive,
+          eventType: "sorteo_order_ensured",
+          selectedOptionId: selected.id,
+          metaButtonId: params.metaButtonId,
+          payload: {
+            idempotent: finLazy.idempotent,
+            entrada_id: finLazy.entradaId,
+            numero_orden: finLazy.numeroOrden,
+            cantidad_boletos: finLazy.cantidadBoletos,
+            monto_total: finLazy.montoTotal,
+            precio_fuente: finLazy.precioFuente,
+            promo_nombre: finLazy.promoNombre,
+            sorteo_id: finLazy.sorteoId,
+            sorteo_nombre: finLazy.sorteoNombre,
+            cupones: finLazy.cupones.map((c) => c.numero_cupon),
+            trigger: "lazy_before_final_template",
+          },
+        });
+        const hydLazyRec = hydFdLazy as Record<string, string>;
+        const hadManualPendingLazy =
+          (hydLazyRec[FLOW_SORTEO_PENDIENTE_DATOS_PARTICIPANTE_FIELD] ?? "").trim() === "si";
+        if (hadManualPendingLazy) {
+          await insertFlowEvent({
+            empresaId: state.empresa_id,
+            conversationId: state.id,
+            flowCode: state.flow_code,
+            nodeCode: currentNode.node_code,
+            flowSessionId: flowSidInteractive,
+            eventType: "sorteo_manual_approval_completed_after_data",
+            payload: {
+              entrada_id: finLazy.entradaId,
+              numero_orden: finLazy.numeroOrden,
+              validation_id:
+                (hydLazyRec[SORTEO_COMPROBANTE_VALIDACION_ID_FIELD] ?? "").trim() || null,
+              trigger: "lazy_finalize",
+            },
+          });
+          await supabase.from("chat_flow_data").upsert(
+            {
+              empresa_id: state.empresa_id,
+              conversation_id: state.id,
+              flow_code: state.flow_code as string,
+              flow_session_id: flowSidInteractive,
+              field_name: FLOW_SORTEO_PENDIENTE_DATOS_PARTICIPANTE_FIELD,
+              field_value: "no",
+            },
+            { onConflict: "flow_session_id,field_name" }
+          );
+        }
+        sorteoTicketPackage = { fin: finLazy, flowData: hydFdLazy as Record<string, string> };
+        console.info("[sorteo-close][final-message-render]", {
+          schema: schemaClose,
+          conversation_id: state.id,
+          flow_session_id: flowSidInteractive,
+          merge_keys: Object.keys(sorteoOrderMerge ?? {}).slice(0, 12),
+        });
+      }
+    }
+
     if (!selected.next_node_code) {
       await insertFlowEvent({
         empresaId: state.empresa_id,

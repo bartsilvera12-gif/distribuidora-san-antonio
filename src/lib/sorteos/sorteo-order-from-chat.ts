@@ -348,11 +348,17 @@ export function explainParseSorteoParticipantFailure(data: Record<string, string
     return `cantidad: clave "${foundKey}"="${rawVal}" no es número entero >= 1`;
   }
   const nombreCompleto =
-    [norm(data["nombre"]), norm(data["apellido"])].filter(Boolean).join(" ").trim() ||
+    [
+      norm(data["nombre"]) || norm(data["primer_nombre"]) || norm(data["primer nombre"]),
+      norm(data["apellido"]) || norm(data["primer_apellido"]) || norm(data["primer apellido"]),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim() ||
     norm(data["nombre_y_apellido"]) ||
     norm(data["nombre_completo"]);
   if (!nombreCompleto) {
-    return "nombre: falta (nombre y apellido) | nombre_y_apellido | nombre_completo";
+    return "nombre: falta (nombre/apellido o primer_nombre/primer_apellido) | nombre_y_apellido | nombre_completo";
   }
   return "desconocido";
 }
@@ -522,10 +528,15 @@ export function parseSorteoParticipantFromFlowData(data: Record<string, string>)
   }
   if (!Number.isFinite(qty) || qty < 1) return null;
 
-  const fromNombreApellido = [norm(data["nombre"]), norm(data["apellido"])]
-    .filter(Boolean)
-    .join(" ")
-    .trim();
+  const nombrePart =
+    norm(data["nombre"]) ||
+    norm(data["primer_nombre"]) ||
+    norm(data["primer nombre"]);
+  const apellidoPart =
+    norm(data["apellido"]) ||
+    norm(data["primer_apellido"]) ||
+    norm(data["primer apellido"]);
+  const fromNombreApellido = [nombrePart, apellidoPart].filter(Boolean).join(" ").trim();
   const nombreCompleto =
     fromNombreApellido ||
     norm(data["nombre_y_apellido"]) ||
@@ -770,6 +781,35 @@ export function resolveComprobanteUrlFromFlowData(data: Record<string, string>):
 }
 
 /**
+ * Completa URL/media del comprobante desde `chat_comprobante_validaciones` cuando hay `sorteo_comprobante_validacion_id`
+ * pero faltan columnas en `chat_flow_data` (p. ej. tras saltos de nodo o sesión).
+ */
+export async function mergeComprobanteFromValidationRowIntoFlowData(
+  supabase: AppSupabaseClient,
+  empresaId: string,
+  flowData: Record<string, string>
+): Promise<Record<string, string>> {
+  let url = resolveComprobanteUrlFromFlowData(flowData);
+  let mediaId = norm(flowData[SORTEO_COMPROBANTE_MEDIA_ID_FIELD]);
+  if (url && mediaId) return flowData;
+  const vid = norm(flowData[SORTEO_COMPROBANTE_VALIDACION_ID_FIELD]);
+  if (!vid || !/^[0-9a-f-]{36}$/i.test(vid)) return flowData;
+  const { data: row, error } = await supabase
+    .from("chat_comprobante_validaciones")
+    .select("comprobante_url, comprobante_media_id")
+    .eq("id", vid)
+    .eq("empresa_id", empresaId)
+    .maybeSingle();
+  if (error || !row) return flowData;
+  const out: Record<string, string> = { ...flowData };
+  const ru = norm((row as { comprobante_url?: string | null }).comprobante_url ?? "");
+  const rm = norm((row as { comprobante_media_id?: string | null }).comprobante_media_id ?? "");
+  if (!url && ru) out[SORTEO_COMPROBANTE_URL_FIELD] = ru;
+  if (!mediaId && rm) out[SORTEO_COMPROBANTE_MEDIA_ID_FIELD] = rm;
+  return out;
+}
+
+/**
  * Cierra compra sorteo + cupones (RPC idempotente) cuando el cliente ya confirmó y existen datos + comprobante en sesión.
  */
 export async function finalizeSorteoOrderFromConfirmedFlowData(
@@ -783,13 +823,18 @@ export async function finalizeSorteoOrderFromConfirmedFlowData(
     flowData: Record<string, string>;
   }
 ): Promise<EnsureSorteoOrderFromChatResult> {
-  const url = resolveComprobanteUrlFromFlowData(input.flowData);
-  const mediaId = norm(input.flowData[SORTEO_COMPROBANTE_MEDIA_ID_FIELD]);
+  const mergedIn = await mergeComprobanteFromValidationRowIntoFlowData(
+    supabase,
+    input.empresaId,
+    input.flowData
+  );
+  const url = resolveComprobanteUrlFromFlowData(mergedIn);
+  const mediaId = norm(mergedIn[SORTEO_COMPROBANTE_MEDIA_ID_FIELD]);
   if (!url || !mediaId) {
     return { ok: true, skipped: true, reason: "sin_comprobante_en_sesion" };
   }
-  const estVal = norm(input.flowData[SORTEO_COMPROBANTE_ESTADO_VALIDACION_FIELD]);
-  const motVal = norm(input.flowData[SORTEO_COMPROBANTE_MOTIVO_VALIDACION_FIELD]);
+  const estVal = norm(mergedIn[SORTEO_COMPROBANTE_ESTADO_VALIDACION_FIELD]);
+  const motVal = norm(mergedIn[SORTEO_COMPROBANTE_MOTIVO_VALIDACION_FIELD]);
   const estadoPermiteCierre =
     !estVal || estVal === "valido" || estVal === "aprobado_manual";
   if (estVal && !estadoPermiteCierre) {
@@ -816,7 +861,7 @@ export async function finalizeSorteoOrderFromConfirmedFlowData(
     mediaId,
     whatsappNumero: input.whatsappNumero,
     comprobanteUrl: url,
-    flowData: input.flowData,
+    flowData: mergedIn,
   });
 }
 
