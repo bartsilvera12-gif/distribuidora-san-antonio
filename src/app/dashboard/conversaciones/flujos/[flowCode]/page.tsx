@@ -8,6 +8,7 @@ import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session"
 import { getSorteos } from "@/lib/sorteos/actions";
 import { parseMoneyPy } from "@/lib/sorteos/parse-money-py";
 import { optionPayloadFinalizesSorteoOrder } from "@/lib/sorteos/sorteo-option-payload";
+import { computeFlowGraphWarnings } from "@/lib/chat/flow-graph-warnings";
 
 type FlowNodeOption = {
   id: string;
@@ -75,6 +76,9 @@ const NODE_TYPE_OPTIONS = [
   { value: "human", label: "Derivar a humano", help: "Pasa la conversación a atención humana." },
   { value: "end", label: "Finalizar", help: "Cierra la automatización del flujo." },
 ] as const;
+
+/** Insertar en medio del grafo: sin tipo media (requiere bloques; crear desde el formulario general). */
+const INSERT_NODE_TYPE_OPTIONS = NODE_TYPE_OPTIONS.filter((o) => o.value !== "media");
 
 const MAX_WHATSAPP_IMAGE_CAPTION = 1024;
 const CONTEXT_VAR_KEYS = [
@@ -305,6 +309,31 @@ export default function FlowEditorPage() {
   /** Evita pantalla completa «Cargando nodos…» en acciones rápidas (p. ej. crear bloque imagen). */
   const [creatingBlockKey, setCreatingBlockKey] = useState<string | null>(null);
 
+  const [insertModal, setInsertModal] = useState<
+    | null
+    | {
+        sourceType: "node" | "option";
+        sourceNodeCode: string;
+        sourceOptionId?: string;
+        optionLabel?: string;
+      }
+  >(null);
+  const [insertDraft, setInsertDraft] = useState({
+    node_code: "",
+    node_type: "text",
+    message_text: "",
+    save_as_field: "",
+  });
+  const [insertBusy, setInsertBusy] = useState(false);
+
+  const [changeNextModal, setChangeNextModal] = useState<
+    | null
+    | { kind: "node"; nodeId: string }
+    | { kind: "option"; nodeId: string; optionId: string }
+  >(null);
+  const [changeNextValue, setChangeNextValue] = useState("");
+  const [changeNextBusy, setChangeNextBusy] = useState(false);
+
   const orderedNodes = useMemo(() => [...nodes].sort(compareFlowNodes), [nodes]);
 
   const nodeByCode = useMemo(
@@ -313,6 +342,24 @@ export default function FlowEditorPage() {
   );
 
   const nodeCodes = useMemo(() => orderedNodes.map((n) => n.node_code), [orderedNodes]);
+
+  const graphWarnings = useMemo(
+    () =>
+      computeFlowGraphWarnings(
+        orderedNodes.map((n) => ({
+          node_code: n.node_code,
+          node_type: n.node_type,
+          next_node_code: n.next_node_code,
+          options: n.options.map((o) => ({
+            id: o.id,
+            label: o.label,
+            next_node_code: o.next_node_code,
+          })),
+        }))
+      ),
+    [orderedNodes]
+  );
+
   const incomingConnections = useMemo(() => {
     const map = new Map<string, string[]>();
     for (const n of orderedNodes) {
@@ -958,6 +1005,104 @@ export default function FlowEditorPage() {
     }
   }
 
+  async function submitInsertBetween() {
+    if (!insertModal) return;
+    const trimmedCode = insertDraft.node_code.trim();
+    if (!trimmedCode) {
+      setError("Escribí el código interno del nuevo paso.");
+      return;
+    }
+    if (!/^[a-zA-Z0-9_-]+$/.test(trimmedCode)) {
+      setError("El código solo puede tener letras, números, guion y guion bajo.");
+      return;
+    }
+    setInsertBusy(true);
+    setError(null);
+    try {
+      const res = await fetchWithSupabaseSession(
+        `/api/chat/flows/${encodeURIComponent(flowCode)}/nodes/insert-between`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({
+            sourceType: insertModal.sourceType,
+            sourceNodeCode: insertModal.sourceNodeCode,
+            sourceOptionId: insertModal.sourceOptionId,
+            newNode: {
+              node_code: trimmedCode,
+              node_type: insertDraft.node_type,
+              message_text: insertDraft.message_text.trim() || null,
+              save_as_field: insertDraft.save_as_field.trim() || null,
+            },
+          }),
+        }
+      );
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) throw new Error(json.error ?? "No se pudo insertar el paso");
+      setInsertModal(null);
+      setInsertDraft({ node_code: "", node_type: "text", message_text: "", save_as_field: "" });
+      await reload({ soft: true });
+      setSuccess(`Paso «${prettifyCode(trimmedCode)}» insertado y enlazado en el grafo.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al insertar paso");
+    } finally {
+      setInsertBusy(false);
+    }
+  }
+
+  async function patchNodeNextCodeOnly(node: FlowNode, nextCode: string | null) {
+    const res = await fetchWithSupabaseSession(
+      `/api/chat/flows/${encodeURIComponent(flowCode)}/nodes/${encodeURIComponent(node.node_code)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ next_node_code: nextCode }),
+      }
+    );
+    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    if (!res.ok || !json.ok) throw new Error(json.error ?? "No se pudo actualizar el siguiente paso");
+  }
+
+  async function applyChangeNextModal() {
+    if (!changeNextModal) return;
+    const nextTrim = changeNextValue.trim();
+    const nextCode = nextTrim.length === 0 ? null : nextTrim;
+    setChangeNextBusy(true);
+    setError(null);
+    try {
+      if (changeNextModal.kind === "node") {
+        const node = nodes.find((n) => n.id === changeNextModal.nodeId);
+        if (!node) throw new Error("Paso no encontrado");
+        await patchNodeNextCodeOnly(node, nextCode);
+      } else {
+        const node = nodes.find((n) => n.id === changeNextModal.nodeId);
+        const opt = node?.options.find((o) => o.id === changeNextModal.optionId);
+        if (!node || !opt) throw new Error("Opción no encontrada");
+        if ((node.node_type === "buttons" || node.node_type === "list") && !nextCode) {
+          throw new Error("Elegí un destino para esta opción.");
+        }
+        const patchedOpt: FlowNodeOption = { ...opt, next_node_code: nextCode };
+        const liveNode: FlowNode = {
+          ...node,
+          options: node.options.map((o) => (o.id === opt.id ? patchedOpt : o)),
+        };
+        await persistOptionCore(liveNode, patchedOpt, {
+          toastSuccess: false,
+          reason: "change_next_modal",
+        });
+      }
+      setChangeNextModal(null);
+      await reload({ soft: true });
+      setSuccess("Destino actualizado.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al cambiar destino");
+    } finally {
+      setChangeNextBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap justify-between gap-3 items-start">
@@ -982,6 +1127,25 @@ export default function FlowEditorPage() {
         </div>
       )}
       {success && <div className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2">{success}</div>}
+
+      <div className="text-sm text-sky-900 bg-sky-50 border border-sky-200 rounded-lg px-4 py-3 space-y-1">
+        <p className="font-medium">Edición del grafo del flujo</p>
+        <p className="text-sky-800/90">
+          Este flujo puede tener conversaciones activas. Insertar pasos o cambiar destinos puede afectar las próximas
+          respuestas del bot en conversaciones que pasen por ese punto.
+        </p>
+      </div>
+
+      {graphWarnings.length > 0 && (
+        <div className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 space-y-2">
+          <div className="font-medium">Advertencias del grafo (no bloquean guardado)</div>
+          <ul className="list-disc pl-5 space-y-1">
+            {graphWarnings.map((w, i) => (
+              <li key={`${w.code}-${i}`}>{w.message}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <form onSubmit={createNode} className="bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap gap-3 items-end shadow-sm">
         <div className="flex-1 min-w-[180px]">
@@ -1054,11 +1218,41 @@ export default function FlowEditorPage() {
                   )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex flex-wrap items-center gap-2 shrink-0 justify-end">
                   <label className="text-sm text-slate-700 flex items-center gap-2">
                     <input type="checkbox" checked={node.is_active} onChange={(e) => setNodes((prev) => prev.map((n) => n.id === node.id ? { ...n, is_active: e.target.checked } : n))} />
                     Activo
                   </label>
+                  {node.node_type !== "buttons" && node.node_type !== "list" && (
+                    <button
+                      type="button"
+                      className="text-xs px-2 py-1 rounded-md border border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100"
+                      title="Inserta un paso después del actual y antes de su siguiente destino"
+                      onClick={() => {
+                        setInsertDraft({ node_code: "", node_type: "text", message_text: "", save_as_field: "" });
+                        setInsertModal({ sourceType: "node", sourceNodeCode: node.node_code });
+                      }}
+                    >
+                      Insertar después
+                    </button>
+                  )}
+                  {node.node_type !== "buttons" && node.node_type !== "list" && (
+                    <button
+                      type="button"
+                      className="text-xs px-2 py-1 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                      onClick={() => {
+                        setChangeNextValue(node.next_node_code ?? "");
+                        setChangeNextModal({ kind: "node", nodeId: node.id });
+                      }}
+                    >
+                      Cambiar siguiente
+                    </button>
+                  )}
+                  {(node.node_type === "buttons" || node.node_type === "list") && (
+                    <span className="text-[11px] text-slate-500 max-w-[11rem] leading-tight" title="Para pasos con botones o lista, insertá desde cada fila de opción.">
+                      Insertá desde cada opción ↓
+                    </span>
+                  )}
                   <button
                     type="button"
                     onClick={() => setExpandedNodeId((prev) => (prev === node.id ? null : node.id))}
@@ -1826,6 +2020,33 @@ export default function FlowEditorPage() {
                           Eliminar
                         </button>
                       </div>
+                      <div className="md:col-span-4 flex flex-wrap gap-2 pt-1">
+                        <button
+                          type="button"
+                          className="text-xs px-2 py-1 rounded-md border border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100"
+                          onClick={() => {
+                            setInsertDraft({ node_code: "", node_type: "text", message_text: "", save_as_field: "" });
+                            setInsertModal({
+                              sourceType: "option",
+                              sourceNodeCode: node.node_code,
+                              sourceOptionId: opt.id,
+                              optionLabel: opt.label,
+                            });
+                          }}
+                        >
+                          Insertar después de esta opción
+                        </button>
+                        <button
+                          type="button"
+                          className="text-xs px-2 py-1 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                          onClick={() => {
+                            setChangeNextValue(opt.next_node_code ?? "");
+                            setChangeNextModal({ kind: "option", nodeId: node.id, optionId: opt.id });
+                          }}
+                        >
+                          Cambiar destino
+                        </button>
+                      </div>
                       <div className="md:col-span-4">
                         <div className="flex items-center justify-between mb-1">
                           <label className="block text-xs text-slate-500">Datos de la opción seleccionada</label>
@@ -2032,6 +2253,125 @@ export default function FlowEditorPage() {
             </div>
           );
           })}
+        </div>
+      )}
+
+      {insertModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" role="dialog" aria-modal="true">
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 space-y-4 border border-slate-200">
+            <h2 className="text-lg font-semibold text-slate-800">Insertar paso en el grafo</h2>
+            <p className="text-sm text-slate-600">
+              Se creará un nuevo paso <strong>entre</strong>{" "}
+              {insertModal.sourceType === "option" ? (
+                <>
+                  la opción «{insertModal.optionLabel ?? "…"}» ({insertModal.sourceNodeCode}) y su destino anterior
+                </>
+              ) : (
+                <>«{insertModal.sourceNodeCode}» y su siguiente paso anterior</>
+              )}
+              . La ejecución usa <code className="text-xs bg-slate-100 px-1 rounded">next_node_code</code>, no el orden
+              visual.
+            </p>
+            <div className="space-y-2">
+              <label className="block text-xs text-slate-500">Código interno del nuevo paso</label>
+              <input
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono"
+                value={insertDraft.node_code}
+                onChange={(e) => setInsertDraft((d) => ({ ...d, node_code: e.target.value }))}
+                placeholder="ej: confirmacion_extra"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="block text-xs text-slate-500">Tipo</label>
+              <select
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                value={insertDraft.node_type}
+                onChange={(e) => setInsertDraft((d) => ({ ...d, node_type: e.target.value }))}
+              >
+                {INSERT_NODE_TYPE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="block text-xs text-slate-500">Mensaje al cliente (opcional)</label>
+              <textarea
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm min-h-[72px]"
+                value={insertDraft.message_text}
+                onChange={(e) => setInsertDraft((d) => ({ ...d, message_text: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="block text-xs text-slate-500">Guardar respuesta como (opcional)</label>
+              <input
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                value={insertDraft.save_as_field}
+                onChange={(e) => setInsertDraft((d) => ({ ...d, save_as_field: e.target.value }))}
+                placeholder="ej: telefono_contacto"
+              />
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
+              <button
+                type="button"
+                className="px-4 py-2 text-sm rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50"
+                disabled={insertBusy}
+                onClick={() => setInsertModal(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="px-4 py-2 text-sm rounded-lg bg-[#0EA5E9] text-white hover:bg-[#0284C7] disabled:opacity-50"
+                disabled={insertBusy}
+                onClick={() => void submitInsertBetween()}
+              >
+                {insertBusy ? "Insertando…" : "Insertar y enlazar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {changeNextModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" role="dialog" aria-modal="true">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4 border border-slate-200">
+            <h2 className="text-lg font-semibold text-slate-800">
+              {changeNextModal.kind === "node" ? "Cambiar siguiente paso" : "Cambiar destino de la opción"}
+            </h2>
+            <p className="text-sm text-slate-600">Elige el paso destino (por código). Vacío = sin siguiente.</p>
+            <select
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+              value={changeNextValue}
+              onChange={(e) => setChangeNextValue(e.target.value)}
+            >
+              <option value="">(sin siguiente)</option>
+              {nodeCodes.map((code) => (
+                <option key={code} value={code}>
+                  {nextStepLabel(code)}
+                </option>
+              ))}
+            </select>
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
+              <button
+                type="button"
+                className="px-4 py-2 text-sm rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50"
+                disabled={changeNextBusy}
+                onClick={() => setChangeNextModal(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="px-4 py-2 text-sm rounded-lg bg-[#0EA5E9] text-white hover:bg-[#0284C7] disabled:opacity-50"
+                disabled={changeNextBusy}
+                onClick={() => void applyChangeNextModal()}
+              >
+                {changeNextBusy ? "Guardando…" : "Guardar"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
