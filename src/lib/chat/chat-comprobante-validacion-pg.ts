@@ -25,6 +25,8 @@ function mapRowToComprobanteListRow(row: Record<string, unknown>): ComprobanteVa
     estado_validacion: String(row.estado_validacion ?? ""),
     motivo_validacion: row.motivo_validacion != null ? String(row.motivo_validacion) : null,
     comprobante_url: row.comprobante_url != null ? String(row.comprobante_url) : null,
+    sorteo_entrada_id: row.sorteo_entrada_id != null ? String(row.sorteo_entrada_id) : null,
+    manual_approval_at: row.manual_approval_at != null ? isoPg(row.manual_approval_at) : null,
     flow_code: String(row.flow_code ?? ""),
     created_at: isoPg(row.created_at),
     ocr_referencia: row.ocr_referencia != null ? String(row.ocr_referencia) : null,
@@ -53,6 +55,7 @@ function isPgUndefinedColumn(err: unknown): boolean {
 
 const COLS_FULL = `
   id, estado_validacion, motivo_validacion, comprobante_url, flow_code, created_at,
+  sorteo_entrada_id, manual_approval_at,
   ocr_referencia, ocr_monto,
   monto_validacion_esperado_gs, monto_validacion_ocr_gs, monto_validacion_diferencia_gs, monto_validacion_status,
   bank_val_titular_esperado, bank_val_cuenta_esperada, bank_val_alias_esperado,
@@ -63,6 +66,7 @@ const COLS_FULL = `
 /** Sin columnas datos bancarios (tenants sin migración 20260403100000). */
 const COLS_MONTO_ONLY = `
   id, estado_validacion, motivo_validacion, comprobante_url, flow_code, created_at,
+  sorteo_entrada_id,
   ocr_referencia, ocr_monto,
   monto_validacion_esperado_gs, monto_validacion_ocr_gs, monto_validacion_diferencia_gs, monto_validacion_status
 `;
@@ -70,6 +74,7 @@ const COLS_MONTO_ONLY = `
 /** Mínimo para UI básica (tenants muy viejos). */
 const COLS_MIN = `
   id, estado_validacion, motivo_validacion, comprobante_url, flow_code, created_at,
+  sorteo_entrada_id,
   ocr_referencia, ocr_monto
 `;
 

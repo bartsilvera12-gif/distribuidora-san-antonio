@@ -343,6 +343,8 @@ export function ConversacionesClient({
   const [compVals, setCompVals] = useState<ComprobanteValidacionListRow[]>([]);
   const [compLoading, setCompLoading] = useState(false);
   const [compActionId, setCompActionId] = useState<string | null>(null);
+  const [compApproveConfirmId, setCompApproveConfirmId] = useState<string | null>(null);
+  const [compApprovalInfo, setCompApprovalInfo] = useState<string | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [opsQueues, setOpsQueues] = useState<ChatQueueListRow[]>([]);
   const [opsAgentLoads, setOpsAgentLoads] = useState<SupervisorAgentLoadRow[]>([]);
@@ -1340,6 +1342,7 @@ export function ConversacionesClient({
 
   useEffect(() => {
     setCompValidacionesOpen(false);
+    setCompApprovalInfo(null);
   }, [selectedId]);
 
   useEffect(() => {
@@ -1368,6 +1371,75 @@ export function ConversacionesClient({
             onClick={(ev) => ev.stopPropagation()}
           />
         </button>
+      ) : null}
+
+      {compApproveConfirmId ? (
+        <div
+          className="fixed inset-0 z-[105] flex items-center justify-center bg-black/40 p-4"
+          role="presentation"
+          onClick={() => setCompApproveConfirmId(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-xl p-5"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            <p className="text-sm text-slate-800 font-medium">Confirmar aprobación</p>
+            <p className="mt-2 text-xs text-slate-600 leading-relaxed">
+              ¿Confirmás aprobar este comprobante y cerrar la compra? Esto generará cupones y enviará el resumen al
+              cliente por WhatsApp (y el ticket PNG si el sorteo lo tiene configurado).
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                onClick={() => setCompApproveConfirmId(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={Boolean(compActionId)}
+                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                onClick={() => {
+                  const vid = compApproveConfirmId;
+                  const convId = selectedId;
+                  if (!vid || !convId) return;
+                  setCompApproveConfirmId(null);
+                  void (async () => {
+                    setCompActionId(vid);
+                    setSendError(null);
+                    setCompApprovalInfo(null);
+                    try {
+                      const res = await approveComprobanteValidacion(vid);
+                      if (!res.ok) {
+                        setSendError(res.message);
+                      } else {
+                        const parts = [
+                          res.reused ? "Orden ya existente (reutilizada)." : "Compra cerrada.",
+                          `Orden Nº ${res.numeroOrden}.`,
+                          `${res.cuponesCount} cupón(es).`,
+                        ];
+                        if (res.whatsappWarning) parts.push(`WhatsApp: ${res.whatsappWarning}`);
+                        if (res.ticketWarning) parts.push(`Ticket: ${res.ticketWarning}`);
+                        setCompApprovalInfo(parts.join(" "));
+                      }
+                      const rows = await fetchComprobanteValidacionesForConversation(convId);
+                      setCompVals(rows);
+                    } catch (e) {
+                      setSendError(e instanceof Error ? e.message : "No se pudo aprobar el comprobante");
+                    } finally {
+                      setCompActionId(null);
+                    }
+                  })();
+                }}
+              >
+                Aprobar y cerrar
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {finalizeOpen ? (
@@ -2187,6 +2259,11 @@ export function ConversacionesClient({
                   </button>
                   {compValidacionesOpen ? (
                     <div className="px-2 pb-2 max-h-48 overflow-y-auto overscroll-contain border-t border-amber-100/80">
+                      {compApprovalInfo ? (
+                        <p className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-100 rounded px-1.5 py-1 mb-1">
+                          {compApprovalInfo}
+                        </p>
+                      ) : null}
                       {compLoading ? (
                         <p className="text-xs text-slate-500 pt-1">Cargando…</p>
                       ) : compVals.length === 0 ? (
@@ -2237,25 +2314,22 @@ export function ConversacionesClient({
                                   Ver archivo
                                 </a>
                               ) : null}
-                              {v.estado_validacion !== "valido" ? (
+                              {v.estado_validacion === "aprobado_manual" ? (
+                                <span className="text-emerald-700 font-medium">
+                                  Aprobado manualmente · Compra cerrada
+                                  {v.sorteo_entrada_id ? " ✓" : ""}
+                                </span>
+                              ) : null}
+                              {v.sorteo_entrada_id && v.estado_validacion !== "aprobado_manual" ? (
+                                <span className="text-sky-700 font-medium">Compra cerrada (entrada existente)</span>
+                              ) : null}
+                              {!v.sorteo_entrada_id && v.estado_validacion !== "aprobado_manual" ? (
                                 <button
                                   type="button"
                                   disabled={compActionId === v.id}
-                                  onClick={async () => {
-                                    const convId = selectedId;
-                                    if (!convId) return;
-                                    setCompActionId(v.id);
-                                    try {
-                                      await approveComprobanteValidacion(v.id);
-                                      const rows = await fetchComprobanteValidacionesForConversation(convId);
-                                      setCompVals(rows);
-                                    } catch (e) {
-                                      setSendError(
-                                        e instanceof Error ? e.message : "No se pudo aprobar el comprobante"
-                                      );
-                                    } finally {
-                                      setCompActionId(null);
-                                    }
+                                  onClick={() => {
+                                    setCompApproveConfirmId(v.id);
+                                    setCompApprovalInfo(null);
                                   }}
                                   className="text-emerald-700 font-medium hover:underline disabled:opacity-50"
                                 >

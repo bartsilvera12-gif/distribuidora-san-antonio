@@ -12,7 +12,9 @@ export type ComprobanteEstadoValidacion =
   | "revision_manual"
   | "ocr_error"
   | "monto_incoherente"
-  | "datos_bancarios_incoherentes";
+  | "datos_bancarios_incoherentes"
+  | "aprobado_manual"
+  | "rechazado_manual";
 
 export interface OcrFieldRule {
   analyzed: boolean;
@@ -102,6 +104,9 @@ export type ComprobanteValidacionListRow = {
   estado_validacion: string;
   motivo_validacion: string | null;
   comprobante_url: string | null;
+  /** Si ya se generó entrada de sorteo (compra cerrada). */
+  sorteo_entrada_id?: string | null;
+  manual_approval_at?: string | null;
   flow_code: string;
   created_at: string;
   ocr_referencia: string | null;

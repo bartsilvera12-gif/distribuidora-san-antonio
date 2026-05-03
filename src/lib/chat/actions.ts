@@ -13,12 +13,11 @@ import {
 import {
   loadActiveFlowSessionsByConversationForInboxList,
 } from "@/lib/chat/inbox-list-flow-sessions";
+import { parseComprobanteValidationConfig, type ComprobanteValidacionListRow } from "@/lib/chat/comprobante-validation-types";
 import {
-  SORTEO_COMPROBANTE_ESTADO_VALIDACION_FIELD,
-  SORTEO_COMPROBANTE_MOTIVO_VALIDACION_FIELD,
-  parseComprobanteValidationConfig,
-  type ComprobanteValidacionListRow,
-} from "@/lib/chat/comprobante-validation-types";
+  approveComprobanteAndCloseSorteoPurchase,
+  type ManualSorteoApprovalResult,
+} from "@/lib/chat/sorteo-manual-approval-service";
 import { requireEmpresaTenantServiceRole } from "@/lib/chat/empresa-tenant-service-role";
 import { isMissingColumnError } from "@/lib/chat/postgres-column-error";
 import { logChatListClassificationInvariant } from "@/lib/chat/chat-list-classification-invariant";
@@ -59,7 +58,6 @@ import { isInvalidPostgrestSchemaError } from "@/lib/chat/postgrest-schema-error
 import { normalizeChannelType } from "@/lib/chat/channel-type-utils";
 import { fetchChatConversationsFromTenantPg } from "@/lib/chat/chat-inbox-fetch-pg";
 import {
-  pgApproveComprobanteValidacion,
   pgConversationBelongsToEmpresa,
   pgFetchComprobanteValidacionesForConversation,
 } from "@/lib/chat/chat-comprobante-validacion-pg";
@@ -2085,6 +2083,7 @@ export async function patchChatChannelActivo(channelId: string, activo: boolean)
 }
 
 export type { ComprobanteValidacionListRow } from "@/lib/chat/comprobante-validation-types";
+export type { ManualSorteoApprovalResult } from "@/lib/chat/sorteo-manual-approval-service";
 
 export async function fetchComprobanteValidacionesForConversation(
   conversationId: string
@@ -2112,7 +2111,7 @@ export async function fetchComprobanteValidacionesForConversation(
   const { data, error } = await supabase
     .from("chat_comprobante_validaciones")
     .select(
-      "id, estado_validacion, motivo_validacion, comprobante_url, flow_code, created_at, ocr_referencia, ocr_monto, monto_validacion_esperado_gs, monto_validacion_ocr_gs, monto_validacion_diferencia_gs, monto_validacion_status, bank_val_titular_esperado, bank_val_cuenta_esperada, bank_val_alias_esperado, bank_val_titular_ocr, bank_val_cuenta_ocr, bank_val_alias_ocr, bank_val_coincidencias, bank_val_min_requeridas, bank_val_status"
+      "id, estado_validacion, motivo_validacion, comprobante_url, sorteo_entrada_id, flow_code, created_at, ocr_referencia, ocr_monto, monto_validacion_esperado_gs, monto_validacion_ocr_gs, monto_validacion_diferencia_gs, monto_validacion_status, bank_val_titular_esperado, bank_val_cuenta_esperada, bank_val_alias_esperado, bank_val_titular_ocr, bank_val_cuenta_ocr, bank_val_alias_ocr, bank_val_coincidencias, bank_val_min_requeridas, bank_val_status"
     )
     .eq("conversation_id", cid)
     .eq("empresa_id", empresa_id)
@@ -2122,70 +2121,21 @@ export async function fetchComprobanteValidacionesForConversation(
   return (data ?? []) as ComprobanteValidacionListRow[];
 }
 
-export async function approveComprobanteValidacion(validacionId: string): Promise<void> {
-  const { supabase, empresa_id, dataSchema } = await requireEmpresaTenantServiceRole();
+export async function approveComprobanteValidacion(
+  validacionId: string,
+  approvalNote?: string | null
+): Promise<ManualSorteoApprovalResult> {
+  const { supabase, empresa_id, usuario_id } = await requireEmpresaTenantServiceRole();
   const id = validacionId.trim();
-  if (!id) throw new Error("ID de validación inválido");
+  if (!id) return { ok: false, code: "invalid", message: "ID de validación inválido" };
 
-  const pool = getChatPostgresPool();
-  if (pool && isLikelyUnexposedTenantChatSchema(dataSchema)) {
-    await pgApproveComprobanteValidacion(pool, dataSchema, empresa_id, id);
-    return;
-  }
-
-  const { data: row, error: qErr } = await supabase
-    .from("chat_comprobante_validaciones")
-    .select("id, conversation_id, flow_code, flow_session_id")
-    .eq("id", id)
-    .eq("empresa_id", empresa_id)
-    .maybeSingle();
-
-  if (qErr) throw new Error(qErr.message);
-  if (!row) throw new Error("Validación no encontrada");
-
-  const r = row as {
-    id: string;
-    conversation_id: string;
-    flow_code: string;
-    flow_session_id: string;
-  };
-
-  const now = new Date().toISOString();
-  const { error: uErr } = await supabase
-    .from("chat_comprobante_validaciones")
-    .update({
-      estado_validacion: "valido",
-      motivo_validacion: "aprobado_manual_erp",
-      updated_at: now,
-    })
-    .eq("id", id)
-    .eq("empresa_id", empresa_id);
-
-  if (uErr) throw new Error(uErr.message);
-
-  const upserts = [
-    {
-      empresa_id,
-      conversation_id: r.conversation_id,
-      flow_code: r.flow_code.trim(),
-      flow_session_id: r.flow_session_id,
-      field_name: SORTEO_COMPROBANTE_ESTADO_VALIDACION_FIELD,
-      field_value: "valido",
-    },
-    {
-      empresa_id,
-      conversation_id: r.conversation_id,
-      flow_code: r.flow_code.trim(),
-      flow_session_id: r.flow_session_id,
-      field_name: SORTEO_COMPROBANTE_MOTIVO_VALIDACION_FIELD,
-      field_value: "aprobado_manual_erp",
-    },
-  ];
-
-  const { error: dErr } = await supabase.from("chat_flow_data").upsert(upserts, {
-    onConflict: "flow_session_id,field_name",
+  return approveComprobanteAndCloseSorteoPurchase({
+    supabase,
+    empresaId: empresa_id,
+    usuarioId: usuario_id,
+    validacionId: id,
+    approvalNote,
   });
-  if (dErr) throw new Error(dErr.message);
 }
 
 export async function deleteChatChannel(id: string): Promise<void> {

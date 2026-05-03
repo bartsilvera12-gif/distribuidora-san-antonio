@@ -3284,6 +3284,27 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     return { ok: true, status: "advanced", nextNodeCode: currentNode.next_node_code };
   }
 
+  async function loadHydratedFlowSessionData(params: {
+    empresaId: string;
+    conversationId: string;
+    flowCode: string;
+    flowSessionId: string;
+  }): Promise<Record<string, string>> {
+    const raw = await getConversationFlowDataMap({
+      empresaId: params.empresaId,
+      conversationId: params.conversationId,
+      flowCode: params.flowCode,
+      flowSessionId: params.flowSessionId,
+      traceReadContext: "manual_sorteo_approval",
+    });
+    return hydrateFlowDataFromSessionEvents(
+      params.conversationId,
+      params.flowCode,
+      raw,
+      params.flowSessionId
+    );
+  }
+
   return {
     getConversationFlowState,
     processInteractiveReply,
@@ -3292,6 +3313,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     advanceConversationToNode,
     sendCurrentFlowNode,
     ensureCurrentNodePresentedAfterInbound,
+    loadHydratedFlowSessionData,
   };
 }
 
@@ -3342,4 +3364,16 @@ export async function ensureCurrentNodePresentedAfterInbound(
   params: EnsureInboundPresentParams
 ): Promise<EnsureInboundPresentResult> {
   return createFlowEngine({ supabase }).ensureCurrentNodePresentedAfterInbound(params);
+}
+
+export async function loadHydratedFlowSessionData(
+  supabase: SupabaseAdmin,
+  params: {
+    empresaId: string;
+    conversationId: string;
+    flowCode: string;
+    flowSessionId: string;
+  }
+): Promise<Record<string, string>> {
+  return createFlowEngine({ supabase }).loadHydratedFlowSessionData(params);
 }

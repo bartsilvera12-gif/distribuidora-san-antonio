@@ -790,7 +790,9 @@ export async function finalizeSorteoOrderFromConfirmedFlowData(
   }
   const estVal = norm(input.flowData[SORTEO_COMPROBANTE_ESTADO_VALIDACION_FIELD]);
   const motVal = norm(input.flowData[SORTEO_COMPROBANTE_MOTIVO_VALIDACION_FIELD]);
-  if (estVal && estVal !== "valido") {
+  const estadoPermiteCierre =
+    !estVal || estVal === "valido" || estVal === "aprobado_manual";
+  if (estVal && !estadoPermiteCierre) {
     return {
       ok: true,
       skipped: true,
