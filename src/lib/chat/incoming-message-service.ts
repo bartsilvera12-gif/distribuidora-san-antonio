@@ -433,6 +433,9 @@ export async function saveIncomingMessage(params: SaveIncomingMessageParams): Pr
         empresaId,
         channelId: channel.id,
         contactId,
+        inboundAtIso: ts,
+        preview,
+        waMessageId: ext,
       });
     } catch (e) {
       console.warn("[saveIncomingMessage] markCampaignReplyFromInbound", e);

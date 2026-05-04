@@ -40,6 +40,7 @@ import type {
 } from "@/lib/chat/types";
 import { normalizeWaPhone } from "@/lib/chat/wa-phone";
 import { applySorteoReferralToActiveSession } from "@/lib/sorteos/referral-attribution";
+import { markCampaignReplyFromInbound } from "@/lib/campaigns/campaign-inbound-hook";
 import {
   createServiceRoleClientWithDbSchema,
   fetchDataSchemaForEmpresaId,
@@ -1072,6 +1073,20 @@ export async function processInboundWebhookValue(
       if (!inboundRowId) {
         errors.push("Mensaje entrante sin id de fila");
         continue;
+      }
+
+      try {
+        await markCampaignReplyFromInbound({
+          supabase,
+          empresaId,
+          channelId,
+          contactId,
+          inboundAtIso: ts,
+          preview,
+          waMessageId: waMid,
+        });
+      } catch (e) {
+        console.warn("[campaign-reply][webhook]", e instanceof Error ? e.message : String(e));
       }
 
       {
