@@ -130,17 +130,26 @@ function mergeSavedFlowOption(prev: FlowNodeOption, incoming: Partial<FlowNodeOp
   };
 }
 
-function sortOptionsForGroupedEditor(node: FlowNode): FlowNodeOption[] {
+/**
+ * Orden estable para el editor: solo sort_order y uuid. No ordenar por group_title ni group_order aquí:
+ * si no, al editar el título del grupo las filas se reordenan y el foco salta / los valores parecen “mezclarse”.
+ */
+function sortOptionsStableForEditor(node: FlowNode): FlowNodeOption[] {
   return [...node.options].sort((a, b) => {
-    const ga = a.group_order ?? 0;
-    const gb = b.group_order ?? 0;
-    if (ga !== gb) return ga - gb;
-    const ta = (a.group_title ?? "").trim();
-    const tb = (b.group_title ?? "").trim();
-    if (ta !== tb) return ta.localeCompare(tb);
-    return (a.sort_order ?? 0) - (b.sort_order ?? 0);
+    const d = (a.sort_order ?? 0) - (b.sort_order ?? 0);
+    if (d !== 0) return d;
+    return a.id.localeCompare(b.id);
   });
 }
+
+type FlowOptionCreateContext =
+  | { kind: "default" }
+  /** Nueva fila copiando grupo y destino típico del ancla (mismo group_title / group_order). */
+  | { kind: "in_group"; anchorOptionId: string }
+  /** Nuevo bloque de grupo vacío para completar en el editor. */
+  | { kind: "new_group" }
+  /** Opción sin group_title (bucket legacy) dentro de un nodo que también tiene grupos. */
+  | { kind: "ungrouped" };
 
 function validateButtonsQuickReplyGroups(node: FlowNode): string | null {
   if (node.node_type !== "buttons") return null;
@@ -827,6 +836,7 @@ export default function FlowEditorPage() {
     });
     if (json.item?.id === liveOpt.id) {
       const incoming = json.item as Partial<FlowNodeOption>;
+      const mergedAfterSave = mergeSavedFlowOption(liveOpt, incoming);
       setNodes((prev) =>
         prev.map((n) =>
           n.id !== live.id
@@ -839,6 +849,10 @@ export default function FlowEditorPage() {
               }
         )
       );
+      setOptionSimpleDrafts((prev) => ({
+        ...prev,
+        [liveOpt.id]: toSimpleDraftFromPayload(mergedAfterSave),
+      }));
     }
     setError(null);
     if (opts.toastSuccess) {
@@ -856,47 +870,91 @@ export default function FlowEditorPage() {
     await persistOptionCore(live, liveOpt, { toastSuccess: true, reason: "guardar_opcion" });
   }
 
-  async function createOption(node: FlowNode) {
-    if (node.node_type === "list" && node.options.length >= 10) {
+  async function createOption(node: FlowNode, ctx: FlowOptionCreateContext = { kind: "default" }) {
+    const live = nodesRef.current.find((n) => n.id === node.id) ?? node;
+
+    if (live.node_type === "list" && live.options.length >= 10) {
       throw new Error(
         "WhatsApp admite como máximo 10 filas en mensaje de lista. Eliminá una opción antes de agregar otra."
       );
     }
-    if (node.node_type === "buttons" && node.options.length >= 30) {
+    if (live.node_type === "buttons" && live.options.length >= 30) {
       throw new Error(
         "Límite de 30 opciones por nodo de botones. Si usás grupos, cada burbuja lleva hasta 3 botones rápidos."
       );
     }
-    // sort_order: evitar duplicados si hubo borrados (max + 1)
-    const maxSort = node.options.reduce((m, o) => Math.max(m, o.sort_order ?? 0), 0);
-    const sortOrder = maxSort + 1;
-    // Cada opción debe tener meta_button_id único por nodo (UNIQUE node_id, meta_button_id en DB).
-    // Antes todas eran "nueva_opción" → el 2º insert fallaba sin feedback claro.
-    const label = sortOrder === 1 ? "Nueva opción" : `Nueva opción ${sortOrder}`;
+
+    const maxGlobalSort = live.options.reduce((m, o) => Math.max(m, o.sort_order ?? 0), 0);
+
+    let sortOrder = maxGlobalSort + 1;
+    let nextNodeCode: string | null = null;
+    let groupTitleOut: string | null | undefined = undefined;
+    let groupOrderOut: number | undefined = undefined;
+
+    if (ctx.kind === "in_group") {
+      const anchor = live.options.find((o) => o.id === ctx.anchorOptionId);
+      if (!anchor) throw new Error("No se encontró la opción de referencia del grupo.");
+      const gt = (anchor.group_title ?? "").trim();
+      const go = anchor.group_order ?? 0;
+      const peers = live.options.filter(
+        (o) => (o.group_order ?? 0) === go && (o.group_title ?? "").trim() === gt
+      );
+      const maxPeer = peers.reduce((m, o) => Math.max(m, o.sort_order ?? 0), 0);
+      sortOrder = Math.max(maxGlobalSort + 1, maxPeer + 1);
+      nextNodeCode = anchor.next_node_code?.trim() || null;
+      groupTitleOut = gt.length ? anchor.group_title ?? null : null;
+      groupOrderOut = go;
+    } else if (ctx.kind === "new_group") {
+      const maxGo = live.options.reduce((m, o) => Math.max(m, o.group_order ?? 0), 0);
+      groupTitleOut = "Nuevo grupo";
+      groupOrderOut = maxGo + 1;
+      nextNodeCode = null;
+      sortOrder = maxGlobalSort + 1;
+    } else if (ctx.kind === "ungrouped") {
+      groupTitleOut = null;
+      groupOrderOut = 0;
+      nextNodeCode = null;
+      sortOrder = maxGlobalSort + 1;
+    } else {
+      nextNodeCode = null;
+      sortOrder = maxGlobalSort + 1;
+    }
+
     const uniqueSuffix =
       typeof globalThis.crypto !== "undefined" && globalThis.crypto.randomUUID
         ? globalThis.crypto.randomUUID().replace(/-/g, "").slice(0, 12)
         : `${Date.now().toString(36)}`;
     const metaButtonId = `opt_${sortOrder}_${uniqueSuffix}`;
-    const defaultNext = nodeCodes.find((code) => code !== node.node_code) ?? null;
+    const label =
+      ctx.kind === "new_group" ? "Nuevo botón" : sortOrder <= 1 ? "Nueva opción" : `Nueva opción ${sortOrder}`;
+
+    const body: Record<string, unknown> = {
+      label,
+      meta_button_id: metaButtonId,
+      next_node_code: nextNodeCode,
+      sort_order: sortOrder,
+      option_payload: {},
+    };
+    if (ctx.kind === "in_group" || ctx.kind === "new_group") {
+      body.group_title = groupTitleOut ?? null;
+      body.group_order = groupOrderOut ?? 0;
+    } else if (ctx.kind === "ungrouped") {
+      body.group_title = null;
+      body.group_order = 0;
+    }
+
     const res = await fetchWithSupabaseSession(
-      `/api/chat/flows/${encodeURIComponent(flowCode)}/nodes/${encodeURIComponent(node.node_code)}/options`,
+      `/api/chat/flows/${encodeURIComponent(flowCode)}/nodes/${encodeURIComponent(live.node_code)}/options`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({
-          label,
-          meta_button_id: metaButtonId,
-          next_node_code: defaultNext,
-          sort_order: sortOrder,
-          option_payload: {},
-        }),
+        body: JSON.stringify(body),
       }
     );
     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
     if (!res.ok || !json.ok) throw new Error(json.error ?? "No se pudo crear opción");
-    setSuccess(`Opción creada en ${prettifyCode(node.node_code)}.`);
+    setSuccess(`Opción creada en ${prettifyCode(live.node_code)}.`);
   }
 
   async function createBlock(node: FlowNode, blockType: FlowNodeBlock["block_type"]): Promise<FlowNodeBlock | null> {
@@ -1253,11 +1311,11 @@ export default function FlowEditorPage() {
         <div className="space-y-4">
           {orderedNodes.map((node, idx) => {
             const isExpanded = expandedNodeId === node.id;
-            const sortedFlowOptions = sortOptionsForGroupedEditor(node);
+            const editorFlowOptions = sortOptionsStableForEditor(node);
             const showGroupedButtonUi =
               node.node_type === "buttons" &&
               buttonQuickReplyGroupsEnabled(
-                sortedFlowOptions.map((o) => ({
+                node.options.map((o) => ({
                   id: o.id,
                   label: o.label,
                   option_value: o.option_value,
@@ -2013,8 +2071,8 @@ export default function FlowEditorPage() {
                       )}
                     </div>
                   )}
-                  {sortedFlowOptions.map((opt, optIdx) => {
-                    const prevOpt = optIdx > 0 ? sortedFlowOptions[optIdx - 1] : null;
+                  {editorFlowOptions.map((opt, optIdx) => {
+                    const prevOpt = optIdx > 0 ? editorFlowOptions[optIdx - 1] : null;
                     const gKey = `${opt.group_order ?? 0}\u0000${(opt.group_title ?? "").trim()}`;
                     const prevGKey = prevOpt
                       ? `${prevOpt.group_order ?? 0}\u0000${(prevOpt.group_title ?? "").trim()}`
@@ -2106,7 +2164,6 @@ export default function FlowEditorPage() {
                           onClick={async () => {
                             try {
                               await saveOption(node, opt);
-                              await reload();
                             } catch (e) {
                               const msg = e instanceof Error ? e.message : "Error al guardar opción";
                               setError(msg);
@@ -2148,6 +2205,22 @@ export default function FlowEditorPage() {
                         >
                           Eliminar
                         </button>
+                        {showGroupedButtonUi && node.node_type === "buttons" && (
+                          <button
+                            type="button"
+                            className="text-emerald-700 hover:underline text-sm"
+                            onClick={async () => {
+                              try {
+                                await createOption(node, { kind: "in_group", anchorOptionId: opt.id });
+                                await reload({ soft: true });
+                              } catch (e) {
+                                setError(e instanceof Error ? e.message : "Error al crear opción");
+                              }
+                            }}
+                          >
+                            + En este grupo
+                          </button>
+                        )}
                       </div>
                       {node.node_type === "buttons" && (
                         <div className="md:col-span-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -2440,20 +2513,70 @@ export default function FlowEditorPage() {
                     </div>
                   );
                   })}
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      try {
-                        await createOption(node);
-                        await reload();
-                      } catch (e) {
-                        setError(e instanceof Error ? e.message : "Error al crear opción");
-                      }
-                    }}
-                    className="text-sm text-[#0EA5E9] hover:underline"
-                  >
-                    {node.node_type === "list" ? "+ Agregar opción" : "+ Agregar botón"}
-                  </button>
+                  <div className="flex flex-wrap gap-3 items-center pt-1">
+                    {node.node_type === "list" ? (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await createOption(node);
+                            await reload({ soft: true });
+                          } catch (e) {
+                            setError(e instanceof Error ? e.message : "Error al crear opción");
+                          }
+                        }}
+                        className="text-sm text-[#0EA5E9] hover:underline"
+                      >
+                        + Agregar opción
+                      </button>
+                    ) : showGroupedButtonUi ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              await createOption(node, { kind: "new_group" });
+                              await reload({ soft: true });
+                            } catch (e) {
+                              setError(e instanceof Error ? e.message : "Error al crear opción");
+                            }
+                          }}
+                          className="text-sm text-[#0EA5E9] hover:underline"
+                        >
+                          + Nuevo grupo
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              await createOption(node, { kind: "ungrouped" });
+                              await reload({ soft: true });
+                            } catch (e) {
+                              setError(e instanceof Error ? e.message : "Error al crear opción");
+                            }
+                          }}
+                          className="text-sm text-slate-600 hover:underline"
+                        >
+                          + Botón sin grupo
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await createOption(node);
+                            await reload({ soft: true });
+                          } catch (e) {
+                            setError(e instanceof Error ? e.message : "Error al crear opción");
+                          }
+                        }}
+                        className="text-sm text-[#0EA5E9] hover:underline"
+                      >
+                        + Agregar botón
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
               </>
