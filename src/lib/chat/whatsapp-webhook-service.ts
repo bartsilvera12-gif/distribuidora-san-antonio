@@ -646,7 +646,25 @@ export async function processInboundWebhookValue(
     const messageAlreadyExists = await messageExists(supabase, waMid);
     let inboundMessageAlreadyPersisted = messageAlreadyExists;
 
-    if (messageAlreadyExists && !isComprobanteMediaMessageKind(msg)) {
+    /**
+     * Antes se hacía `continue` en cualquier mensaje ya persistido (no media): Meta reintenta webhooks
+     * y hay carreras en el insert. Si el primer request solo guardó la fila y falló después, el reintento
+     * nunca corría `markCampaignReplyFromInbound` ni `executeCampaignButtonAction…`.
+     * Los clics de plantilla (`button` / `interactive` con reply) deben reprocesar routing siempre.
+     */
+    const msgTypeInbound = (msg.type ?? "").trim().toLowerCase();
+    const mustRetryInboundRoutingDespiteDedupe =
+      msgTypeInbound === "button" ||
+      (msgTypeInbound === "interactive" &&
+        Boolean(
+          (msg as MetaInboundMessage).interactive?.button_reply ||
+            (msg as MetaInboundMessage).interactive?.list_reply
+        ));
+    if (
+      messageAlreadyExists &&
+      !isComprobanteMediaMessageKind(msg) &&
+      !mustRetryInboundRoutingDespiteDedupe
+    ) {
       skipped += 1;
       continue;
     }
@@ -1066,8 +1084,21 @@ export async function processInboundWebhookValue(
               messageRowId: inboundRowId,
             });
           } else if (persistInbound.duplicate) {
-            skipped += 1;
-            continue;
+            const { data: dupRow } = await supabase
+              .from("chat_messages")
+              .select("id")
+              .eq("wa_message_id", waMid)
+              .maybeSingle();
+            inboundRowId = (dupRow as { id?: string } | null)?.id ?? null;
+            if (!inboundRowId) {
+              skipped += 1;
+              continue;
+            }
+            console.info(logW, "inbound_message_duplicate_reuse_row", {
+              conversationId,
+              waMessageId: waMid,
+              messageRowId: inboundRowId,
+            });
           } else {
             errors.push(`Insert mensaje: ${persistInbound.error}`);
             continue;
@@ -1114,12 +1145,20 @@ export async function processInboundWebhookValue(
           (msg.interactive as { button_reply?: { id?: string; title?: string } } | undefined)
             ?.button_reply
         );
+      const isListReplyInteractive =
+        message_type === "interactive" &&
+        Boolean(
+          (msg.interactive as { list_reply?: { id?: string; title?: string } } | undefined)?.list_reply
+        );
       /** Meta Cloud API: respuesta a botón de plantilla suele llegar como `type: "button"` + `button.payload`. */
       const isMetaButtonMessage =
         msgTypeLower === "button" && Boolean((msg as MetaInboundMessage).button);
       if (
         campaignReplyMatch.matched &&
-        (isButtonReplyInteractive || isMetaButtonMessage || message_type === "text")
+        (isButtonReplyInteractive ||
+          isListReplyInteractive ||
+          isMetaButtonMessage ||
+          message_type === "text")
       ) {
         const reply = campaignReplyMatch;
         try {

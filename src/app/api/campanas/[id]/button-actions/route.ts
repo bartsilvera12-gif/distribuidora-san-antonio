@@ -70,10 +70,12 @@ export async function PUT(request: NextRequest, ctx: RouteCtx) {
     }
 
     const st = String((camp as { status?: string }).status ?? "");
-    if (st === "sending" || st === "completed" || st === "cancelled") {
-      return NextResponse.json(errorResponse("No se puede editar la campaña en este estado"), {
-        status: 400,
-      });
+    /** Solo campañas canceladas bloquean edición: las acciones de botón son matching en inbound y deben poder corregirse tras un envío. */
+    if (st === "cancelled") {
+      return NextResponse.json(
+        errorResponse("No se pueden editar acciones de botones en una campaña cancelada"),
+        { status: 400 }
+      );
     }
 
     for (const r of rows) {

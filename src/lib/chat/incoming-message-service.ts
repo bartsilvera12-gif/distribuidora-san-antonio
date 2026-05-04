@@ -90,18 +90,6 @@ function normalizeContactAddress(type: ChatChannelType, address: string): string
   return t;
 }
 
-async function messageExistsByExternalId(
-  supabase: SupabaseAdmin,
-  externalId: string
-): Promise<boolean> {
-  const { data } = await supabase
-    .from("chat_messages")
-    .select("id")
-    .eq("wa_message_id", externalId)
-    .maybeSingle();
-  return !!data?.id;
-}
-
 export type PersistInboundChatMessageInput = {
   supabase: SupabaseAdmin;
   empresaId: string;
@@ -256,10 +244,6 @@ export async function saveIncomingMessage(params: SaveIncomingMessageParams): Pr
 
   const address = normalizeContactAddress(channel.type, contact_data.address);
   if (!address) return { ok: false, error: "contact_data.address inválido" };
-
-  if (await messageExistsByExternalId(supabase, ext)) {
-    return { ok: true, skipped_duplicate: true };
-  }
 
   const displayName = contact_data.display_name?.trim() || address;
   const empresaId = channel.empresa_id;
@@ -422,8 +406,20 @@ export async function saveIncomingMessage(params: SaveIncomingMessageParams): Pr
     },
   });
 
-  if (!persist.ok) {
-    if (persist.duplicate) return { ok: true, skipped_duplicate: true };
+  let persistedMessageId: string | null = null;
+  if (persist.ok) {
+    persistedMessageId = persist.message_id;
+  } else if (persist.duplicate) {
+    const { data: exRow } = await supabase
+      .from("chat_messages")
+      .select("id")
+      .eq("wa_message_id", ext)
+      .maybeSingle();
+    persistedMessageId = (exRow as { id?: string } | null)?.id ?? null;
+    if (!persistedMessageId) {
+      return { ok: true, skipped_duplicate: true };
+    }
+  } else {
     return { ok: false, error: persist.error };
   }
 
@@ -483,6 +479,6 @@ export async function saveIncomingMessage(params: SaveIncomingMessageParams): Pr
     skipped_duplicate: false,
     conversation_id: conversationId,
     contact_id: contactId,
-    message_id: persist.message_id,
+    message_id: persistedMessageId,
   };
 }

@@ -379,9 +379,7 @@ export default function CampanasDetailClient({ campaignId }: { campaignId: strin
 
   const canImport = campaign.status === "draft" || campaign.status === "ready";
   const canLaunch = campaign.status === "draft" || campaign.status === "ready";
-  const canEditButtonActions = !["sending", "completed", "cancelled"].includes(
-    String(campaign.status ?? "")
-  );
+  const canEditButtonActions = String(campaign.status ?? "") !== "cancelled";
   const lockButtonActionsSection = savingButtonActions || !canEditButtonActions;
 
   return (
@@ -471,13 +469,14 @@ export default function CampanasDetailClient({ campaignId }: { campaignId: strin
           <p className="text-xs text-slate-600">
             Configurá qué hace cada respuesta rápida de la plantilla cuando el cliente la toca. El valor{" "}
             <strong>ID / payload</strong> debe coincidir con el que envía WhatsApp en{" "}
-            <code className="rounded bg-slate-100 px-1">interactive.button_reply.id</code> (si el envío falla,
-            revisá el ID real en los logs o en Meta).
+            <code className="rounded bg-slate-100 px-1">button.payload</code> /{" "}
+            <code className="rounded bg-slate-100 px-1">interactive.button_reply.id</code> (en Meta podés ver el payload
+            real del clic).
           </p>
           {!canEditButtonActions ? (
             <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-              En el estado actual de la campaña ({String(campaign.status)}) no se pueden editar ni guardar acciones de
-              botones. Creá una nueva campaña en borrador o duplicá esta si necesitás cambiar la configuración.
+              Las campañas canceladas no permiten guardar acciones de botones. Para otras campañas podés corregir el
+              ID/payload y el flujo aunque el envío ya haya terminado.
             </p>
           ) : null}
           {buttonActionsFeedback?.kind === "success" ? (
