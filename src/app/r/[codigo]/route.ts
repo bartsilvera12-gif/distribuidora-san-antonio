@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-admin";
-import { createServiceRoleClientWithDbSchema } from "@/lib/supabase/empresa-data-schema";
-import { SUPABASE_APP_SCHEMA, resolveEmpresaDataSchema, type AppSupabaseClient } from "@/lib/supabase/schema";
+import { getChatServiceClientForEmpresa } from "@/lib/supabase/chat-service-role-empresa";
+import type { AppSupabaseClient } from "@/lib/supabase/schema";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +10,11 @@ function digitsOnly(s: string): string {
   return s.replace(/\D/g, "");
 }
 
+/**
+ * Resuelve el número E.164 (solo dígitos) para wa.me usando `chat_channels` en el
+ * schema de la empresa. Debe usarse con `getChatServiceClientForEmpresa` (PG shim
+ * en tenants no expuestos en PostgREST), nunca con `db.schema` directo a erp_*.
+ */
 async function resolveRedirectPhoneForEmpresa(
   supabase: AppSupabaseClient,
   empresaId: string
@@ -22,30 +27,42 @@ async function resolveRedirectPhoneForEmpresa(
 
   const { data: channels, error: chErr } = await supabase
     .from("chat_channels")
-    .select("id, activo, config")
+    .select("id, activo, config, provider_channel_id")
     .eq("empresa_id", empresaId)
     .eq("type", "whatsapp")
     .eq("activo", true);
 
   if (chErr) {
-    return { ok: false, message: `No se pudo validar el canal WhatsApp: ${chErr.message}` };
+    console.error("[sorteo-r] chat_channels query:", chErr.message);
+    return {
+      ok: false,
+      message: "No se pudo consultar la configuración del canal. Intentá más tarde.",
+    };
   }
 
   const numbers = new Set<string>();
   for (const ch of channels ?? []) {
-    const cfg = (ch as { config?: unknown }).config;
-    if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) continue;
-    const raw = (cfg as Record<string, unknown>).display_phone_number;
-    if (typeof raw !== "string") continue;
-    const d = digitsOnly(raw);
-    if (d.length >= 8) numbers.add(d);
+    const row = ch as { config?: unknown; provider_channel_id?: string | null };
+    const cfg = row.config;
+    if (cfg && typeof cfg === "object" && !Array.isArray(cfg)) {
+      const c = cfg as Record<string, unknown>;
+      for (const key of ["display_phone_number", "ycloud_sender_id"] as const) {
+        const raw = c[key];
+        if (typeof raw !== "string") continue;
+        const d = digitsOnly(raw);
+        if (d.length >= 8) numbers.add(d);
+      }
+    }
+    if (typeof row.provider_channel_id === "string" && row.provider_channel_id.trim()) {
+      const d = digitsOnly(row.provider_channel_id);
+      if (d.length >= 8) numbers.add(d);
+    }
   }
 
   if (numbers.size === 0) {
     return {
       ok: false,
-      message:
-        "No hay display_phone_number válido en chat_channels activos. Configurá el número visible del canal WhatsApp.",
+      message: "Este sorteo aún no tiene un canal WhatsApp configurado.",
     };
   }
 
@@ -54,7 +71,7 @@ async function resolveRedirectPhoneForEmpresa(
       return {
         ok: false,
         message:
-          "WHATSAPP_LINK_PHONE_NUMBER no coincide con ningún chat_channels activo de la empresa.",
+          "La configuración del enlace de WhatsApp no coincide con los canales activos de la empresa.",
       };
     }
     return { ok: true, phone: envPhone };
@@ -67,8 +84,21 @@ async function resolveRedirectPhoneForEmpresa(
   return {
     ok: false,
     message:
-      "Hay múltiples canales activos con distintos display_phone_number. Definí WHATSAPP_LINK_PHONE_NUMBER para elegir uno válido.",
+      "Hay varios canales WhatsApp activos. El administrador debe definir cuál usar para los enlaces públicos.",
   };
+}
+
+function buildWhatsAppPrefill(params: {
+  token: string;
+  codigoReferido: string;
+  nombreSorteo: string | null;
+}): string {
+  const nombre = params.nombreSorteo?.trim() || "el sorteo";
+  return [
+    `Hola, quiero comprar números para el sorteo ${nombre}.`,
+    `Código revendedor: ${params.codigoReferido}.`,
+    `ref=${params.token}`,
+  ].join(" ");
 }
 
 /**
@@ -114,15 +144,9 @@ export async function GET(
   };
   const hit = (resolved as ResolvedRow | null) ?? null;
 
-  let dataSupabase: AppSupabaseClient = catalog;
   let row: RevRow | null = null;
 
   if (!rpcErr && hit?.empresa_id && hit?.revendedor_id) {
-    const schema = resolveEmpresaDataSchema(hit.data_schema);
-    dataSupabase =
-      schema === SUPABASE_APP_SCHEMA
-        ? catalog
-        : (createServiceRoleClientWithDbSchema(schema) as AppSupabaseClient);
     row = {
       id: hit.revendedor_id,
       empresa_id: hit.empresa_id,
@@ -131,6 +155,9 @@ export async function GET(
       activo: true,
     };
   } else {
+    if (rpcErr) {
+      console.warn("[sorteo-r] neura_resolve_sorteo_revendedor_public:", rpcErr.message);
+    }
     const { data: rev, error: rErr } = await catalog
       .from("sorteo_revendedores")
       .select("id, empresa_id, sorteo_id, codigo_referido, activo")
@@ -140,7 +167,7 @@ export async function GET(
       .maybeSingle();
 
     if (rErr || !rev) {
-      return new NextResponse("Enlace inválido o revendedor inactivo.", {
+      return new NextResponse("Link de revendedor no válido.", {
         status: 404,
         headers: { "content-type": "text/plain; charset=utf-8" },
       });
@@ -149,13 +176,50 @@ export async function GET(
   }
 
   if (!row) {
-    return new NextResponse("Enlace inválido o revendedor inactivo.", {
+    return new NextResponse("Link de revendedor no válido.", {
       status: 404,
       headers: { "content-type": "text/plain; charset=utf-8" },
     });
   }
 
-  const redirectPhoneResult = await resolveRedirectPhoneForEmpresa(dataSupabase, row.empresa_id);
+  let dataSb: AppSupabaseClient;
+  try {
+    dataSb = await getChatServiceClientForEmpresa(row.empresa_id);
+  } catch (e) {
+    console.error("[sorteo-r] getChatServiceClientForEmpresa:", e);
+    return new NextResponse("No se pudo preparar la redirección. Intentá más tarde.", {
+      status: 503,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+  }
+
+  const { data: sorteoRow, error: sorteoErr } = await dataSb
+    .from("sorteos")
+    .select("id, nombre")
+    .eq("id", row.sorteo_id)
+    .eq("empresa_id", row.empresa_id)
+    .maybeSingle();
+
+  if (sorteoErr) {
+    console.error("[sorteo-r] sorteos:", sorteoErr.message);
+    return new NextResponse("No se pudo verificar el sorteo. Intentá más tarde.", {
+      status: 503,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+  }
+  if (!sorteoRow) {
+    return new NextResponse("El sorteo no existe o no está disponible.", {
+      status: 404,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+  }
+
+  const nombreSorteo =
+    typeof (sorteoRow as { nombre?: unknown }).nombre === "string"
+      ? (sorteoRow as { nombre: string }).nombre.trim() || null
+      : null;
+
+  const redirectPhoneResult = await resolveRedirectPhoneForEmpresa(dataSb, row.empresa_id);
   if (!redirectPhoneResult.ok) {
     return new NextResponse(redirectPhoneResult.message, {
       status: 503,
@@ -173,7 +237,7 @@ export async function GET(
 
   const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-  const { error: insErr } = await dataSupabase.from("sorteo_revendedor_clicks").insert({
+  const { error: insErr } = await dataSb.from("sorteo_revendedor_clicks").insert({
     empresa_id: row.empresa_id,
     sorteo_id: row.sorteo_id,
     revendedor_id: row.id,
@@ -184,14 +248,18 @@ export async function GET(
   });
 
   if (insErr) {
-    console.error("[sorteo-r]", insErr.message);
+    console.error("[sorteo-r] sorteo_revendedor_clicks:", insErr.message);
     return new NextResponse("No se pudo registrar el click.", {
       status: 500,
       headers: { "content-type": "text/plain; charset=utf-8" },
     });
   }
 
-  const text = `Hola quiero comprar boletas ref=${token}`;
+  const text = buildWhatsAppPrefill({
+    token,
+    codigoReferido: row.codigo_referido,
+    nombreSorteo,
+  });
   const waUrl = `https://wa.me/${redirectPhoneResult.phone}?text=${encodeURIComponent(text)}`;
   return NextResponse.redirect(waUrl, 302);
 }
