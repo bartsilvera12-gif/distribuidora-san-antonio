@@ -150,6 +150,8 @@ function UsuarioDetailContent() {
 
   const [omniAgent, setOmniAgent] = useState(false);
   const [omniScheduleId, setOmniScheduleId] = useState<string>("");
+  /** Aviso no bloqueante cuando el guardado omnicanal no pudo usar el schema tenant (PostgREST). */
+  const [omnicanalWarning, setOmnicanalWarning] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -162,6 +164,7 @@ function UsuarioDetailContent() {
       })
       .then((data) => {
         const u = data as Usuario;
+        setOmnicanalWarning(null);
         setUsuario(u);
         setForm(usuarioToForm(u));
         if (u.omnicanal) {
@@ -220,6 +223,7 @@ function UsuarioDetailContent() {
     }
 
     setGuardando(true);
+    setOmnicanalWarning(null);
     try {
       const body: Record<string, unknown> = {
         nombre: form.nombre.trim(),
@@ -267,9 +271,16 @@ function UsuarioDetailContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const json = await res.json().catch(() => ({}));
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        omnicanal_warning?: string;
+      };
       if (!res.ok) {
         throw new Error(json.error ?? `Error al guardar (${res.status})`);
+      }
+
+      if (typeof json.omnicanal_warning === "string" && json.omnicanal_warning.trim()) {
+        setOmnicanalWarning(json.omnicanal_warning.trim());
       }
 
       const rolActualizado = usuario.puede_editar_rol ? rolFromNivelForm(form.nivel) : usuario.rol;
@@ -524,6 +535,11 @@ function UsuarioDetailContent() {
 
           {usuario.omnicanal && (
             <SectionCard title="Omnicanal" icon="💬">
+              {omnicanalWarning ? (
+                <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  {omnicanalWarning}
+                </div>
+              ) : null}
               <p className="text-xs text-gray-500 mb-3">
                 Colas y asignación: requiere habilitación explícita (independiente del rol ERP).
               </p>
@@ -801,6 +817,11 @@ function UsuarioDetailContent() {
 
                 {usuario.puede_editar_modulos && usuario.omnicanal ? (
                   <SectionCard title="Omnicanal" icon="💬">
+                    {omnicanalWarning ? (
+                      <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                        {omnicanalWarning}
+                      </div>
+                    ) : null}
                     <p className="text-xs text-gray-500 mb-4">
                       Solo usuarios habilitados entran en autoasignación y circuito operativo de agentes (además de colas,
                       estado disponible y sesión en línea).
@@ -877,6 +898,7 @@ function UsuarioDetailContent() {
                   setOmniScheduleId(usuario.omnicanal.work_schedule_id ?? "");
                 }
                 setFormError(null);
+                setOmnicanalWarning(null);
               }}
               className="text-sm text-gray-500 hover:text-gray-800 transition-colors px-4 py-2.5"
             >

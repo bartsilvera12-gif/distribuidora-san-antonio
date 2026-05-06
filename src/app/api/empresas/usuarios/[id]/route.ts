@@ -11,8 +11,84 @@ import {
 } from "@/lib/dashboard/resolve-effective-dashboard-views";
 import { syncUsuarioDashboardViews } from "@/lib/dashboard/sync-usuario-dashboard-views";
 import { createServiceRoleClientForEmpresa } from "@/lib/supabase/empresa-data-schema";
+import {
+  isUsuariosOmnicanalTenantUnavailableError,
+  sanitizePostgrestErrorForLog,
+} from "@/lib/chat/postgrest-schema-error";
 
 const ERP_ROLES = ["usuario", "supervisor", "administrador"] as const;
+
+const OMNICANAL_PATCH_UNAVAILABLE_MSG =
+  "La configuración omnicanal no se pudo guardar porque el schema tenant no está disponible por PostgREST.";
+
+type OmnicanalPack = {
+  agent_enabled: boolean;
+  work_schedule_id: string | null;
+  schedules: {
+    id: string;
+    nombre: string;
+    time_start: string;
+    time_end: string;
+    days_of_week: number[];
+    is_active: boolean;
+  }[];
+};
+
+const EMPTY_OMNICANAL: OmnicanalPack = {
+  agent_enabled: false,
+  work_schedule_id: null,
+  schedules: [],
+};
+
+/**
+ * Preferencias omnicanal en schema tenant (chat_*). Si PostgREST no expone el schema o falla la tabla, no rompe el GET.
+ */
+async function loadOmnicanalPackForUsuarioDetail(empresaId: string, usuarioId: string): Promise<OmnicanalPack> {
+  try {
+    const tenant = await createServiceRoleClientForEmpresa(empresaId);
+    const prefsRes = await tenant
+      .from("chat_usuario_omnicanal")
+      .select("omnicanal_agent_enabled, work_schedule_id")
+      .eq("empresa_id", empresaId)
+      .eq("usuario_id", usuarioId)
+      .maybeSingle();
+    const schedRes = await tenant
+      .from("chat_omnicanal_work_schedules")
+      .select("id, nombre, time_start, time_end, days_of_week, is_active")
+      .eq("empresa_id", empresaId)
+      .order("nombre", { ascending: true });
+
+    const errMsg = prefsRes.error?.message ?? schedRes.error?.message ?? "";
+    if (prefsRes.error || schedRes.error) {
+      console.warn("[usuarios_omnicanal_get_fallback]", {
+        context: "usuarios_omnicanal_get_fallback",
+        empresa_id: empresaId,
+        usuario_id: usuarioId,
+        error: sanitizePostgrestErrorForLog(errMsg),
+      });
+      return EMPTY_OMNICANAL;
+    }
+
+    const pr = prefsRes.data as {
+      omnicanal_agent_enabled?: boolean;
+      work_schedule_id?: string | null;
+    } | null;
+    return {
+      agent_enabled: Boolean(pr?.omnicanal_agent_enabled),
+      work_schedule_id: (pr?.work_schedule_id as string | null | undefined) ?? null,
+      schedules: (schedRes.data ?? []) as OmnicanalPack["schedules"],
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn("[usuarios_omnicanal_get_fallback]", {
+      context: "usuarios_omnicanal_get_fallback",
+      empresa_id: empresaId,
+      usuario_id: usuarioId,
+      error: sanitizePostgrestErrorForLog(msg),
+    });
+    return EMPTY_OMNICANAL;
+  }
+}
 
 function patchOptionalDecimal(v: unknown): number | null | undefined {
   if (v === undefined) return undefined;
@@ -187,43 +263,9 @@ export async function GET(
       (currentUser?.rol ?? "").trim() === "super_admin" ||
       ["admin", "administrador"].includes((currentUser?.rol ?? "").trim());
 
-    type OmnicanalPack = {
-      agent_enabled: boolean;
-      work_schedule_id: string | null;
-      schedules: {
-        id: string;
-        nombre: string;
-        time_start: string;
-        time_end: string;
-        days_of_week: number[];
-        is_active: boolean;
-      }[];
-    };
-
     let omnicanal: OmnicanalPack | null = null;
     if (usuario.empresa_id) {
-      try {
-        const tenant = await createServiceRoleClientForEmpresa(usuario.empresa_id as string);
-        const { data: prefs } = await tenant
-          .from("chat_usuario_omnicanal")
-          .select("omnicanal_agent_enabled, work_schedule_id")
-          .eq("empresa_id", usuario.empresa_id)
-          .eq("usuario_id", id)
-          .maybeSingle();
-        const { data: schedules } = await tenant
-          .from("chat_omnicanal_work_schedules")
-          .select("id, nombre, time_start, time_end, days_of_week, is_active")
-          .eq("empresa_id", usuario.empresa_id)
-          .order("nombre", { ascending: true });
-        const pr = prefs as { omnicanal_agent_enabled?: boolean; work_schedule_id?: string | null } | null;
-        omnicanal = {
-          agent_enabled: Boolean(pr?.omnicanal_agent_enabled),
-          work_schedule_id: (pr?.work_schedule_id as string | null | undefined) ?? null,
-          schedules: (schedules ?? []) as OmnicanalPack["schedules"],
-        };
-      } catch {
-        omnicanal = { agent_enabled: false, work_schedule_id: null, schedules: [] };
-      }
+      omnicanal = await loadOmnicanalPackForUsuarioDetail(usuario.empresa_id as string, id);
     }
 
     const { empresa_id: _e, ...rest } = usuario;
@@ -469,15 +511,12 @@ export async function PATCH(
       Object.prototype.hasOwnProperty.call(body, "omnicanal_agent_enabled") ||
       Object.prototype.hasOwnProperty.call(body, "omnicanal_work_schedule_id");
 
+    let omnicanal_warning: string | undefined;
+
     if (omnicanalProvided && usuario.empresa_id) {
       if (!puedeModulos) {
         return NextResponse.json({ error: "Sin permiso para editar preferencias omnicanal" }, { status: 403 });
       }
-      const tenant = await createServiceRoleClientForEmpresa(usuario.empresa_id as string);
-      let scheduleId: string | null =
-        body.omnicanal_work_schedule_id === null || body.omnicanal_work_schedule_id === ""
-          ? null
-          : String(body.omnicanal_work_schedule_id).trim();
 
       const enabledRaw = body.omnicanal_agent_enabled;
       const enabled =
@@ -485,41 +524,107 @@ export async function PATCH(
           ? enabledRaw
           : enabledRaw === "true" || enabledRaw === true || enabledRaw === 1 || enabledRaw === "1";
 
+      let scheduleId: string | null =
+        body.omnicanal_work_schedule_id === null || body.omnicanal_work_schedule_id === ""
+          ? null
+          : String(body.omnicanal_work_schedule_id).trim();
+
       if (!enabled) {
         scheduleId = null;
-      } else if (scheduleId) {
-        const { data: sch } = await tenant
-          .from("chat_omnicanal_work_schedules")
-          .select("id")
-          .eq("empresa_id", usuario.empresa_id)
-          .eq("id", scheduleId)
-          .maybeSingle();
-        if (!sch) {
-          return NextResponse.json({ error: "Horario omnicanal inválido para esta empresa." }, { status: 400 });
-        }
       }
 
-      const ts = new Date().toISOString();
-      const { error: oe } = await tenant.from("chat_usuario_omnicanal").upsert(
-        {
-          empresa_id: usuario.empresa_id,
-          usuario_id: id,
-          omnicanal_agent_enabled: enabled,
-          work_schedule_id: scheduleId,
-          updated_at: ts,
-          created_at: ts,
-        },
-        { onConflict: "empresa_id,usuario_id" }
-      );
-      if (oe) {
-        const m = (oe.message ?? "").toLowerCase();
-        if (!m.includes("does not exist") && !m.includes("schema cache") && !m.includes("could not find")) {
-          return NextResponse.json({ error: oe.message }, { status: 400 });
+      try {
+        const tenant = await createServiceRoleClientForEmpresa(usuario.empresa_id as string);
+        let skipOmnicanalWrite = false;
+
+        if (enabled && scheduleId) {
+          const schRes = await tenant
+            .from("chat_omnicanal_work_schedules")
+            .select("id")
+            .eq("empresa_id", usuario.empresa_id)
+            .eq("id", scheduleId)
+            .maybeSingle();
+          if (schRes.error) {
+            if (isUsuariosOmnicanalTenantUnavailableError(schRes.error.message)) {
+              skipOmnicanalWrite = true;
+              omnicanal_warning = OMNICANAL_PATCH_UNAVAILABLE_MSG;
+              console.warn("[usuarios_omnicanal_patch_fallback]", {
+                context: "usuarios_omnicanal_patch_fallback",
+                empresa_id: usuario.empresa_id,
+                usuario_id: id,
+                error: sanitizePostgrestErrorForLog(schRes.error.message),
+              });
+            } else {
+              return NextResponse.json({ error: schRes.error.message }, { status: 400 });
+            }
+          } else if (!schRes.data) {
+            return NextResponse.json(
+              { error: "Horario omnicanal inválido para esta empresa." },
+              { status: 400 }
+            );
+          }
+        }
+
+        if (!skipOmnicanalWrite) {
+          const ts = new Date().toISOString();
+          const { error: oe } = await tenant.from("chat_usuario_omnicanal").upsert(
+            {
+              empresa_id: usuario.empresa_id,
+              usuario_id: id,
+              omnicanal_agent_enabled: enabled,
+              work_schedule_id: scheduleId,
+              updated_at: ts,
+              created_at: ts,
+            },
+            { onConflict: "empresa_id,usuario_id" }
+          );
+          if (oe) {
+            if (isUsuariosOmnicanalTenantUnavailableError(oe.message)) {
+              omnicanal_warning = OMNICANAL_PATCH_UNAVAILABLE_MSG;
+              console.warn("[usuarios_omnicanal_patch_fallback]", {
+                context: "usuarios_omnicanal_patch_fallback",
+                empresa_id: usuario.empresa_id,
+                usuario_id: id,
+                error: sanitizePostgrestErrorForLog(oe.message),
+              });
+            } else {
+              const m = (oe.message ?? "").toLowerCase();
+              const legacySoft =
+                m.includes("does not exist") || m.includes("schema cache") || m.includes("could not find");
+              if (legacySoft) {
+                omnicanal_warning = OMNICANAL_PATCH_UNAVAILABLE_MSG;
+                console.warn("[usuarios_omnicanal_patch_fallback]", {
+                  context: "usuarios_omnicanal_patch_fallback",
+                  empresa_id: usuario.empresa_id,
+                  usuario_id: id,
+                  error: sanitizePostgrestErrorForLog(oe.message),
+                });
+              } else {
+                return NextResponse.json({ error: oe.message }, { status: 400 });
+              }
+            }
+          }
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (isUsuariosOmnicanalTenantUnavailableError(msg)) {
+          omnicanal_warning = OMNICANAL_PATCH_UNAVAILABLE_MSG;
+          console.warn("[usuarios_omnicanal_patch_fallback]", {
+            context: "usuarios_omnicanal_patch_fallback",
+            empresa_id: usuario.empresa_id,
+            usuario_id: id,
+            error: sanitizePostgrestErrorForLog(msg),
+          });
+        } else {
+          return NextResponse.json({ error: msg }, { status: 500 });
         }
       }
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      ...(omnicanal_warning ? { omnicanal_warning } : {}),
+    });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Error";
     return NextResponse.json({ error: msg }, { status: 500 });
