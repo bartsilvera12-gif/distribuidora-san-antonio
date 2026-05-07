@@ -13,7 +13,9 @@ import {
   buildCampaignTemplatePreviewText,
   buildMetaCloudTemplatePayload,
 } from "@/lib/campaigns/campaign-template-payload";
+import { ensureCentralChatConversationMirror } from "@/lib/chat/central-chat-conversation-mirror";
 import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
+import { getChatPostgresPool } from "@/lib/supabase/chat-pg-pool";
 
 export type CampaignOutboundRow = {
   id: string;
@@ -71,6 +73,13 @@ async function ensureContactAndConversationForCampaign(
     .maybeSingle();
 
   if (existingConv?.id) {
+    const tenantDs = await fetchDataSchemaForEmpresaId(campaign.empresa_id);
+    await ensureCentralChatConversationMirror({
+      pool: getChatPostgresPool(),
+      tenantDataSchema: tenantDs,
+      empresaId: campaign.empresa_id,
+      conversationId: existingConv.id as string,
+    });
     return {
       ok: true,
       contact_id: contactId,
@@ -107,6 +116,13 @@ async function ensureContactAndConversationForCampaign(
       .eq("channel_id", campaign.channel_id)
       .maybeSingle();
     if (again?.id) {
+      const tenantDs = await fetchDataSchemaForEmpresaId(campaign.empresa_id);
+      await ensureCentralChatConversationMirror({
+        pool: getChatPostgresPool(),
+        tenantDataSchema: tenantDs,
+        empresaId: campaign.empresa_id,
+        conversationId: again.id as string,
+      });
       return { ok: true, contact_id: contactId, conversation_id: again.id as string };
     }
   }
@@ -114,6 +130,14 @@ async function ensureContactAndConversationForCampaign(
   if (convErr || !conv?.id) {
     return { ok: false, error: convErr?.message ?? "Conversación" };
   }
+
+  const tenantDsNew = await fetchDataSchemaForEmpresaId(campaign.empresa_id);
+  await ensureCentralChatConversationMirror({
+    pool: getChatPostgresPool(),
+    tenantDataSchema: tenantDsNew,
+    empresaId: campaign.empresa_id,
+    conversationId: conv.id as string,
+  });
 
   const ar = await assignConversation(supabase, conv.id as string);
   if (!ar.ok) {

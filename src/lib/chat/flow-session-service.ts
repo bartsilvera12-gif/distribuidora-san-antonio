@@ -1,4 +1,6 @@
+import { ensureCentralChatFlowSessionMirror } from "@/lib/chat/central-chat-flow-session-mirror";
 import type { SupabaseAdmin } from "@/lib/chat/types";
+import { getChatPostgresPool } from "@/lib/supabase/chat-pg-pool";
 
 /**
  * Cierra todas las sesiones activas de la conversación (p. ej. antes de reinicio o cambio de flujo).
@@ -59,7 +61,13 @@ export async function insertActiveFlowSessionRow(
     });
     return null;
   }
-  return (data as { id: string }).id;
+  const sessionId = (data as { id: string }).id;
+  await ensureCentralChatFlowSessionMirror({
+    pool: getChatPostgresPool(),
+    empresaId,
+    sessionId,
+  });
+  return sessionId;
 }
 
 /**

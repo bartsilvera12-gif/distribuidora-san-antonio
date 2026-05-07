@@ -2,6 +2,7 @@
  * Creación de conversación WhatsApp con flujo activo de la empresa (mismo criterio que el webhook Meta).
  */
 import { assignConversation } from "@/lib/chat/assign-conversation-service";
+import { ensureCentralChatConversationMirror } from "@/lib/chat/central-chat-conversation-mirror";
 import { insertActiveFlowSessionRow } from "@/lib/chat/flow-session-service";
 import { flowTrace } from "@/lib/chat/flow-trace-log";
 import {
@@ -9,6 +10,21 @@ import {
   listActiveWhatsappFlowsForEmpresa,
 } from "@/lib/chat/resolve-whatsapp-active-flow";
 import type { SupabaseAdmin } from "@/lib/chat/types";
+import { getChatPostgresPool } from "@/lib/supabase/chat-pg-pool";
+import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
+
+async function mirrorTenantChatConversationToCentralCatalog(
+  empresaId: string,
+  conversationId: string
+): Promise<void> {
+  const tenantDataSchema = await fetchDataSchemaForEmpresaId(empresaId);
+  await ensureCentralChatConversationMirror({
+    pool: getChatPostgresPool(),
+    tenantDataSchema,
+    empresaId,
+    conversationId,
+  });
+}
 
 export type WhatsappConversationRow = {
   id: string;
@@ -76,6 +92,10 @@ export async function createWhatsappConversationWithActiveFlow(
 
   if (conv && !convErr) wasNewInsert = true;
 
+  if (conv?.id) {
+    await mirrorTenantChatConversationToCentralCatalog(empresaId, conv.id);
+  }
+
   let existingConv: WhatsappConversationRow | null = conv as WhatsappConversationRow | null;
 
   if (conv && flowCodeIns) {
@@ -113,6 +133,9 @@ export async function createWhatsappConversationWithActiveFlow(
       .eq("contact_id", contactId)
       .eq("channel_id", channelId)
       .maybeSingle();
+    if (again?.id) {
+      await mirrorTenantChatConversationToCentralCatalog(empresaId, again.id);
+    }
     existingConv = again as WhatsappConversationRow | null;
   } else if (convErr) {
     return { conv: null, error: convErr.message };

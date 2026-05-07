@@ -10,6 +10,7 @@ import { assignConversationPg } from "@/lib/chat/webhooks/assign-conversation-pg
 import { createTenantPgChatSupabaseShim } from "@/lib/chat/tenant-pg-chat-supabase-shim";
 import { ensureCentralChatChannelMirror } from "@/lib/chat/central-chat-channel-mirror";
 import { ensureCentralChatContactMirror } from "@/lib/chat/central-chat-contact-mirror";
+import { ensureCentralChatConversationMirror } from "@/lib/chat/central-chat-conversation-mirror";
 import {
   fetchOmnichannelRouteByMetaPhone,
   syncOmnichannelRouteForWhatsappChannel,
@@ -769,6 +770,13 @@ export async function processInboundWebhookValue(
       }
 
       const conversationId = existingConv.id as string;
+
+      await ensureCentralChatConversationMirror({
+        pool: pool ?? null,
+        tenantDataSchema,
+        empresaId,
+        conversationId,
+      });
 
       console.info(WH_FLOW, "sync_catalog_before", { conversationId });
       const syncedFlow = await syncWhatsappConversationFlowFromCatalog(supabase, empresaId, conversationId, {

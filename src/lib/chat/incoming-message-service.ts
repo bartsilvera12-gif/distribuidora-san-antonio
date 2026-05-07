@@ -4,6 +4,7 @@
  * este módulo concentra la escritura en BD reutilizable y el route genérico `/api/webhooks/[channel]`.
  */
 import { assignConversation } from "@/lib/chat/assign-conversation-service";
+import { ensureCentralChatConversationMirror } from "@/lib/chat/central-chat-conversation-mirror";
 import { markFirstHumanOperatorReply } from "@/lib/chat/conversation-sla-markers";
 import { maybeRedistributeInitialAssignment } from "@/lib/chat/initial-assignment-redistribution";
 import { createWhatsappConversationWithActiveFlow } from "@/lib/chat/whatsapp-conversation-bootstrap";
@@ -11,6 +12,8 @@ import { markCampaignReplyFromInbound } from "@/lib/campaigns/campaign-inbound-h
 import { executeCampaignButtonActionForMatchedRecipient } from "@/lib/campaigns/campaign-button-action-service";
 import type { SupabaseAdmin } from "@/lib/chat/types";
 import { normalizeWaPhone } from "@/lib/chat/wa-phone";
+import { getChatPostgresPool } from "@/lib/supabase/chat-pg-pool";
+import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
 
 export const CHAT_CHANNEL_TYPES = ["whatsapp", "instagram", "facebook", "email", "linkedin"] as const;
 export type ChatChannelType = (typeof CHAT_CHANNEL_TYPES)[number];
@@ -346,6 +349,14 @@ export async function saveIncomingMessage(params: SaveIncomingMessageParams): Pr
   }
 
   const conversationId = existingConv.id as string;
+
+  const tenantDsForMirror = await fetchDataSchemaForEmpresaId(empresaId);
+  await ensureCentralChatConversationMirror({
+    pool: getChatPostgresPool(),
+    tenantDataSchema: tenantDsForMirror,
+    empresaId,
+    conversationId,
+  });
 
   const isContactInbound =
     message_data.from_me !== true && (message_data.sender_type ?? "contact") === "contact";
