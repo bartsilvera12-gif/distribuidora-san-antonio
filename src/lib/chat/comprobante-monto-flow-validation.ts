@@ -1,4 +1,8 @@
 import type { AppSupabaseClient } from "@/lib/supabase/schema";
+import {
+  compactMontoOcrAuditForMotivo,
+  type MontoOcrSelectionAudit,
+} from "@/lib/chat/comprobante-ocr-monto-selection";
 
 /** Orden por defecto alineado con augmentSorteoPricing / flujo sorteos. */
 export const DEFAULT_MONTO_FIELDS_PRIORIDAD = ["monto", "monto_compra", "sorteo_monto_opcion"] as const;
@@ -15,9 +19,12 @@ export type MontoValidacionAudit = {
   monto_validacion_ocr_gs: number | null;
   monto_validacion_diferencia_gs: number | null;
   monto_validacion_status: MontoValidacionAuditStatus | null;
+  /** Resumen no sensible del picker OCR (opcional) */
+  monto_ocr_pick_reason?: string | null;
+  monto_ocr_candidates_compact?: string | null;
 };
 
-/** Igual criterio que extractReceiptFieldsFromOcr: dígitos del monto detectado. */
+/** Parsea dígitos del string de monto elegido por `selectReceiptMontoFromOcrText`. */
 export function parseMontoOcrDigitsToGs(raw: string | null | undefined): number | null {
   if (raw == null) return null;
   const d = String(raw).replace(/\D/g, "");
@@ -93,6 +100,12 @@ export async function validateReceiptAmountAgainstFlow(
     monto_tolerancia_absoluta_gs: number;
     monto_fields_prioridad: string[];
     extractedMontoString: string;
+    /**
+     * Si el pipeline ya leyó `chat_flow_data`, evita una segunda query.
+     * `undefined` = aún no consultado (se hará fetch si aplica).
+     */
+    precalcEsperadoGs?: number | null;
+    montoOcrSelectionAudit?: MontoOcrSelectionAudit | null;
   }
 ): Promise<ValidateReceiptAmountAgainstFlowResult> {
   const emptyAudit = (): MontoValidacionAudit => ({
@@ -100,15 +113,27 @@ export async function validateReceiptAmountAgainstFlow(
     monto_validacion_ocr_gs: null,
     monto_validacion_diferencia_gs: null,
     monto_validacion_status: null,
+    monto_ocr_pick_reason: null,
+    monto_ocr_candidates_compact: null,
   });
+
+  const mergePickAudit = (base: MontoValidacionAudit): MontoValidacionAudit => {
+    const a = input.montoOcrSelectionAudit;
+    if (!a) return base;
+    return {
+      ...base,
+      monto_ocr_pick_reason: a.chosen_reason,
+      monto_ocr_candidates_compact: compactMontoOcrAuditForMotivo(a) || null,
+    };
+  };
 
   if (!input.validar_monto_vs_flujo) {
     return {
       apply: false,
-      audit: {
+      audit: mergePickAudit({
         ...emptyAudit(),
         monto_validacion_status: "omitido_config",
-      },
+      }),
     };
   }
 
@@ -116,12 +141,10 @@ export async function validateReceiptAmountAgainstFlow(
   if (ocrGs == null) {
     return {
       apply: false,
-      audit: {
-        monto_validacion_esperado_gs: null,
-        monto_validacion_ocr_gs: null,
-        monto_validacion_diferencia_gs: null,
+      audit: mergePickAudit({
+        ...emptyAudit(),
         monto_validacion_status: "omitido_sin_ocr",
-      },
+      }),
     };
   }
 
@@ -130,17 +153,21 @@ export async function validateReceiptAmountAgainstFlow(
       ? input.monto_fields_prioridad
       : [...DEFAULT_MONTO_FIELDS_PRIORIDAD];
 
-  const esperadoGs = await fetchExpectedMontoGsFromFlowSession(supabase, input.flowSessionId, fieldOrder);
+  const esperadoGs =
+    input.precalcEsperadoGs !== undefined
+      ? input.precalcEsperadoGs
+      : await fetchExpectedMontoGsFromFlowSession(supabase, input.flowSessionId, fieldOrder);
 
   if (esperadoGs == null) {
     return {
       apply: false,
-      audit: {
+      audit: mergePickAudit({
+        ...emptyAudit(),
         monto_validacion_esperado_gs: null,
         monto_validacion_ocr_gs: ocrGs,
         monto_validacion_diferencia_gs: null,
         monto_validacion_status: "omitido_sin_esperado",
-      },
+      }),
     };
   }
 
@@ -151,11 +178,11 @@ export async function validateReceiptAmountAgainstFlow(
   return {
     apply: true,
     ok,
-    audit: {
+    audit: mergePickAudit({
       monto_validacion_esperado_gs: esperadoGs,
       monto_validacion_ocr_gs: ocrGs,
       monto_validacion_diferencia_gs: diff,
       monto_validacion_status: ok ? "coincide" : "discrepancia",
-    },
+    }),
   };
 }

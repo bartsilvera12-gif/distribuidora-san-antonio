@@ -23,7 +23,16 @@ import {
   SORTEO_COMPROBANTE_VALIDACION_ID_FIELD,
 } from "@/lib/chat/comprobante-validation-types";
 import { runGoogleVisionDocumentOcr } from "@/lib/chat/comprobante-vision-ocr";
-import { validateReceiptAmountAgainstFlow } from "@/lib/chat/comprobante-monto-flow-validation";
+import {
+  DEFAULT_MONTO_FIELDS_PRIORIDAD,
+  fetchExpectedMontoGsFromFlowSession,
+  validateReceiptAmountAgainstFlow,
+} from "@/lib/chat/comprobante-monto-flow-validation";
+import {
+  selectReceiptMontoFromOcrText,
+  type MontoOcrSelectionAudit,
+  type SelectReceiptMontoFromOcrOptions,
+} from "@/lib/chat/comprobante-ocr-monto-selection";
 import {
   ocrReferenciaMatchesConfiguredMerchantIdentifiers,
   validateReceiptBankDataAgainstExpected,
@@ -85,23 +94,18 @@ export type ExtractedReceiptFields = {
   hora: string;
   banco: string;
   texto_completo: string;
+  /** Auditoría del selector de monto OCR (opcional) */
+  monto_ocr_audit?: MontoOcrSelectionAudit | null;
 };
 
 /** Heurística liviana para comprobantes PY / transferencias (no reemplaza revisión humana). */
-export function extractReceiptFieldsFromOcr(fullText: string): ExtractedReceiptFields {
+export function extractReceiptFieldsFromOcr(
+  fullText: string,
+  montoOpts?: SelectReceiptMontoFromOcrOptions
+): ExtractedReceiptFields {
   const t = fullText || "";
 
-  let monto = "";
-  const montoRe = /(?:Gs\.?\s*|₲\s*|PYG\s*)?(\d{1,3}(?:\.\d{3})+|\d{4,})/gi;
-  let m: RegExpExecArray | null;
-  const montos: string[] = [];
-  while ((m = montoRe.exec(t)) !== null) {
-    const raw = m[1]?.replace(/\./g, "") ?? "";
-    if (raw.length >= 4) montos.push(raw);
-  }
-  if (montos.length > 0) {
-    monto = montos.sort((a, b) => b.length - a.length)[0] ?? "";
-  }
+  const pick = selectReceiptMontoFromOcrText(t, montoOpts ?? {});
 
   let referencia = "";
   // `referencia` antes de `ref` para no matchear el prefijo "Ref" de la palabra "Referencia".
@@ -150,7 +154,8 @@ export function extractReceiptFieldsFromOcr(fullText: string): ExtractedReceiptF
   }
 
   return {
-    monto,
+    monto: pick.monto,
+    monto_ocr_audit: pick.audit,
     referencia,
     fecha,
     hora,
@@ -547,15 +552,44 @@ export async function runComprobanteValidationPipeline(ctx: PipelineCtx): Promis
     fullText = "";
   }
 
-  const extracted = extractReceiptFieldsFromOcr(fullText);
+  const mfPrior =
+    settings.monto_fields_prioridad.length > 0
+      ? settings.monto_fields_prioridad
+      : [...DEFAULT_MONTO_FIELDS_PRIORIDAD];
+
+  let precalcEsperadoGs: number | null | undefined = undefined;
+  if (settings.validar_monto_vs_flujo) {
+    precalcEsperadoGs = await fetchExpectedMontoGsFromFlowSession(supabase, sid, mfPrior);
+  }
+
+  const montoOpts: SelectReceiptMontoFromOcrOptions = {
+    datosBancariosEsperados: settings.datos_bancarios_esperados,
+    toleranciaAbsolutaGs: settings.monto_tolerancia_absoluta_gs,
+    ...(precalcEsperadoGs !== undefined ? { expectedMontoGs: precalcEsperadoGs } : {}),
+  };
+
+  const extracted = extractReceiptFieldsFromOcr(fullText, montoOpts);
 
   const montoFlowResult = await validateReceiptAmountAgainstFlow(supabase, {
     flowSessionId: sid,
     validar_monto_vs_flujo: settings.validar_monto_vs_flujo,
     monto_tolerancia_absoluta_gs: settings.monto_tolerancia_absoluta_gs,
-    monto_fields_prioridad: settings.monto_fields_prioridad,
+    monto_fields_prioridad: mfPrior,
     extractedMontoString: extracted.monto,
+    precalcEsperadoGs,
+    montoOcrSelectionAudit: extracted.monto_ocr_audit ?? null,
   });
+
+  if (settings.validar_monto_vs_flujo && extracted.monto_ocr_audit) {
+    console.info("[sorteo-comprobante][monto-ocr-pick]", {
+      empresa_id: ctx.empresaId,
+      conversation_id: ctx.conversationId.slice(0, 8) + "…",
+      flow_session_id: sid.slice(0, 8) + "…",
+      pick_reason: extracted.monto_ocr_audit.chosen_reason,
+      n_candidates: extracted.monto_ocr_audit.candidates.length,
+      n_discarded_bank: extracted.monto_ocr_audit.discarded_bank_match.length,
+    });
+  }
 
   const bankFlowResult = validateReceiptBankDataAgainstExpected(settings, fullText);
 
@@ -664,7 +698,13 @@ export async function runComprobanteValidationPipeline(ctx: PipelineCtx): Promis
   } else if (montoFlowResult.apply && !montoFlowResult.ok) {
     estado = "monto_incoherente";
     const a = montoFlowResult.audit;
-    motivo = `monto_vs_flujo:esperado=${a.monto_validacion_esperado_gs};ocr=${a.monto_validacion_ocr_gs};diff=${a.monto_validacion_diferencia_gs}`;
+    const ocrPick =
+      a.monto_ocr_candidates_compact && a.monto_ocr_candidates_compact.length > 0
+        ? `|${a.monto_ocr_candidates_compact}`.slice(0, 520)
+        : "";
+    motivo =
+      `monto_vs_flujo:esperado=${a.monto_validacion_esperado_gs};ocr=${a.monto_validacion_ocr_gs};diff=${a.monto_validacion_diferencia_gs}` +
+      ocrPick;
   } else if (bankFlowResult.apply && !bankFlowResult.ok) {
     estado = "datos_bancarios_incoherentes";
     motivo = bankFlowResult.motivoDetalle ?? "datos_bancarios:discrepancia";
