@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
-import { getChatServiceClientForEmpresa } from "@/lib/supabase/chat-service-role-empresa";
 import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
+import { isLikelyUnexposedTenantChatSchema } from "@/lib/supabase/chat-data-schema";
+import {
+  getChatPostgresPool,
+  isPgPoolExhaustionMessage,
+  logPgPoolStats,
+  quoteSchemaTable,
+} from "@/lib/supabase/chat-pg-pool";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import { invalidateSorteosListCachesForEmpresa } from "@/lib/sorteos/server-queries";
@@ -13,11 +19,19 @@ function isUuid(s: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s.trim());
 }
 
+function sanitizeErr(msg: string): string {
+  return msg.replace(/\b(password|token|secret|key)\s*=[^\s]+/gi, "[redacted]").slice(0, 280);
+}
+
 type Body = { estado_pago?: unknown };
 
 /**
  * PATCH /api/sorteos/cupones/[entradaId]/estado-pago
  * Solo desde `pendiente_revision` → `confirmado` | `rechazado` (sin efectos colaterales en flujos).
+ *
+ * Pool PG: evitar `getChatServiceClientForEmpresa` + shim (SELECT+UPDATE duplica uso del pooler en modo sesión).
+ * - Schema expuesto (p. ej. zentra_erp): PostgREST vía `authCtx.supabase` (HTTP, sin cliente pg Node).
+ * - Tenant erp_* no expuesto: una sentencia UPDATE … RETURNING sobre `getChatPostgresPool()` singleton.
  */
 export async function PATCH(
   request: NextRequest,
@@ -25,6 +39,7 @@ export async function PATCH(
 ) {
   let empresaIdForLog = "";
   let schemaForLog = "";
+  let entradaIdForLog = "";
 
   try {
     const authCtx = await getTenantSupabaseFromAuth(request);
@@ -34,6 +49,7 @@ export async function PATCH(
 
     const { entradaId: rawId } = await params;
     const entradaId = typeof rawId === "string" ? rawId.trim() : "";
+    entradaIdForLog = entradaId;
     if (!entradaId || !isUuid(entradaId)) {
       return NextResponse.json(errorResponse("entradaId inválido."), { status: 400 });
     }
@@ -55,51 +71,147 @@ export async function PATCH(
     const dataSchema = await fetchDataSchemaForEmpresaId(empresaId);
     schemaForLog = dataSchema;
 
-    const sb = await getChatServiceClientForEmpresa(empresaId);
+    const updatedAt = new Date().toISOString();
 
-    const { data: row, error: selErr } = await sb
-      .from("sorteo_entradas")
-      .select("id, empresa_id, estado_pago")
-      .eq("id", entradaId)
-      .eq("empresa_id", empresaId)
-      .maybeSingle();
+    console.info(LOG, {
+      stage: "before_update",
+      empresa_id: empresaId,
+      schema: dataSchema,
+      entrada_id: entradaId,
+      estado_nuevo: next,
+    });
 
-    if (selErr) {
-      console.error(LOG, "select_error", { entrada_id: entradaId, empresa_id: empresaId, error: selErr.message });
-      return NextResponse.json(errorResponse(selErr.message), { status: 500 });
-    }
+    if (isLikelyUnexposedTenantChatSchema(dataSchema)) {
+      const pool = getChatPostgresPool();
+      if (!pool) {
+        console.error(LOG, {
+          stage: "error",
+          empresa_id: empresaId,
+          schema: dataSchema,
+          entrada_id: entradaId,
+          estado_nuevo: next,
+          error: "sin_pool_pg",
+        });
+        return NextResponse.json(
+          errorResponse(
+            "El servidor no tiene conexión directa a Postgres (SUPABASE_DB_URL / DIRECT_URL). No se puede actualizar la entrada."
+          ),
+          { status: 503 }
+        );
+      }
 
-    if (!row || typeof row !== "object") {
+      const qtbl = quoteSchemaTable(dataSchema, "sorteo_entradas");
+      let rowOut: { id: string; estado_pago: string } | null = null;
+      try {
+        const r = await pool.query<{ id: string; estado_pago: string }>(
+          `UPDATE ${qtbl}
+           SET estado_pago = $1::text, updated_at = $2::timestamptz
+           WHERE id = $3::uuid
+             AND empresa_id = $4::uuid
+             AND estado_pago = 'pendiente_revision'
+           RETURNING id, estado_pago`,
+          [next, updatedAt, entradaId, empresaId]
+        );
+        rowOut = r.rows?.[0] ?? null;
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        const poolErr = isPgPoolExhaustionMessage(msg);
+        if (poolErr) logPgPoolStats("cupones_estado_pago_patch", pool, { empresa_id: empresaId, schema: dataSchema });
+        console.error(LOG, {
+          stage: "error",
+          empresa_id: empresaId,
+          schema: dataSchema,
+          entrada_id: entradaId,
+          estado_nuevo: next,
+          error: sanitizeErr(msg),
+        });
+        return NextResponse.json(
+          errorResponse(
+            poolErr
+              ? "Base de datos saturada momentáneamente; reintentá en unos segundos."
+              : sanitizeErr(msg) || "Error al actualizar."
+          ),
+          { status: poolErr ? 503 : 500 }
+        );
+      }
+
+      if (!rowOut) {
+        try {
+          const r2 = await pool.query<{ estado_pago: string | null }>(
+            `SELECT estado_pago FROM ${qtbl} WHERE id = $1::uuid AND empresa_id = $2::uuid`,
+            [entradaId, empresaId]
+          );
+          const cur = r2.rows?.[0];
+          if (!cur) {
+            console.info(LOG, {
+              stage: "after_update",
+              empresa_id: empresaId,
+              schema: dataSchema,
+              entrada_id: entradaId,
+              estado_nuevo: next,
+              resultado: "not_found",
+            });
+            return NextResponse.json(errorResponse("Entrada no encontrada."), { status: 404 });
+          }
+          const ea = String(cur.estado_pago ?? "").trim();
+          console.info(LOG, {
+            stage: "after_update",
+            empresa_id: empresaId,
+            schema: dataSchema,
+            entrada_id: entradaId,
+            estado_nuevo: next,
+            estado_actual: ea,
+            resultado: "reject_wrong_state",
+          });
+          return NextResponse.json(
+            errorResponse(
+              ea === "confirmado" || ea === "rechazado"
+                ? "Este pago ya fue resuelto."
+                : `Solo se puede aprobar o rechazar desde «Pendiente revisión». Estado actual: ${ea}.`
+            ),
+            { status: 409 }
+          );
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          console.error(LOG, {
+            stage: "error",
+            empresa_id: empresaId,
+            schema: dataSchema,
+            entrada_id: entradaId,
+            estado_nuevo: next,
+            error: sanitizeErr(msg),
+          });
+          return NextResponse.json(errorResponse(sanitizeErr(msg)), { status: 500 });
+        }
+      }
+
       console.info(LOG, {
-        entrada_id: entradaId,
+        stage: "after_update",
         empresa_id: empresaId,
         schema: dataSchema,
-        resultado: "not_found",
-      });
-      return NextResponse.json(errorResponse("Entrada no encontrada."), { status: 404 });
-    }
-
-    const estadoAnt = String((row as { estado_pago?: unknown }).estado_pago ?? "").trim();
-    if (estadoAnt !== "pendiente_revision") {
-      console.info(LOG, {
         entrada_id: entradaId,
+        estado_nuevo: next,
+        resultado: "ok",
+      });
+
+      invalidateSorteosListCachesForEmpresa(empresaId, dataSchema);
+      console.info(LOG, {
+        stage: "cache_invalidation",
         empresa_id: empresaId,
         schema: dataSchema,
-        estado_anterior: estadoAnt,
-        estado_solicitado: next,
-        resultado: "reject_wrong_state",
+        entrada_id: entradaId,
+        estado_nuevo: next,
       });
+
       return NextResponse.json(
-        errorResponse(
-          estadoAnt === "confirmado" || estadoAnt === "rechazado"
-            ? "Este pago ya fue resuelto."
-            : `Solo se puede aprobar o rechazar desde «Pendiente revisión». Estado actual: ${estadoAnt}.`
-        ),
-        { status: 409 }
+        successResponse({
+          entrada_id: entradaId,
+          estado_pago: next as SorteoEntradaEstadoPago,
+        })
       );
     }
 
-    const updatedAt = new Date().toISOString();
+    const sb = authCtx.supabase;
     const { data: updated, error: upErr } = await sb
       .from("sorteo_entradas")
       .update({ estado_pago: next, updated_at: updatedAt })
@@ -110,41 +222,94 @@ export async function PATCH(
       .maybeSingle();
 
     if (upErr) {
-      console.error(LOG, "update_error", {
-        entrada_id: entradaId,
+      const em = upErr.message ?? "";
+      console.error(LOG, {
+        stage: "error",
         empresa_id: empresaId,
         schema: dataSchema,
-        estado_anterior: estadoAnt,
+        entrada_id: entradaId,
         estado_nuevo: next,
-        resultado: "error",
-        message: upErr.message,
+        error: sanitizeErr(em),
       });
-      return NextResponse.json(errorResponse(upErr.message), { status: 500 });
+      const poolLike = isPgPoolExhaustionMessage(em);
+      return NextResponse.json(
+        errorResponse(
+          poolLike
+            ? "Base de datos saturada momentáneamente; reintentá en unos segundos."
+            : sanitizeErr(em)
+        ),
+        { status: poolLike ? 503 : 500 }
+      );
     }
 
     if (!updated || typeof updated !== "object") {
+      const { data: exists, error: exErr } = await sb
+        .from("sorteo_entradas")
+        .select("estado_pago")
+        .eq("id", entradaId)
+        .eq("empresa_id", empresaId)
+        .maybeSingle();
+
+      if (exErr) {
+        console.error(LOG, {
+          stage: "error",
+          empresa_id: empresaId,
+          schema: dataSchema,
+          entrada_id: entradaId,
+          estado_nuevo: next,
+          error: sanitizeErr(exErr.message),
+        });
+        return NextResponse.json(errorResponse(sanitizeErr(exErr.message)), { status: 500 });
+      }
+
+      if (!exists) {
+        console.info(LOG, {
+          stage: "after_update",
+          empresa_id: empresaId,
+          schema: dataSchema,
+          entrada_id: entradaId,
+          estado_nuevo: next,
+          resultado: "not_found",
+        });
+        return NextResponse.json(errorResponse("Entrada no encontrada."), { status: 404 });
+      }
+
+      const ea = String((exists as { estado_pago?: unknown }).estado_pago ?? "").trim();
       console.info(LOG, {
-        entrada_id: entradaId,
+        stage: "after_update",
         empresa_id: empresaId,
         schema: dataSchema,
-        estado_anterior: estadoAnt,
+        entrada_id: entradaId,
         estado_nuevo: next,
-        resultado: "concurrent_skip",
+        estado_actual: ea,
+        resultado: "reject_wrong_state",
       });
-      return NextResponse.json(errorResponse("El estado cambió mientras procesábamos; actualizá la lista."), {
-        status: 409,
-      });
+      return NextResponse.json(
+        errorResponse(
+          ea === "confirmado" || ea === "rechazado"
+            ? "Este pago ya fue resuelto."
+            : `Solo se puede aprobar o rechazar desde «Pendiente revisión». Estado actual: ${ea}.`
+        ),
+        { status: 409 }
+      );
     }
 
-    invalidateSorteosListCachesForEmpresa(empresaId, dataSchema);
-
     console.info(LOG, {
-      entrada_id: entradaId,
+      stage: "after_update",
       empresa_id: empresaId,
       schema: dataSchema,
-      estado_anterior: estadoAnt,
+      entrada_id: entradaId,
       estado_nuevo: next,
       resultado: "ok",
+    });
+
+    invalidateSorteosListCachesForEmpresa(empresaId, dataSchema);
+    console.info(LOG, {
+      stage: "cache_invalidation",
+      empresa_id: empresaId,
+      schema: dataSchema,
+      entrada_id: entradaId,
+      estado_nuevo: next,
     });
 
     return NextResponse.json(
@@ -156,11 +321,13 @@ export async function PATCH(
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error(LOG, {
+      stage: "error",
       empresa_id: empresaIdForLog || undefined,
       schema: schemaForLog || undefined,
-      resultado: "exception",
-      message: msg.slice(0, 300),
+      entrada_id: entradaIdForLog || undefined,
+      estado_nuevo: undefined,
+      error: sanitizeErr(msg),
     });
-    return NextResponse.json(errorResponse(msg || "Error interno."), { status: 503 });
+    return NextResponse.json(errorResponse(sanitizeErr(msg) || "Error interno."), { status: 503 });
   }
 }
