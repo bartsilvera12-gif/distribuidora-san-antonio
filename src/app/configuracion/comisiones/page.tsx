@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { ChevronDown, Percent } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ConfigFormCard,
   ConfigHelpText,
+  ConfigMetricCard,
   ConfigSectionTitle,
   F_INPUT,
   F_LABEL,
@@ -29,7 +31,18 @@ const BASE_OPTIONS = [
   { value: "factura_pagada", label: "Factura pagada" },
 ] as const;
 
+const MODO_PERIODO_LABELS: Record<string, string> = {
+  mensual_penultimo_dia_habil: "Mensual (penúltimo día hábil)",
+};
+
 const POLITICA_ENDPOINT = "/api/comisiones/politica";
+
+const ESCALA_FILA_VACIA: EscalaRow = {
+  desde_monto: "0",
+  hasta_monto: "",
+  porcentaje_comision: "0",
+  premio_fijo: "",
+};
 
 function nuevoTraceCliente(): string {
   const a = new Uint8Array(8);
@@ -37,21 +50,111 @@ function nuevoTraceCliente(): string {
   return [...a].map((x) => x.toString(16).padStart(2, "0")).join("").slice(0, 12);
 }
 
+function labelBaseCalculo(value: string): string {
+  return BASE_OPTIONS.find((b) => b.value === value)?.label ?? value;
+}
+
+function labelModoPeriodo(raw: string): string {
+  return MODO_PERIODO_LABELS[raw] ?? raw;
+}
+
+function resumenEscalas(rows: EscalaRow[]): string {
+  if (rows.length === 0) return "Sin escalas";
+  const pct = rows[0]?.porcentaje_comision?.trim() || "0";
+  if (rows.length === 1) return `1 escala · ${pct}%`;
+  return `${rows.length} escalas · primer tramo ${pct}%`;
+}
+
+function formatUltimaActualizacion(iso: unknown): string | null {
+  if (typeof iso !== "string" || !iso.trim()) return null;
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleString("es-PY", { dateStyle: "short", timeStyle: "short" });
+  } catch {
+    return null;
+  }
+}
+
+type PoliticaApiData = {
+  politica: Record<string, unknown> | null;
+  escalas: Record<string, unknown>[];
+  puedeEditar?: boolean;
+  canEdit?: boolean;
+  rol?: string | null;
+};
+
 export default function ConfiguracionComisionesPage() {
   const [loading, setLoading] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [puedeEditar, setPuedeEditar] = useState(false);
+  /** Hay fila persistida en BD (GET devolvió politica con id). */
+  const [hayPoliticaGuardada, setHayPoliticaGuardada] = useState(false);
+  const [ultimaActualizacionIso, setUltimaActualizacionIso] = useState<string | null>(null);
+  const [editExpanded, setEditExpanded] = useState(true);
 
   const [nombre, setNombre] = useState("Política principal");
   const [activo, setActivo] = useState(true);
   const [baseCalculo, setBaseCalculo] = useState<string>("pago_registrado");
   const [timezone, setTimezone] = useState("America/Asuncion");
   const [modoPeriodo, setModoPeriodo] = useState("mensual_penultimo_dia_habil");
-  const [escalas, setEscalas] = useState<EscalaRow[]>([
-    { desde_monto: "0", hasta_monto: "", porcentaje_comision: "0", premio_fijo: "" },
-  ]);
+  const [escalas, setEscalas] = useState<EscalaRow[]>([ESCALA_FILA_VACIA]);
+
+  const primeraCargaRef = useRef(false);
+
+  const aplicarDatosApi = useCallback((data: PoliticaApiData | undefined, opts?: { inicializarExpanded?: boolean }) => {
+    if (!data) return;
+    const puedeFlag = data.puedeEditar ?? data.canEdit;
+    if (puedeFlag !== undefined) {
+      setPuedeEditar(Boolean(puedeFlag));
+    }
+
+    const pol = data.politica;
+    const esc = data.escalas ?? [];
+    const tieneId =
+      pol &&
+      typeof pol === "object" &&
+      "id" in pol &&
+      typeof (pol as { id: unknown }).id === "string" &&
+      String((pol as { id: string }).id).length > 0;
+
+    setHayPoliticaGuardada(Boolean(tieneId));
+
+    if (pol && typeof pol === "object") {
+      setNombre(typeof pol.nombre === "string" ? pol.nombre : "Política principal");
+      setActivo(pol.activo !== false);
+      setBaseCalculo(typeof pol.base_calculo === "string" ? pol.base_calculo : "pago_registrado");
+      setTimezone(typeof pol.timezone === "string" ? pol.timezone : "America/Asuncion");
+      setModoPeriodo(
+        typeof pol.modo_periodo === "string" ? pol.modo_periodo : "mensual_penultimo_dia_habil"
+      );
+      const ua = (pol as { updated_at?: unknown }).updated_at;
+      setUltimaActualizacionIso(typeof ua === "string" ? ua : null);
+    } else {
+      setUltimaActualizacionIso(null);
+    }
+
+    if (esc.length > 0) {
+      setEscalas(
+        esc.map((r) => ({
+          id: typeof r.id === "string" ? r.id : undefined,
+          desde_monto: String(r.desde_monto ?? "0"),
+          hasta_monto: r.hasta_monto != null ? String(r.hasta_monto) : "",
+          porcentaje_comision: String(r.porcentaje_comision ?? "0"),
+          premio_fijo: r.premio_fijo != null ? String(r.premio_fijo) : "",
+        }))
+      );
+    } else if (!tieneId) {
+      setEscalas([{ ...ESCALA_FILA_VACIA }]);
+    }
+
+    if (opts?.inicializarExpanded === true && !primeraCargaRef.current) {
+      primeraCargaRef.current = true;
+      setEditExpanded(!tieneId);
+    }
+  }, []);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -75,13 +178,7 @@ export default function ConfiguracionComisionesPage() {
           ? (parsed as {
               success?: boolean;
               traceId?: string;
-              data?: {
-                politica: Record<string, unknown> | null;
-                escalas: Record<string, unknown>[];
-                puedeEditar?: boolean;
-                canEdit?: boolean;
-                rol?: string | null;
-              };
+              data?: PoliticaApiData;
               error?: string;
             })
           : null;
@@ -111,32 +208,7 @@ export default function ConfiguracionComisionesPage() {
         return;
       }
 
-      const puede =
-        json.data?.puedeEditar ?? json.data?.canEdit ?? false;
-      setPuedeEditar(Boolean(puede));
-
-      const pol = json.data?.politica;
-      const esc = json.data?.escalas ?? [];
-      if (pol && typeof pol === "object") {
-        setNombre(typeof pol.nombre === "string" ? pol.nombre : "Política principal");
-        setActivo(pol.activo !== false);
-        setBaseCalculo(typeof pol.base_calculo === "string" ? pol.base_calculo : "pago_registrado");
-        setTimezone(typeof pol.timezone === "string" ? pol.timezone : "America/Asuncion");
-        setModoPeriodo(
-          typeof pol.modo_periodo === "string" ? pol.modo_periodo : "mensual_penultimo_dia_habil"
-        );
-      }
-      if (esc.length > 0) {
-        setEscalas(
-          esc.map((r) => ({
-            id: typeof r.id === "string" ? r.id : undefined,
-            desde_monto: String(r.desde_monto ?? "0"),
-            hasta_monto: r.hasta_monto != null ? String(r.hasta_monto) : "",
-            porcentaje_comision: String(r.porcentaje_comision ?? "0"),
-            premio_fijo: r.premio_fijo != null ? String(r.premio_fijo) : "",
-          }))
-        );
-      }
+      aplicarDatosApi(json.data, { inicializarExpanded: true });
     } catch (e) {
       const serialized = serializeUnknownError(e);
       console.warn("[configuracion/comisiones] cargar excepción", {
@@ -149,7 +221,7 @@ export default function ConfiguracionComisionesPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [aplicarDatosApi]);
 
   useEffect(() => {
     void cargar();
@@ -179,12 +251,21 @@ export default function ConfiguracionComisionesPage() {
           escalas: escalasPayload,
         }),
       });
-      const json = (await res.json()) as { success?: boolean; error?: string };
+      const json = (await res.json()) as {
+        success?: boolean;
+        error?: string;
+        data?: PoliticaApiData;
+      };
       if (!res.ok || json.success !== true) {
         throw new Error(json.error ?? `Error ${res.status}`);
       }
+      if (json.data) {
+        aplicarDatosApi(json.data);
+      }
+      setHayPoliticaGuardada(true);
+      setEditExpanded(false);
       setSuccess(true);
-      setTimeout(() => setSuccess(false), 4000);
+      setTimeout(() => setSuccess(false), 6000);
     } catch (e) {
       const serialized = serializeUnknownError(e);
       console.warn("[configuracion/comisiones] guardar excepción", {
@@ -198,6 +279,22 @@ export default function ConfiguracionComisionesPage() {
     }
   }
 
+  const badgeActivo = (
+    <span
+      className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+        hayPoliticaGuardada
+          ? activo
+            ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+            : "border-slate-200 bg-slate-100 text-slate-600"
+          : "border-amber-200 bg-amber-50 text-amber-900"
+      }`}
+    >
+      {!hayPoliticaGuardada ? "Sin guardar" : activo ? "ACTIVA" : "INACTIVA"}
+    </span>
+  );
+
+  const ultimaTxt = formatUltimaActualizacion(ultimaActualizacionIso);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24 text-sm text-slate-400">
@@ -209,11 +306,11 @@ export default function ConfiguracionComisionesPage() {
   return (
     <GlobalConfigSubpageShell
       title="Comisiones"
-      description="Política base y escalas por montos. El cálculo sobre facturas y pagos se activará en una etapa posterior."
+      description="Política comercial y escalas por montos. El motor de cálculo se habilitará en una etapa posterior."
     >
       {success && (
-        <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-          Cambios guardados correctamente.
+        <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-800">
+          Política guardada correctamente.
         </div>
       )}
       {error && (
@@ -221,188 +318,242 @@ export default function ConfiguracionComisionesPage() {
       )}
       {!puedeEditar && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Solo administradores de la empresa pueden editar esta configuración. Podés revisar los valores actuales.
+          Solo administradores de la empresa pueden editar esta configuración. Podés revisar los valores actuales en el
+          resumen y expandiendo la edición.
         </div>
       )}
 
-      <div className="space-y-5">
-        <ConfigFormCard>
-          <ConfigSectionTitle>Política</ConfigSectionTitle>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <label className={F_LABEL}>Nombre</label>
-              <input
-                type="text"
-                value={nombre}
-                onChange={(e) => setNombre(e.target.value)}
-                disabled={!puedeEditar}
-                className={F_INPUT}
-              />
+      {/* Una política por empresa (uq_comision_politicas_empresa). Varias políticas requerirían evolución de esquema. */}
+      <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-all hover:border-slate-300">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex min-w-0 gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700">
+              <Percent className="h-5 w-5" aria-hidden />
             </div>
-            <div>
-              <label className={F_LABEL}>Estado</label>
-              <select
-                value={activo ? "1" : "0"}
-                onChange={(e) => setActivo(e.target.value === "1")}
-                disabled={!puedeEditar}
-                className={F_INPUT}
-              >
-                <option value="1">Activa</option>
-                <option value="0">Inactiva</option>
-              </select>
-            </div>
-            <div>
-              <label className={F_LABEL}>Base de cálculo (futuro)</label>
-              <select
-                value={baseCalculo}
-                onChange={(e) => setBaseCalculo(e.target.value)}
-                disabled={!puedeEditar}
-                className={F_INPUT}
-              >
-                {BASE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-              <ConfigHelpText>
-                Define la fuente cuando el motor calcule comisiones (habilitación próxima).
-              </ConfigHelpText>
-            </div>
-            <div>
-              <label className={F_LABEL}>Zona horaria</label>
-              <input
-                type="text"
-                value={timezone}
-                onChange={(e) => setTimezone(e.target.value)}
-                disabled={!puedeEditar}
-                className={F_INPUT}
-              />
-            </div>
-            <div>
-              <label className={F_LABEL}>Modo de período</label>
-              <input
-                type="text"
-                value={modoPeriodo}
-                onChange={(e) => setModoPeriodo(e.target.value)}
-                disabled={!puedeEditar}
-                className={F_INPUT}
-              />
-              <ConfigHelpText>Valor por defecto del ERP: mensual (penúltimo día hábil).</ConfigHelpText>
+            <div className="min-w-0">
+              <h2 className="truncate font-semibold text-slate-900">{nombre || "Política comercial"}</h2>
+              <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                Política · empresa actual
+              </p>
             </div>
           </div>
-        </ConfigFormCard>
+          {badgeActivo}
+        </div>
 
-        <ConfigFormCard>
-          <ConfigSectionTitle>Escalas</ConfigSectionTitle>
-          <p className="mb-3 text-sm text-slate-600">
-            Rangos de monto y porcentaje de comisión. Dejá «Hasta» vacío para indicar sin techo en ese tramo.
-          </p>
-          <div className="space-y-3">
-            {escalas.map((row, idx) => (
-              <div
-                key={idx}
-                className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50/80 p-3 sm:grid-cols-12 sm:items-end"
-              >
-                <div className="sm:col-span-3">
-                  <label className={F_LABEL}>Desde (monto)</label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={row.desde_monto}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setEscalas((prev) => prev.map((x, i) => (i === idx ? { ...x, desde_monto: v } : x)));
-                    }}
-                    disabled={!puedeEditar}
-                    className={F_INPUT}
-                  />
-                </div>
-                <div className="sm:col-span-3">
-                  <label className={F_LABEL}>Hasta (opcional)</label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={row.hasta_monto}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setEscalas((prev) => prev.map((x, i) => (i === idx ? { ...x, hasta_monto: v } : x)));
-                    }}
-                    disabled={!puedeEditar}
-                    className={F_INPUT}
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <label className={F_LABEL}>% comisión</label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={row.porcentaje_comision}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setEscalas((prev) => prev.map((x, i) => (i === idx ? { ...x, porcentaje_comision: v } : x)));
-                    }}
-                    disabled={!puedeEditar}
-                    className={F_INPUT}
-                  />
-                </div>
-                <div className="sm:col-span-3">
-                  <label className={F_LABEL}>Premio fijo (opc.)</label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={row.premio_fijo}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setEscalas((prev) => prev.map((x, i) => (i === idx ? { ...x, premio_fijo: v } : x)));
-                    }}
-                    disabled={!puedeEditar}
-                    className={F_INPUT}
-                  />
-                </div>
-                <div className="sm:col-span-1 flex justify-end pb-1">
-                  {puedeEditar && escalas.length > 1 && (
-                    <button
-                      type="button"
-                      className="text-xs font-medium text-red-600 hover:underline"
-                      onClick={() => setEscalas((prev) => prev.filter((_, i) => i !== idx))}
-                    >
-                      Quitar
-                    </button>
-                  )}
-                </div>
+        <p className="mt-3 text-sm leading-relaxed text-slate-600">
+          Define cómo se calcularán las comisiones comerciales de esta empresa.
+        </p>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <ConfigMetricCard label="Base de cálculo" value={labelBaseCalculo(baseCalculo)} />
+          <ConfigMetricCard label="Escalas" value={resumenEscalas(escalas)} />
+          <ConfigMetricCard label="Zona horaria" value={timezone || "—"} />
+          <ConfigMetricCard label="Modo de período" value={labelModoPeriodo(modoPeriodo)} sub={modoPeriodo} />
+          <ConfigMetricCard
+            label="Última actualización"
+            value={ultimaTxt ?? "—"}
+            sub={!hayPoliticaGuardada ? "Guardá la política para fijar versión en servidor." : undefined}
+          />
+        </div>
+
+        <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
+          <button
+            type="button"
+            onClick={() => setEditExpanded((e) => !e)}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+          >
+            {editExpanded ? "Ocultar edición" : "Editar configuración"}
+            <ChevronDown
+              className={`h-4 w-4 shrink-0 transition-transform ${editExpanded ? "rotate-180" : ""}`}
+              aria-hidden
+            />
+          </button>
+          <span className="text-xs text-slate-400">
+            {editExpanded ? "Clic para contraer el formulario." : "Clic para expandir y editar campos."}
+          </span>
+        </div>
+      </section>
+
+      {editExpanded && (
+        <div className="space-y-5">
+          <ConfigFormCard>
+            <ConfigSectionTitle>Política</ConfigSectionTitle>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <label className={F_LABEL}>Nombre</label>
+                <input
+                  type="text"
+                  value={nombre}
+                  onChange={(e) => setNombre(e.target.value)}
+                  disabled={!puedeEditar}
+                  className={F_INPUT}
+                />
               </div>
-            ))}
-          </div>
-          {puedeEditar && (
-            <button
-              type="button"
-              className="mt-3 text-sm font-medium text-sky-700 hover:underline"
-              onClick={() =>
-                setEscalas((prev) => [
-                  ...prev,
-                  { desde_monto: "0", hasta_monto: "", porcentaje_comision: "0", premio_fijo: "" },
-                ])
-              }
-            >
-              + Agregar escala
-            </button>
-          )}
-        </ConfigFormCard>
+              <div>
+                <label className={F_LABEL}>Estado</label>
+                <select
+                  value={activo ? "1" : "0"}
+                  onChange={(e) => setActivo(e.target.value === "1")}
+                  disabled={!puedeEditar}
+                  className={F_INPUT}
+                >
+                  <option value="1">Activa</option>
+                  <option value="0">Inactiva</option>
+                </select>
+              </div>
+              <div>
+                <label className={F_LABEL}>Base de cálculo (futuro)</label>
+                <select
+                  value={baseCalculo}
+                  onChange={(e) => setBaseCalculo(e.target.value)}
+                  disabled={!puedeEditar}
+                  className={F_INPUT}
+                >
+                  {BASE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+                <ConfigHelpText>
+                  Define la fuente cuando el motor calcule comisiones (habilitación próxima).
+                </ConfigHelpText>
+              </div>
+              <div>
+                <label className={F_LABEL}>Zona horaria</label>
+                <input
+                  type="text"
+                  value={timezone}
+                  onChange={(e) => setTimezone(e.target.value)}
+                  disabled={!puedeEditar}
+                  className={F_INPUT}
+                />
+              </div>
+              <div>
+                <label className={F_LABEL}>Modo de período</label>
+                <input
+                  type="text"
+                  value={modoPeriodo}
+                  onChange={(e) => setModoPeriodo(e.target.value)}
+                  disabled={!puedeEditar}
+                  className={F_INPUT}
+                />
+                <ConfigHelpText>Valor por defecto del ERP: mensual (penúltimo día hábil).</ConfigHelpText>
+              </div>
+            </div>
+          </ConfigFormCard>
 
-        {puedeEditar && (
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={() => void handleGuardar()}
-              disabled={guardando}
-              className="rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-sky-700 disabled:opacity-60"
-            >
-              {guardando ? "Guardando…" : "Guardar política"}
-            </button>
-          </div>
-        )}
-      </div>
+          <ConfigFormCard>
+            <ConfigSectionTitle>Escalas</ConfigSectionTitle>
+            <p className="mb-3 text-sm text-slate-600">
+              Rangos de monto y porcentaje de comisión. Dejá «Hasta» vacío para indicar sin techo en ese tramo.
+            </p>
+            <div className="space-y-3">
+              {escalas.map((row, idx) => (
+                <div
+                  key={idx}
+                  className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50/80 p-3 sm:grid-cols-12 sm:items-end"
+                >
+                  <div className="sm:col-span-3">
+                    <label className={F_LABEL}>Desde (monto)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={row.desde_monto}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setEscalas((prev) => prev.map((x, i) => (i === idx ? { ...x, desde_monto: v } : x)));
+                      }}
+                      disabled={!puedeEditar}
+                      className={F_INPUT}
+                    />
+                  </div>
+                  <div className="sm:col-span-3">
+                    <label className={F_LABEL}>Hasta (opcional)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={row.hasta_monto}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setEscalas((prev) => prev.map((x, i) => (i === idx ? { ...x, hasta_monto: v } : x)));
+                      }}
+                      disabled={!puedeEditar}
+                      className={F_INPUT}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className={F_LABEL}>% comisión</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={row.porcentaje_comision}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setEscalas((prev) => prev.map((x, i) => (i === idx ? { ...x, porcentaje_comision: v } : x)));
+                      }}
+                      disabled={!puedeEditar}
+                      className={F_INPUT}
+                    />
+                  </div>
+                  <div className="sm:col-span-3">
+                    <label className={F_LABEL}>Premio fijo (opc.)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={row.premio_fijo}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setEscalas((prev) => prev.map((x, i) => (i === idx ? { ...x, premio_fijo: v } : x)));
+                      }}
+                      disabled={!puedeEditar}
+                      className={F_INPUT}
+                    />
+                  </div>
+                  <div className="flex justify-end pb-1 sm:col-span-1">
+                    {puedeEditar && escalas.length > 1 && (
+                      <button
+                        type="button"
+                        className="text-xs font-medium text-red-600 hover:underline"
+                        onClick={() => setEscalas((prev) => prev.filter((_, i) => i !== idx))}
+                      >
+                        Quitar
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {puedeEditar && (
+              <button
+                type="button"
+                className="mt-3 text-sm font-medium text-sky-700 hover:underline"
+                onClick={() =>
+                  setEscalas((prev) => [
+                    ...prev,
+                    { desde_monto: "0", hasta_monto: "", porcentaje_comision: "0", premio_fijo: "" },
+                  ])
+                }
+              >
+                + Agregar escala
+              </button>
+            )}
+          </ConfigFormCard>
+
+          {puedeEditar && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => void handleGuardar()}
+                disabled={guardando}
+                className="rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-sky-700 disabled:opacity-60"
+              >
+                {guardando ? "Guardando…" : "Guardar política"}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </GlobalConfigSubpageShell>
   );
 }
