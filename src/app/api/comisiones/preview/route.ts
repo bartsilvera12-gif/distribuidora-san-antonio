@@ -37,6 +37,67 @@ type LineaPreview = {
 
 const PAGE = 800;
 
+const ALERTA_NC_OMITIDA =
+  "No se pudieron considerar notas de crédito en esta preview para este schema. El neto de factura se calcula sin descontar NC.";
+
+function esErrorTablaNoDisponible(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("could not find the table") ||
+    m.includes("schema cache") ||
+    m.includes("does not exist") ||
+    /relation\s+["']?[\w.]+\s+does not exist/.test(m)
+  );
+}
+
+async function cargarNcAprobadasPorFacturaId(
+  sb: Awaited<ReturnType<typeof getChatServiceClientForEmpresa>>,
+  empresaId: string
+): Promise<{ ncMap: Map<string, number>; alertaNetoSinNc?: string }> {
+  const ncRowsRaw: Record<string, unknown>[] = [];
+  try {
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await sb
+        .from("nota_credito")
+        .select("factura_id, monto, estado_erp")
+        .eq("empresa_id", empresaId)
+        .range(from, from + PAGE - 1);
+      if (error) {
+        if (esErrorTablaNoDisponible(error.message)) {
+          console.warn("[api/comisiones/preview] nota_credito no disponible", {
+            empresa_id_prefix: empresaId.length >= 8 ? empresaId.slice(0, 8) : empresaId,
+            detail: error.message.slice(0, 200),
+          });
+          return { ncMap: new Map(), alertaNetoSinNc: ALERTA_NC_OMITIDA };
+        }
+        throw new Error(error.message);
+      }
+      const chunk = data ?? [];
+      ncRowsRaw.push(...chunk);
+      if (chunk.length < PAGE) break;
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (esErrorTablaNoDisponible(msg)) {
+      console.warn("[api/comisiones/preview] nota_credito omitida", {
+        empresa_id_prefix: empresaId.length >= 8 ? empresaId.slice(0, 8) : empresaId,
+        detail: msg.slice(0, 200),
+      });
+      return { ncMap: new Map(), alertaNetoSinNc: ALERTA_NC_OMITIDA };
+    }
+    throw e;
+  }
+
+  const ncMap = buildMontoNcAprobadaPorFacturaIdPreview(
+    ncRowsRaw.map((r) => ({
+      factura_id: String(r.factura_id ?? ""),
+      monto: Number(r.monto) || 0,
+      estado_erp: String(r.estado_erp ?? ""),
+    })) as NotaCreditoPreviewRow[]
+  );
+  return { ncMap };
+}
+
 function parseEscalas(rows: Record<string, unknown>[] | null): EscalaPolitica[] {
   if (!rows?.length) return [];
   return rows.map((r, i) => ({
@@ -148,26 +209,7 @@ export async function GET(request: Request) {
       clienteVendedor.set(id, typeof v === "string" && v.trim() ? v.trim() : null);
     }
 
-    const ncRowsRaw: Record<string, unknown>[] = [];
-    for (let from = 0; ; from += PAGE) {
-      const { data, error } = await sb
-        .from("notas_credito")
-        .select("factura_id, monto, estado_erp")
-        .eq("empresa_id", empresaId)
-        .range(from, from + PAGE - 1);
-      if (error) throw new Error(error.message);
-      const chunk = data ?? [];
-      ncRowsRaw.push(...chunk);
-      if (chunk.length < PAGE) break;
-    }
-
-    const ncMap = buildMontoNcAprobadaPorFacturaIdPreview(
-      ncRowsRaw.map((r) => ({
-        factura_id: String(r.factura_id ?? ""),
-        monto: Number(r.monto) || 0,
-        estado_erp: String(r.estado_erp ?? ""),
-      })) as NotaCreditoPreviewRow[]
-    );
+    const { ncMap, alertaNetoSinNc } = await cargarNcAprobadasPorFacturaId(sb, empresaId);
 
     const verTodoEmpresa =
       esRolAdminEmpresaOGlobal(auth.rol) || isErpRolSupervisor(auth.rol);
@@ -446,6 +488,7 @@ export async function GET(request: Request) {
           sin_escalas: sinEscalas,
           alcance: soloVendedor ? "solo_vendedor_autenticado" : "empresa",
           supervisor_equipos_pendiente: isErpRolSupervisor(auth.rol),
+          alerta_neto_sin_nc: alertaNetoSinNc ?? null,
           documentacion_base: {
             pago_registrado:
               "Suma pagos.monto con fecha_pago en el período; factura no anulada ni corregida NC; cliente con vendedor_usuario_id.",

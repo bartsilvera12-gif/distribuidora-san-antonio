@@ -1,4 +1,7 @@
-/** Helpers de neteo de factura para preview (sin depender de dashboard/data ni cliente). */
+/**
+ * Helpers de neteo de factura para preview (sin depender de dashboard/data ni cliente).
+ * Las filas NC provienen de la tabla tenant `nota_credito` (singular), no `notas_credito`.
+ */
 
 export interface FacturaPreviewRow {
   id: number | string;

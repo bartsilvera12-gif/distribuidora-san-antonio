@@ -47,6 +47,8 @@ type PreviewMeta = {
   sin_escalas?: boolean;
   alcance?: string;
   supervisor_equipos_pendiente?: boolean;
+  /** Si no se pudieron cargar NC, el neto va sin descontar aprobadas. */
+  alerta_neto_sin_nc?: string | null;
   documentacion_base?: Record<string, string>;
 };
 
@@ -180,6 +182,12 @@ export default function ComisionesPage() {
       {meta?.supervisor_equipos_pendiente && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600">
           Alcance de supervisor por equipos: pendiente de definir; hoy se muestra la empresa completa.
+        </div>
+      )}
+
+      {meta?.alerta_neto_sin_nc && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          {meta.alerta_neto_sin_nc}
         </div>
       )}
 
