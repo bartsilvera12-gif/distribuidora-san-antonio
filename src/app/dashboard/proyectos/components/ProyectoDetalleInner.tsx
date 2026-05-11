@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import {
   PROYECTO_DATOS_BRIEF_FIELDS,
@@ -97,7 +97,7 @@ export default function ProyectoDetalleInner({
   const [briefForm, setBriefForm] = useState<Record<string, string>>({});
   const [montoStr, setMontoStr] = useState("");
   const [observaciones, setObservaciones] = useState("");
-  const datosSnapshot = useRef<string>("");
+  const [datosSnapshot, setDatosSnapshot] = useState("");
 
   const load = useCallback(async () => {
     if (!projectId) return;
@@ -117,11 +117,11 @@ export default function ProyectoDetalleInner({
     const mv = p.monto_vendido;
     setMontoStr(mv != null && mv !== "" ? String(mv) : "");
     setObservaciones(typeof p.observaciones_comerciales === "string" ? p.observaciones_comerciales : "");
-    datosSnapshot.current = JSON.stringify({
+    setDatosSnapshot(JSON.stringify({
       bf: merged,
       monto: mv != null && mv !== "" ? String(mv) : "",
       obs: typeof p.observaciones_comerciales === "string" ? p.observaciones_comerciales : "",
-    });
+    }));
     setLoading(false);
   }, [projectId]);
 
@@ -155,8 +155,8 @@ export default function ProyectoDetalleInner({
       monto: montoStr,
       obs: observaciones,
     });
-    return datosSnapshot.current !== "" && cur !== datosSnapshot.current;
-  }, [briefForm, montoStr, observaciones]);
+    return datosSnapshot !== "" && cur !== datosSnapshot;
+  }, [briefForm, montoStr, observaciones, datosSnapshot]);
 
   useEffect(() => {
     onDirtyChange?.(datosDirty);

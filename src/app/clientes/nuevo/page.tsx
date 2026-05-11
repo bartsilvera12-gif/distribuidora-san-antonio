@@ -18,7 +18,7 @@ import {
   type TributarioFormState,
 } from "@/components/clientes/ClientePerfilTributarioForm";
 import { getProspecto, updateProspecto } from "@/lib/crm/storage";
-import { getUsuariosActivosEmpresa } from "@/lib/usuarios/empresa";
+import { getUsuariosActivosEmpresa, type UsuarioEmpresa } from "@/lib/usuarios/empresa";
 import MontoInput from "@/components/ui/MontoInput";
 import { getPlanes } from "@/lib/planes/storage";
 import type { TipoCliente, OrigenCliente } from "@/lib/clientes/types";
@@ -51,7 +51,8 @@ function NuevoClienteForm() {
   const [error,      setError]      = useState<string | null>(null);
   const [guardando,  setGuardando]  = useState(false);
   const [planes,     setPlanes]     = useState<Plan[]>([]);
-  const [usuariosEmpresa, setUsuariosEmpresa] = useState<{ id: string; nombre: string | null; email: string }[]>([]);
+  const [usuariosEmpresa, setUsuariosEmpresa] = useState<UsuarioEmpresa[]>([]);
+  const [usuariosEmpresaError, setUsuariosEmpresaError] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     tipo_cliente:        "empresa" as TipoCliente,
@@ -109,7 +110,22 @@ function NuevoClienteForm() {
   }, []);
 
   useEffect(() => {
-    void getUsuariosActivosEmpresa().then(setUsuariosEmpresa);
+    let cancelled = false;
+    (async () => {
+      try {
+        const usuarios = await getUsuariosActivosEmpresa();
+        if (cancelled) return;
+        setUsuariosEmpresa(usuarios);
+        setUsuariosEmpresaError(null);
+      } catch (e) {
+        if (cancelled) return;
+        setUsuariosEmpresa([]);
+        setUsuariosEmpresaError(e instanceof Error ? e.message : "No se pudieron cargar usuarios activos.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -564,6 +580,11 @@ function NuevoClienteForm() {
                     </option>
                   ))}
                 </select>
+                {usuariosEmpresaError ? (
+                  <p className="mt-1 text-xs text-red-600">{usuariosEmpresaError}</p>
+                ) : usuariosEmpresa.length === 0 ? (
+                  <p className="mt-1 text-xs text-slate-500">No hay usuarios activos disponibles para asignar.</p>
+                ) : null}
               </div>
               <div>
                 <label className={labelClass}>Vendedor asignado (texto libre)</label>

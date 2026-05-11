@@ -1,31 +1,47 @@
-import { supabase } from "@/lib/supabase";
-import { getCurrentUser } from "@/lib/auth";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 
 export interface UsuarioEmpresa {
   id: string;
   nombre: string | null;
   email: string;
+  rol: string | null;
+  estado: string | null;
 }
 
-/** Lista usuarios activos de la empresa del usuario actual. Para selects de responsable, etc. */
+type UsuariosEmpresaResponse = {
+  usuarios?: unknown;
+  error?: string;
+};
+
+/** Lista usuarios activos de la empresa del usuario actual vía API server-side. */
 export async function getUsuariosActivosEmpresa(): Promise<UsuarioEmpresa[]> {
-  const usuario = await getCurrentUser();
-  if (!usuario?.empresa_id) return [];
+  const res = await fetchWithSupabaseSession("/api/usuarios/empresa-activos", {
+    cache: "no-store",
+  });
 
-  const { data, error } = await supabase
-    .from("usuarios")
-    .select("id, nombre, email")
-    .eq("empresa_id", usuario.empresa_id)
-    .eq("estado", "activo")
-    .order("nombre", { ascending: true });
-
-  if (error) {
-    console.error("[usuarios] getUsuariosActivosEmpresa:", error.message);
-    return [];
+  let json: UsuariosEmpresaResponse;
+  try {
+    json = (await res.json()) as UsuariosEmpresaResponse;
+  } catch {
+    throw new Error("Respuesta inválida al cargar usuarios activos.");
   }
-  return (data ?? []).map((r) => ({
-    id: r.id,
-    nombre: r.nombre ?? r.email ?? "—",
-    email: r.email ?? "",
-  }));
+
+  if (!res.ok) {
+    throw new Error(json.error ?? `Error ${res.status} al cargar usuarios activos.`);
+  }
+
+  if (!Array.isArray(json.usuarios)) {
+    throw new Error(json.error ?? "Respuesta inválida al cargar usuarios activos.");
+  }
+
+  return json.usuarios
+    .filter((r): r is Record<string, unknown> => r != null && typeof r === "object")
+    .map((r) => ({
+      id: typeof r.id === "string" ? r.id : "",
+      nombre: typeof r.nombre === "string" ? r.nombre : null,
+      email: typeof r.email === "string" ? r.email : "",
+      rol: typeof r.rol === "string" ? r.rol : null,
+      estado: typeof r.estado === "string" ? r.estado : null,
+    }))
+    .filter((u) => u.id.trim() !== "");
 }

@@ -26,7 +26,7 @@ import {
 } from "@/lib/api/client";
 import { getFacturas, getSuscripciones } from "@/lib/facturacion/storage";
 import { getMarketingTasks, createMarketingTask, updateTaskStatus } from "@/lib/marketing/storage";
-import { getUsuariosActivosEmpresa } from "@/lib/usuarios/empresa";
+import { getUsuariosActivosEmpresa, type UsuarioEmpresa } from "@/lib/usuarios/empresa";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { SifenEstadoBadge } from "@/components/sifen/SifenEstadoBadge";
 import { useFacturaSifenEstados } from "@/hooks/useFacturaSifenEstados";
@@ -237,7 +237,8 @@ export default function ClienteDetailPage() {
   });
   const [guardandoSusc, setGuardandoSusc] = useState(false);
   const [marketingTasks, setMarketingTasks] = useState<MarketingTask[]>([]);
-  const [usuariosEmpresa, setUsuariosEmpresa] = useState<{ id: string; nombre: string | null; email: string }[]>([]);
+  const [usuariosEmpresa, setUsuariosEmpresa] = useState<UsuarioEmpresa[]>([]);
+  const [usuariosEmpresaError, setUsuariosEmpresaError] = useState<string | null>(null);
   const [modalNuevaTarea, setModalNuevaTarea] = useState(false);
   const [formTarea, setFormTarea] = useState({ titulo: "", descripcion: "", tipo_contenido: "post" as const, fecha_entrega: "", responsable_user_id: "", prioridad: "" as "" | "baja" | "media" | "alta" | "urgente" });
   const [guardandoTarea, setGuardandoTarea] = useState(false);
@@ -435,10 +436,28 @@ export default function ClienteDetailPage() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const usuarios = await getUsuariosActivosEmpresa();
+        if (cancelled) return;
+        setUsuariosEmpresa(usuarios);
+        setUsuariosEmpresaError(null);
+      } catch (e) {
+        if (cancelled) return;
+        setUsuariosEmpresa([]);
+        setUsuariosEmpresaError(e instanceof Error ? e.message : "No se pudieron cargar usuarios activos.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!id.trim()) return;
     if (activeTab === "marketing") {
       getMarketingTasks(id).then(setMarketingTasks);
-      getUsuariosActivosEmpresa().then(setUsuariosEmpresa);
     }
     if (activeTab === "estado_cuenta" || activeTab === "suscripciones") {
       getFacturas(id).then(setFacturas);
@@ -1527,6 +1546,11 @@ export default function ClienteDetailPage() {
                         </option>
                       ))}
                     </select>
+                    {usuariosEmpresaError ? (
+                      <p className="mt-1 text-xs text-red-600">{usuariosEmpresaError}</p>
+                    ) : usuariosEmpresa.length === 0 ? (
+                      <p className="mt-1 text-xs text-slate-500">No hay usuarios activos disponibles para asignar.</p>
+                    ) : null}
                   </div>
                   <div>
                     <label className={labelClass}>Vendedor asignado (texto libre)</label>
