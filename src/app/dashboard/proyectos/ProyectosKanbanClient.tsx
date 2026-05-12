@@ -16,7 +16,6 @@ import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
-import { slaDeadlineBadge, type SlaBadge } from "@/lib/proyectos/sla-badge";
 import ProyectoDetalleModal from "./components/ProyectoDetalleModal";
 
 type EstadoRow = {
@@ -25,6 +24,9 @@ type EstadoRow = {
   codigo: string;
   color: string;
   sort_order: number;
+  cuenta_sla?: boolean;
+  sla_horas_objetivo?: number | null;
+  es_estado_final?: boolean;
   inactiveFallback?: boolean;
 };
 
@@ -39,21 +41,25 @@ type ProyectoCard = Record<string, unknown> & {
   bloqueado?: boolean;
   archivado?: boolean;
   proyecto_tipo?: { nombre?: string; codigo?: string } | null;
-  proyecto_estado?: { nombre?: string; codigo?: string; color?: string; es_estado_final?: boolean } | null;
+  proyecto_estado?: {
+    nombre?: string;
+    codigo?: string;
+    color?: string;
+    cuenta_sla?: boolean;
+    sla_horas_objetivo?: number | null;
+    es_estado_final?: boolean;
+  } | null;
   cliente?: { empresa?: string | null; nombre_contacto?: string | null } | null;
   responsable_comercial?: { nombre?: string | null } | null;
   responsable_tecnico?: { nombre?: string | null } | null;
-};
-
-type DashboardData = {
-  activos: number;
-  vencidos: number;
-  por_vencer: number;
-  esperando_cliente: number;
-  entregados_este_mes: number;
-  tiempo_promedio_produccion_dias: number | null;
-  por_estado: { estado_id: string; nombre: string; cantidad: number; color: string }[];
-  por_responsable: { usuario_id: string; rol: string; cantidad: number }[];
+  tiempo_en_estado_segundos?: number | null;
+  sla_estado_actual?: {
+    cuenta_sla: boolean;
+    objetivo_horas: number | null;
+    vencido: boolean;
+    restante_segundos: number | null;
+    excedido_segundos: number | null;
+  };
 };
 
 type PrioridadConfig = {
@@ -104,20 +110,6 @@ function readEstadoIdFromDropId(id: unknown): string | null {
   return raw.startsWith(COLUMN_DROP_PREFIX) ? raw.slice(COLUMN_DROP_PREFIX.length) : null;
 }
 
-function badgeSlaLabel(b: SlaBadge): string {
-  if (b === "ok") return "A tiempo";
-  if (b === "por_vencer") return "Por vencer";
-  if (b === "vencido") return "Vencido";
-  return "—";
-}
-
-function badgeSlaClass(b: SlaBadge): string {
-  if (b === "ok") return "bg-emerald-100 text-emerald-800";
-  if (b === "por_vencer") return "bg-amber-100 text-amber-900";
-  if (b === "vencido") return "bg-red-100 text-red-800";
-  return "bg-slate-100 text-slate-600";
-}
-
 function prioridadFallbackVisual(p: string): {
   bgColor: string;
   textColor: string;
@@ -161,11 +153,34 @@ function readableTextColor(hex: string | null | undefined): string {
   return luminance < 0.52 ? "#ffffff" : "#111827";
 }
 
+function formatSlaDuration(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds)) return "—";
+  const totalHours = Math.max(0, Math.floor(seconds / 3600));
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  if (days > 0 && hours > 0) return `${days}d ${hours}h`;
+  if (days > 0) return `${days}d`;
+  return `${hours}h`;
+}
+
+function formatSlaTarget(hours: number | null | undefined): string | null {
+  if (hours == null || !Number.isFinite(hours)) return null;
+  return formatSlaDuration(hours * 3600);
+}
+
+function slaEstadoLabel(p: ProyectoCard): string {
+  const sla = p.sla_estado_actual;
+  if (!sla?.cuenta_sla) return "SLA —";
+  if (sla.vencido) return `SLA vencido: +${formatSlaDuration(sla.excedido_segundos)}`;
+  const elapsed = formatSlaDuration(p.tiempo_en_estado_segundos);
+  const target = formatSlaTarget(sla.objetivo_horas);
+  return target ? `SLA: ${elapsed} / ${target}` : `SLA: ${elapsed}`;
+}
+
 export default function ProyectosKanbanClient() {
   const [estados, setEstados] = useState<EstadoRow[]>([]);
   const [proyectos, setProyectos] = useState<ProyectoCard[]>([]);
   const [prioridadesConfig, setPrioridadesConfig] = useState<PrioridadConfig[]>([]);
-  const [dash, setDash] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [movingProjectId, setMovingProjectId] = useState<string | null>(null);
@@ -195,18 +210,16 @@ export default function ProyectosKanbanClient() {
     if (filtroRc) sp.set("responsable_comercial_id", filtroRc);
     if (filtroRt) sp.set("responsable_tecnico_id", filtroRt);
 
-    const [rEst, rPr, rDash, rTipos, rUsers, rPrioridades] = await Promise.all([
+    const [rEst, rPr, rTipos, rUsers, rPrioridades] = await Promise.all([
       fetchWithSupabaseSession("/api/proyectos/estados", { cache: "no-store" }),
       fetchWithSupabaseSession(`/api/proyectos?${sp.toString()}`, { cache: "no-store" }),
-      fetchWithSupabaseSession("/api/proyectos/dashboard", { cache: "no-store" }),
       fetchWithSupabaseSession("/api/proyectos/tipos", { cache: "no-store" }),
-      fetchWithSupabaseSession("/api/empresas/usuarios", { cache: "no-store" }),
+      fetchWithSupabaseSession("/api/usuarios/empresa-activos", { cache: "no-store" }),
       fetchWithSupabaseSession("/api/configuracion/proyectos/prioridades", { cache: "no-store" }),
     ]);
 
     const jEst = (await rEst.json().catch(() => ({}))) as { success?: boolean; data?: EstadoRow[]; error?: string };
     const jPr = (await rPr.json().catch(() => ({}))) as { success?: boolean; data?: ProyectoCard[]; error?: string };
-    const jDash = (await rDash.json().catch(() => ({}))) as { success?: boolean; data?: DashboardData; error?: string };
     const jTipos = (await rTipos.json().catch(() => ({}))) as {
       success?: boolean;
       data?: { id: string; nombre: string }[];
@@ -227,7 +240,6 @@ export default function ProyectosKanbanClient() {
       setLoading(false);
       return;
     }
-    if (rDash.ok && jDash.success && jDash.data) setDash(jDash.data);
     setEstados(jEst.data ?? []);
     setProyectos(jPr.data ?? []);
 
@@ -317,7 +329,9 @@ export default function ProyectosKanbanClient() {
                     nombre: destino.nombre,
                     codigo: destino.codigo,
                     color: destino.color,
-                    es_estado_final: p.proyecto_estado?.es_estado_final,
+                    cuenta_sla: destino.cuenta_sla,
+                    sla_horas_objetivo: destino.sla_horas_objetivo,
+                    es_estado_final: destino.es_estado_final ?? p.proyecto_estado?.es_estado_final,
                   }
                 : p.proyecto_estado,
             }
@@ -391,20 +405,18 @@ export default function ProyectosKanbanClient() {
 
       {err ? <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{err}</div> : null}
 
-      {dash ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-          <Metric label="Activos" value={dash.activos} />
-          <Metric label="Vencidos (fecha)" value={dash.vencidos} tone="danger" />
-          <Metric label="Por vencer (48h)" value={dash.por_vencer} tone="warn" />
-          <Metric label="Esperando cliente" value={dash.esperando_cliente} />
-          <Metric label="Entregados (mes)" value={dash.entregados_este_mes} tone="ok" />
-          <Metric
-            label="Prom. producción (días)"
-            value={dash.tiempo_promedio_produccion_dias ?? "—"}
-            sub
-          />
+      <div className="overflow-x-auto pb-1">
+        <div className="flex min-w-full gap-3">
+          {estados.map((estado) => (
+            <EstadoMetric
+              key={estado.id}
+              label={estado.nombre}
+              value={byColumn.get(estado.id)?.length ?? 0}
+              color={estado.color}
+            />
+          ))}
         </div>
-      ) : null}
+      </div>
 
       <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm xl:flex-row xl:flex-wrap xl:items-center">
         <input
@@ -578,11 +590,6 @@ function ProjectCardView({
     data: { projectId: p.id, estadoId: p.estado_id },
   });
 
-  const sla = slaDeadlineBadge({
-    fecha_prometida: p.fecha_prometida,
-    archivado: p.archivado,
-    estado_final: p.proyecto_estado?.es_estado_final,
-  });
   const cli =
     (p.cliente?.empresa || "").trim() ||
     (p.cliente?.nombre_contacto || "").trim() ||
@@ -643,8 +650,8 @@ function ProjectCardView({
           >
             {prioridadConfig?.nombre ?? prioridadFallbackLabel(p.prioridad)}
           </span>
-          <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${badgeSlaClass(sla)}`}>
-            SLA {badgeSlaLabel(sla)}
+          <span className="rounded border px-1.5 py-0.5 text-[10px] font-medium" style={softBadgeStyle}>
+            {slaEstadoLabel(p)}
           </span>
           {p.bloqueado ? (
             <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium text-rose-800">
@@ -699,29 +706,22 @@ function ProjectCardView({
   );
 }
 
-function Metric({
+function EstadoMetric({
   label,
   value,
-  tone,
-  sub,
+  color,
 }: {
   label: string;
-  value: number | string;
-  tone?: "danger" | "warn" | "ok";
-  sub?: boolean;
+  value: number;
+  color: string;
 }) {
-  const ring =
-    tone === "danger"
-      ? "border-red-200 bg-red-50"
-      : tone === "warn"
-        ? "border-amber-200 bg-amber-50"
-        : tone === "ok"
-          ? "border-emerald-200 bg-emerald-50"
-          : "border-slate-200 bg-white";
   return (
-    <div className={`rounded-xl border px-3 py-3 shadow-sm ${ring}`}>
-      <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{label}</div>
-      <div className={`mt-1 text-2xl font-semibold ${sub ? "text-slate-700" : "text-slate-900"}`}>{value}</div>
+    <div className="min-w-[190px] flex-1 rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm">
+      <div className="mb-2 h-1 rounded-full" style={{ backgroundColor: color || "#94a3b8" }} />
+      <div className="truncate text-[11px] font-medium uppercase tracking-wide text-slate-500" title={label}>
+        {label}
+      </div>
+      <div className="mt-1 text-2xl font-semibold text-slate-900">{value}</div>
     </div>
   );
 }

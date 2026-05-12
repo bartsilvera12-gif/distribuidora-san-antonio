@@ -32,7 +32,6 @@ export default function ProyectoNuevoClient() {
   const [rt, setRt] = useState("");
   const [fechaIngreso, setFechaIngreso] = useState(() => new Date().toISOString().slice(0, 10));
   const [fechaProm, setFechaProm] = useState("");
-  const [monto, setMonto] = useState("");
   const [brief, setBrief] = useState<Record<string, string>>({});
 
   const tipoCodigo = useMemo(() => tipos.find((t) => t.id === tipoId)?.codigo ?? "", [tipos, tipoId]);
@@ -45,7 +44,7 @@ export default function ProyectoNuevoClient() {
         fetchWithSupabaseSession("/api/proyectos/tipos", { cache: "no-store" }),
         fetchWithSupabaseSession("/api/proyectos/estados", { cache: "no-store" }),
         fetchWithSupabaseSession("/api/clientes", { cache: "no-store" }),
-        fetchWithSupabaseSession("/api/empresas/usuarios", { cache: "no-store" }),
+        fetchWithSupabaseSession("/api/usuarios/empresa-activos", { cache: "no-store" }),
       ]);
       const jT = (await rT.json()) as { success?: boolean; data?: Tipo[] };
       const jE = (await rE.json()) as { success?: boolean; data?: Estado[] };
@@ -88,7 +87,6 @@ export default function ProyectoNuevoClient() {
       responsable_tecnico_id: rt || null,
       fecha_ingreso: new Date(fechaIngreso + "T12:00:00").toISOString(),
       fecha_prometida: fechaProm ? new Date(fechaProm + "T12:00:00").toISOString() : null,
-      monto_vendido: monto.trim() === "" ? null : Number(monto),
       brief_data,
     };
     if (estadoId) body.estado_id = estadoId;
@@ -171,7 +169,7 @@ export default function ProyectoNuevoClient() {
               onChange={(e) => setPrioridad(e.target.value)}
             >
               <option value="baja">Baja</option>
-              <option value="normal">Normal</option>
+              <option value="normal">Media</option>
               <option value="alta">Alta</option>
               <option value="urgente">Urgente</option>
             </select>
@@ -223,16 +221,6 @@ export default function ProyectoNuevoClient() {
               className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
               value={fechaProm}
               onChange={(e) => setFechaProm(e.target.value)}
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="font-medium text-slate-700">Monto vendido</span>
-            <input
-              type="number"
-              step="0.01"
-              className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
-              value={monto}
-              onChange={(e) => setMonto(e.target.value)}
             />
           </label>
         </div>

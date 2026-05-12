@@ -9,7 +9,6 @@ import {
   applyBriefFormToExisting,
   coalesceBriefData,
   formatFechaPyFull,
-  formatMontoPyg,
 } from "@/lib/proyectos/brief-data";
 
 export type DetalleResp = {
@@ -28,6 +27,8 @@ export type DetalleResp = {
   archivos: Record<string, unknown>[];
   avance_pct: number | null;
 };
+
+type UsuarioActivo = { id: string; nombre?: string | null; email?: string | null };
 
 const TAB_IDS = ["resumen", "datos", "tareas", "comentarios", "archivos", "historial"] as const;
 export type TabId = (typeof TAB_IDS)[number];
@@ -54,6 +55,14 @@ function clienteNombre(p: Record<string, unknown>): string {
   const b = (c.nombre_contacto ?? "").trim();
   if (a && b) return `${a} · ${b}`;
   return a || b || "—";
+}
+
+function prioridadLabel(value: unknown): string {
+  if (value === "normal") return "Media";
+  if (value === "baja") return "Baja";
+  if (value === "alta") return "Alta";
+  if (value === "urgente") return "Urgente";
+  return value == null ? "—" : String(value);
 }
 
 export type ProyectoDetalleInnerProps = {
@@ -88,6 +97,7 @@ export default function ProyectoDetalleInner({
 
   const [data, setData] = useState<DetalleResp | null>(null);
   const [estados, setEstados] = useState<{ id: string; nombre: string }[]>([]);
+  const [usuarios, setUsuarios] = useState<UsuarioActivo[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -95,7 +105,7 @@ export default function ProyectoDetalleInner({
   const [tareaTitulo, setTareaTitulo] = useState("");
 
   const [briefForm, setBriefForm] = useState<Record<string, string>>({});
-  const [montoStr, setMontoStr] = useState("");
+  const [responsableTecnicoId, setResponsableTecnicoId] = useState("");
   const [observaciones, setObservaciones] = useState("");
   const [datosSnapshot, setDatosSnapshot] = useState("");
 
@@ -114,12 +124,11 @@ export default function ProyectoDetalleInner({
     const p = j.data.proyecto;
     const merged = coalesceBriefData(p.brief_data);
     setBriefForm(merged);
-    const mv = p.monto_vendido;
-    setMontoStr(mv != null && mv !== "" ? String(mv) : "");
+    setResponsableTecnicoId(typeof p.responsable_tecnico_id === "string" ? p.responsable_tecnico_id : "");
     setObservaciones(typeof p.observaciones_comerciales === "string" ? p.observaciones_comerciales : "");
     setDatosSnapshot(JSON.stringify({
       bf: merged,
-      monto: mv != null && mv !== "" ? String(mv) : "",
+      responsable_tecnico_id: typeof p.responsable_tecnico_id === "string" ? p.responsable_tecnico_id : "",
       obs: typeof p.observaciones_comerciales === "string" ? p.observaciones_comerciales : "",
     }));
     setLoading(false);
@@ -140,9 +149,14 @@ export default function ProyectoDetalleInner({
   useEffect(() => {
     let c = false;
     (async () => {
-      const r = await fetchWithSupabaseSession("/api/proyectos/estados", { cache: "no-store" });
+      const [r, rUsers] = await Promise.all([
+        fetchWithSupabaseSession("/api/proyectos/estados", { cache: "no-store" }),
+        fetchWithSupabaseSession("/api/usuarios/empresa-activos", { cache: "no-store" }),
+      ]);
       const j = (await r.json()) as { success?: boolean; data?: { id: string; nombre: string }[] };
+      const jUsers = (await rUsers.json()) as { usuarios?: UsuarioActivo[] };
       if (!c && j.success && j.data) setEstados(j.data);
+      if (!c) setUsuarios(jUsers.usuarios ?? []);
     })();
     return () => {
       c = true;
@@ -152,11 +166,11 @@ export default function ProyectoDetalleInner({
   const datosDirty = useMemo(() => {
     const cur = JSON.stringify({
       bf: briefForm,
-      monto: montoStr,
+      responsable_tecnico_id: responsableTecnicoId,
       obs: observaciones,
     });
     return datosSnapshot !== "" && cur !== datosSnapshot;
-  }, [briefForm, montoStr, observaciones, datosSnapshot]);
+  }, [briefForm, responsableTecnicoId, observaciones, datosSnapshot]);
 
   useEffect(() => {
     onDirtyChange?.(datosDirty);
@@ -171,7 +185,7 @@ export default function ProyectoDetalleInner({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         brief_data: briefMerged,
-        monto_vendido: montoStr.trim() === "" ? null : Number(montoStr),
+        responsable_tecnico_id: responsableTecnicoId || null,
         observaciones_comerciales: observaciones.trim() === "" ? null : observaciones.trim(),
       }),
     });
@@ -373,9 +387,9 @@ export default function ProyectoDetalleInner({
                   </dd>
                 </div>
                 <div className="flex justify-between gap-3 border-b border-slate-700/50 pb-2">
-                  <dt className={labelCls}>Monto vendido</dt>
-                  <dd className="text-right font-medium tabular-nums text-slate-100">
-                    {formatMontoPyg(proyecto.monto_vendido)}
+                  <dt className={labelCls}>Técnico responsable</dt>
+                  <dd className="text-right text-slate-100">
+                    {(proyecto as { responsable_tecnico?: { nombre?: string } }).responsable_tecnico?.nombre ?? "—"}
                   </dd>
                 </div>
                 <div className="flex justify-between gap-3 border-b border-slate-700/50 pb-2">
@@ -406,7 +420,7 @@ export default function ProyectoDetalleInner({
                 </div>
                 <div className="flex justify-between gap-3">
                   <dt className={labelCls}>Prioridad</dt>
-                  <dd className="text-right capitalize text-slate-100">{String(proyecto.prioridad ?? "—")}</dd>
+                  <dd className="text-right text-slate-100">{prioridadLabel(proyecto.prioridad)}</dd>
                 </div>
               </dl>
             </div>
@@ -457,14 +471,19 @@ export default function ProyectoDetalleInner({
 
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block text-sm">
-                <span className={labelCls}>Monto vendido (₲)</span>
-                <input
-                  type="number"
-                  step="1"
+                <span className={labelCls}>Técnico responsable</span>
+                <select
                   className={inputCls}
-                  value={montoStr}
-                  onChange={(e) => setMontoStr(e.target.value)}
-                />
+                  value={responsableTecnicoId}
+                  onChange={(e) => setResponsableTecnicoId(e.target.value)}
+                >
+                  <option value="">—</option>
+                  {usuarios.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.nombre || u.email || u.id.slice(0, 8)}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="block text-sm sm:col-span-2">
                 <span className={labelCls}>Observaciones comerciales</span>
@@ -507,7 +526,6 @@ export default function ProyectoDetalleInner({
             </div>
 
             {Object.keys(briefCoerced).length === 0 &&
-            (!montoStr || montoStr === "") &&
             !observaciones.trim() ? (
               <p className="rounded-lg border border-dashed border-slate-600 bg-slate-900/50 px-4 py-6 text-center text-sm text-slate-500">
                 Todavía no hay datos cargados. Completá el formulario y guardá.
