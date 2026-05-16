@@ -91,6 +91,17 @@ export default function NuevaVentaPage() {
   const [tipoVenta,  setTipoVenta]  = useState<TipoVenta>("CONTADO");
   const [plazoDias,  setPlazoDias]  = useState("");
 
+  // ── Cobro (solo CONTADO, no se persiste — solo ayuda al cajero) ───────────
+  const [montoRecibido, setMontoRecibido] = useState("");
+
+  function handleTipoVentaChange(v: TipoVenta) {
+    setTipoVenta(v);
+    if (v === "CREDITO") {
+      setMontoRecibido("");
+      setErrorVenta(null);
+    }
+  }
+
   // ── Línea en construcción ─────────────────────────────────────────────────
   const [lineaProdId, setLineaProdId] = useState("");
   const [lineaCant,   setLineaCant]   = useState("");
@@ -157,6 +168,10 @@ export default function NuevaVentaPage() {
   const totalIva      = items.reduce((s, i) => s + i.monto_iva, 0);
   const totalGeneral  = items.reduce((s, i) => s + i.total_linea, 0);
   const ventaValida   = items.length > 0 && (moneda === "GS" || tipoCambioNum > 0);
+
+  // Vuelto (solo informativo, no se persiste)
+  const montoRecibidoNum = parseFloat(montoRecibido) || 0;
+  const vuelto           = montoRecibidoNum - totalGeneral;
 
   // ── Productos filtrados para el combobox ──────────────────────────────────
   const comboFiltrados = comboQuery.trim() === ""
@@ -294,15 +309,16 @@ export default function NuevaVentaPage() {
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6 max-w-4xl">
+      <form onSubmit={handleSubmit} className="space-y-6 max-w-7xl">
 
         {/* ── SECCIÓN 1: Condiciones generales ─────────────────────────────── */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
           <SectionTitle>Condiciones de la venta</SectionTitle>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
-            <div className="col-span-2">
+            {/* Fila 1: Moneda | Tipo de venta (lado a lado) */}
+            <div>
               <label className={labelClass}>Moneda</label>
               <SegmentedControl<MonedaVenta>
                 value={moneda}
@@ -320,19 +336,7 @@ export default function NuevaVentaPage() {
               )}
             </div>
 
-            <div className={moneda === "USD" ? "" : "opacity-0 pointer-events-none"}>
-              <label className={labelClass}>Tipo de cambio (USD → Gs.)</label>
-              <MontoInput
-                value={tipoCambio}
-                onChange={(n) => setTipoCambio(String(n))}
-                placeholder="Ej: 7500"
-                className={inputClass}
-                decimals={false}
-                disabled={monedaBloqueada}
-              />
-            </div>
-
-            <div className="col-span-2">
+            <div>
               <label className={labelClass}>Tipo de venta</label>
               <SegmentedControl<TipoVenta>
                 value={tipoVenta}
@@ -340,12 +344,27 @@ export default function NuevaVentaPage() {
                   { value: "CONTADO", label: "Contado" },
                   { value: "CREDITO", label: "Crédito" },
                 ]}
-                onChange={setTipoVenta}
+                onChange={handleTipoVentaChange}
               />
             </div>
 
+            {/* Fila 2: sub-campos condicionales (alineados bajo su parent) */}
+            {moneda === "USD" && (
+              <div className="md:col-start-1">
+                <label className={labelClass}>Tipo de cambio (USD → Gs.)</label>
+                <MontoInput
+                  value={tipoCambio}
+                  onChange={(n) => setTipoCambio(String(n))}
+                  placeholder="Ej: 7500"
+                  className={inputClass}
+                  decimals={false}
+                  disabled={monedaBloqueada}
+                />
+              </div>
+            )}
+
             {tipoVenta === "CREDITO" && (
-              <div>
+              <div className="md:col-start-2">
                 <label className={labelClass}>Plazo (días)</label>
                 <input
                   type="number"
@@ -607,23 +626,67 @@ export default function NuevaVentaPage() {
                 </table>
               </div>
 
-              {/* Totales */}
+              {/* Totales + Cobro (vuelto) */}
               <div className="mt-5 flex justify-end">
-                <div className="min-w-64 space-y-1.5">
-                  <div className="flex justify-between text-sm text-gray-600">
-                    <span>Subtotal</span>
-                    <span className="tabular-nums font-medium">{formatGs(totalSubtotal)}</span>
+                <div className="w-full md:w-80 space-y-3">
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-sm text-gray-600">
+                      <span>Subtotal</span>
+                      <span className="tabular-nums font-medium">{formatGs(totalSubtotal)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm text-gray-600">
+                      <span>IVA</span>
+                      <span className="tabular-nums font-medium">
+                        {totalIva > 0 ? formatGs(totalIva) : "—"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-base font-bold text-gray-900 pt-2 border-t border-gray-200">
+                      <span>TOTAL</span>
+                      <span className="tabular-nums">{formatGs(totalGeneral)}</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between text-sm text-gray-600">
-                    <span>IVA</span>
-                    <span className="tabular-nums font-medium">
-                      {totalIva > 0 ? formatGs(totalIva) : "—"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-base font-bold text-gray-900 pt-2 border-t border-gray-200">
-                    <span>TOTAL</span>
-                    <span className="tabular-nums">{formatGs(totalGeneral)}</span>
-                  </div>
+
+                  {tipoVenta === "CONTADO" && (
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+                      <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                        Cobro
+                      </p>
+                      <div>
+                        <label className="block text-xs text-gray-600 mb-1">
+                          Monto recibido (Gs.)
+                        </label>
+                        <MontoInput
+                          value={montoRecibido}
+                          onChange={(n) => setMontoRecibido(String(n))}
+                          placeholder="Ej: 100.000"
+                          className={inputClass}
+                          decimals={false}
+                        />
+                      </div>
+                      {montoRecibidoNum > 0 && (
+                        <div className="flex justify-between text-sm pt-2 border-t border-slate-200">
+                          {vuelto >= 0 ? (
+                            <>
+                              <span className="text-gray-600">Vuelto</span>
+                              <span className="font-bold text-emerald-600 tabular-nums">
+                                {formatGs(vuelto)}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="text-gray-600">Falta</span>
+                              <span className="font-bold text-red-600 tabular-nums">
+                                {formatGs(Math.abs(vuelto))}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      )}
+                      <p className="text-[11px] text-gray-400 leading-snug">
+                        Cálculo solo informativo — no se guarda en la venta.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             </>
