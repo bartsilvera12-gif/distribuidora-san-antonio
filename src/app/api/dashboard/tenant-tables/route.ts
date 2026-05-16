@@ -4,6 +4,58 @@ import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema"
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import { ymdInicioFinMesLocal } from "@/lib/fechas/calendario";
+import { getChatPostgresPool, quoteSchemaTable } from "@/lib/supabase/chat-pg-pool";
+import {
+  assertAllowedChatDataSchema,
+  isLikelyUnexposedTenantChatSchema,
+} from "@/lib/supabase/chat-data-schema";
+
+/**
+ * Fallback PG directo para tablas operativas que necesita el dashboard
+ * cuando el tenant `erp_*` no esta expuesto en PostgREST.
+ * Por ahora solo cubrimos productos y compras (alimentan DashInventario);
+ * el resto de modulos (clientes/facturas/etc.) sigue por supabase.from
+ * y degrada silenciosamente con query_errors si el schema no esta expuesto.
+ */
+async function fallbackProductosPg(schemaRaw: string, empresaId: string): Promise<unknown[]> {
+  try {
+    const schema = assertAllowedChatDataSchema(schemaRaw);
+    const pool = getChatPostgresPool();
+    if (!pool) return [];
+    const t = quoteSchemaTable(schema, "productos");
+    const { rows } = await pool.query(
+      `SELECT * FROM ${t} WHERE empresa_id = $1::uuid`,
+      [empresaId]
+    );
+    return rows;
+  } catch (e) {
+    console.error("[dashboard/tenant-tables] fallbackProductosPg", {
+      schema: schemaRaw,
+      message: e instanceof Error ? e.message : String(e),
+    });
+    return [];
+  }
+}
+
+async function fallbackComprasPg(schemaRaw: string, empresaId: string): Promise<unknown[]> {
+  try {
+    const schema = assertAllowedChatDataSchema(schemaRaw);
+    const pool = getChatPostgresPool();
+    if (!pool) return [];
+    const t = quoteSchemaTable(schema, "compras");
+    const { rows } = await pool.query(
+      `SELECT * FROM ${t} WHERE empresa_id = $1::uuid`,
+      [empresaId]
+    );
+    return rows;
+  } catch (e) {
+    console.error("[dashboard/tenant-tables] fallbackComprasPg", {
+      schema: schemaRaw,
+      message: e instanceof Error ? e.message : String(e),
+    });
+    return [];
+  }
+}
 
 type TableKey =
   | "clientes"
@@ -55,7 +107,10 @@ export async function GET(request: NextRequest) {
     const { inicioYmd: inicioMes, finYmd: finMes } = ymdInicioFinMesLocal(now);
 
     const includeDebug = request.nextUrl.searchParams.get("debug") === "1";
-    const dataSchema = includeDebug ? await fetchDataSchemaForEmpresaId(empresaId) : null;
+    // Resolvemos el schema siempre — lo usamos para fallback PG directo
+    // cuando se detecta un tenant no expuesto en PostgREST.
+    const dataSchema = await fetchDataSchemaForEmpresaId(empresaId);
+    const usarPg = isLikelyUnexposedTenantChatSchema(dataSchema);
 
     const [
       clientesQ,
@@ -106,15 +161,28 @@ export async function GET(request: NextRequest) {
 
     const queryErrors: Partial<Record<TableKey, string>> = {};
 
+    // Productos / compras alimentan DashInventario. Si el supabase.from
+    // tira Invalid schema (PGRST106) — caso erp_* no expuesto — caemos a PG directo.
+    let productosRows = pickRows("productos", productosQ, queryErrors);
+    if ((productosRows.length === 0 && queryErrors.productos) || (usarPg && productosRows.length === 0)) {
+      productosRows = await fallbackProductosPg(dataSchema, empresaId);
+      if (productosRows.length > 0) delete queryErrors.productos;
+    }
+    let comprasRows = pickRows("compras", comprasQ, queryErrors);
+    if ((comprasRows.length === 0 && queryErrors.compras) || (usarPg && comprasRows.length === 0)) {
+      comprasRows = await fallbackComprasPg(dataSchema, empresaId);
+      if (comprasRows.length > 0) delete queryErrors.compras;
+    }
+
     const payload = {
       clientes: pickRows("clientes", clientesQ, queryErrors),
       facturas: pickRows("facturas", facturasQ, queryErrors),
       pagos: pickRows("pagos", pagosQ, queryErrors),
       tipificaciones: pickRows("tipificaciones", tipificacionesQ, queryErrors),
-      productos: pickRows("productos", productosQ, queryErrors),
+      productos: productosRows,
       ventas: pickRows("ventas", ventasQ, queryErrors),
       ventas_items: pickRows("ventas_items", ventasItemsQ, queryErrors),
-      compras: pickRows("compras", comprasQ, queryErrors),
+      compras: comprasRows,
       gastos: pickRows("gastos", gastosQ, queryErrors),
       suscripciones: pickRows("suscripciones", suscripcionesDashQ, queryErrors),
       clientes_baja_mes: pickRows("clientes_baja_mes", bajasQ, queryErrors),
