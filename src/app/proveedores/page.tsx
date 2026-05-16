@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { getProveedores } from "@/lib/proveedores/storage";
+import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import type { Proveedor } from "@/lib/proveedores/types";
 
 export default function ProveedoresPage() {
@@ -48,6 +49,7 @@ export default function ProveedoresPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <ExportExcelButton url="/api/proveedores/export" />
           <Link
             href="/proveedores/categorias"
             className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"

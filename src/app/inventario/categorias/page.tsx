@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import ExportExcelButton from "@/components/ui/ExportExcelButton";
 
 interface Categoria {
   id: string;
@@ -93,9 +94,12 @@ export default function CategoriasProductosPage() {
             también se importan automáticamente acá, así no tenés que cargarlos dos veces.
           </div>
         </div>
-        <Link href="/inventario" className="text-sm text-sky-700 hover:text-sky-900 underline">
-          ← Volver a Inventario
-        </Link>
+        <div className="flex items-center gap-3">
+          <ExportExcelButton url="/api/inventario/categorias/export" />
+          <Link href="/inventario" className="text-sm text-sky-700 hover:text-sky-900 underline">
+            ← Volver a Inventario
+          </Link>
+        </div>
       </div>
 
       {/* Alta */}

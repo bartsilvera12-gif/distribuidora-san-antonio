@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getCompras } from "@/lib/compras/storage";
+import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import type { Compra, TipoPago } from "@/lib/compras/types";
 
 const inputFilterClass =
@@ -76,12 +77,15 @@ export default function ComprasPage() {
 
         <div className="flex justify-between items-center mb-5">
           <h2 className="text-xl font-semibold">Órdenes de compra</h2>
-          <Link
-            href="/compras/nueva"
-            className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm"
-          >
-            + Nueva compra
-          </Link>
+          <div className="flex items-center gap-3">
+            <ExportExcelButton url="/api/compras/export" />
+            <Link
+              href="/compras/nueva"
+              className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm"
+            >
+              + Nueva compra
+            </Link>
+          </div>
         </div>
 
         {/* Filtros */}

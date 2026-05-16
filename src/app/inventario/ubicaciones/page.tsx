@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import ExportExcelButton from "@/components/ui/ExportExcelButton";
 
 interface Ubicacion {
   id: string;
@@ -93,9 +94,12 @@ export default function UbicacionesPage() {
             Donde se almacena físicamente cada producto: depósitos, salones, pasillos, góndolas, estantes, zonas.
           </p>
         </div>
-        <Link href="/inventario" className="text-sm text-sky-700 hover:text-sky-900 underline">
-          ← Volver a Inventario
-        </Link>
+        <div className="flex items-center gap-3">
+          <ExportExcelButton url="/api/inventario/ubicaciones/export" />
+          <Link href="/inventario" className="text-sm text-sky-700 hover:text-sky-900 underline">
+            ← Volver a Inventario
+          </Link>
+        </div>
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 max-w-3xl">

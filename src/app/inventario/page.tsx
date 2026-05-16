@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getProductos } from "@/lib/inventario/storage";
 import type { Producto, MetodoValuacion } from "@/lib/inventario/types";
+import ExportExcelButton from "@/components/ui/ExportExcelButton";
 
 const inputFilterClass =
   "border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none";
@@ -140,6 +141,7 @@ export default function InventarioPage() {
             >
               Nuevo producto
             </Link>
+            <ExportExcelButton url="/api/inventario/productos/export" />
           </div>
           <p className="text-xs text-gray-400">
             Los productos ingresan desde <span className="font-medium text-gray-500">Compras</span>
