@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
+import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
+import { getChatPostgresPool, quoteSchemaTable } from "@/lib/supabase/chat-pg-pool";
+import { assertAllowedChatDataSchema } from "@/lib/supabase/chat-data-schema";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import type { Venta, LineaVenta, TipoIvaVenta } from "@/lib/ventas/types";
@@ -52,49 +55,49 @@ function mapItems(rows: VentaItemRow[]): LineaVenta[] {
 }
 
 /**
- * GET /api/ventas — listado desde el esquema de datos de la empresa (service role + RLS bypass coherente con dashboard).
+ * GET /api/ventas — listado via PG directo (soporta tenants erp_* no
+ * expuestos por PostgREST).
  */
 export async function GET(request: NextRequest) {
   try {
     const ctx = await getTenantSupabaseFromAuth(request);
-    if (!ctx) {
-      return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
-    }
-    const { supabase, auth } = ctx;
-    const empresaId = auth.empresa_id;
+    if (!ctx) return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
+    const empresaId = ctx.auth.empresa_id;
+    const schema = assertAllowedChatDataSchema(await fetchDataSchemaForEmpresaId(empresaId));
+    const pool = getChatPostgresPool();
+    if (!pool) return NextResponse.json(errorResponse("Pool no disponible."), { status: 500 });
 
-    const [vr, ir] = await Promise.all([
-      supabase
-        .from("ventas")
-        .select(
-          "id, empresa_id, numero_control, moneda, tipo_cambio, subtotal, monto_iva, total, tipo_venta, plazo_dias, fecha"
-        )
-        .eq("empresa_id", empresaId)
-        .order("fecha", { ascending: false }),
-      supabase.from("ventas_items").select("*").eq("empresa_id", empresaId),
-    ]);
+    const tV = quoteSchemaTable(schema, "ventas");
+    const tI = quoteSchemaTable(schema, "ventas_items");
 
-    if (vr.error) {
-      return NextResponse.json(errorResponse(vr.error.message), { status: 500 });
-    }
-    if (ir.error) {
-      return NextResponse.json(errorResponse(ir.error.message), { status: 500 });
-    }
+    // Serializado (no Promise.all) para no agotar el pool session-mode (limite 15).
+    const ventasQ = await pool.query<VentaRow>(
+      `SELECT id, empresa_id, numero_control, moneda, tipo_cambio, subtotal, monto_iva,
+              total, tipo_venta, plazo_dias, fecha
+         FROM ${tV} WHERE empresa_id = $1::uuid
+        ORDER BY fecha DESC LIMIT 500`,
+      [empresaId]
+    );
+    const itemsQ = await pool.query<VentaItemRow>(
+      `SELECT venta_id, producto_id, producto_nombre, sku, cantidad,
+              precio_venta_original, precio_venta, tipo_iva, subtotal, monto_iva, total_linea
+         FROM ${tI} WHERE empresa_id = $1::uuid`,
+      [empresaId]
+    );
 
     const byVenta = new Map<string, VentaItemRow[]>();
-    for (const row of (ir.data ?? []) as VentaItemRow[]) {
+    for (const row of itemsQ.rows) {
       const list = byVenta.get(row.venta_id) ?? [];
       list.push(row);
       byVenta.set(row.venta_id, list);
     }
 
-    const ventas: Venta[] = ((vr.data ?? []) as VentaRow[]).map((r) => {
+    const ventas: Venta[] = ventasQ.rows.map((r) => {
       const lineRows = byVenta.get(r.id) ?? [];
-      const lineas = mapItems(lineRows);
       return {
         id: r.id,
         numero_control: r.numero_control,
-        items: lineas,
+        items: mapItems(lineRows),
         moneda: r.moneda === "USD" ? "USD" : "GS",
         tipo_cambio: num(r.tipo_cambio),
         subtotal: num(r.subtotal),
@@ -108,7 +111,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(successResponse({ ventas }));
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Error";
-    return NextResponse.json(errorResponse(msg), { status: 500 });
+    console.error("[/api/ventas GET]", err instanceof Error ? err.message : err);
+    return NextResponse.json(errorResponse("No se pudieron cargar las ventas."), { status: 500 });
   }
 }
