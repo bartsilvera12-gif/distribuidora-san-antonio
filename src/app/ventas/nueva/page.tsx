@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import MontoInput from "@/components/ui/MontoInput";
+import ProductPickerModal, { type ProductoPickerItem } from "@/components/inventario/ProductPickerModal";
 import { saveVenta } from "@/lib/ventas/storage";
 import { getProductos } from "@/lib/inventario/storage";
 import type { TipoIvaVenta, TipoVenta, MonedaVenta, LineaVenta } from "@/lib/ventas/types";
@@ -114,6 +115,34 @@ export default function NuevaVentaPage() {
   const [comboHighlight, setComboHighlight] = useState(-1);
   const comboInputRef    = useRef<HTMLInputElement>(null);
   const comboContainerRef = useRef<HTMLDivElement>(null);
+
+  // ── Modal buscador (F3) ────────────────────────────────────────────────────
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  function pickerToProducto(p: ProductoPickerItem): Producto {
+    return {
+      id: p.id,
+      nombre: p.nombre,
+      sku: p.sku,
+      precio_venta: p.precio_venta,
+      stock_actual: p.stock_actual,
+      unidad_medida: p.unidad_medida,
+      costo_promedio: 0,
+      stock_minimo: 0,
+      metodo_valuacion: "CPP",
+      codigo_barras: p.codigo_barras,
+      codigo_barras_interno: p.codigo_barras_interno,
+      imagen_path: null,
+      imagen_url: p.imagen_url,
+    };
+  }
+
+  function handleSelectFromPicker(p: ProductoPickerItem) {
+    const prod = pickerToProducto(p);
+    setProductos((prev) => (prev.find((x) => x.id === prod.id) ? prev : [...prev, prod]));
+    seleccionarProducto(prod);
+    setPickerOpen(false);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -390,12 +419,13 @@ export default function NuevaVentaPage() {
               <label className={labelClass}>
                 Producto
                 <span className="ml-1 text-gray-400 font-normal normal-case tracking-normal text-xs">
-                  — escribí para buscar
+                  — escribí o usá el buscador
                 </span>
               </label>
 
-              {/* Input de búsqueda */}
-              <div className="relative">
+              {/* Input de búsqueda + botón modal */}
+              <div className="flex gap-2">
+               <div className="relative flex-1">
                 <input
                   ref={comboInputRef}
                   type="text"
@@ -403,7 +433,7 @@ export default function NuevaVentaPage() {
                   onChange={handleComboInput}
                   onFocus={() => setComboOpen(true)}
                   onKeyDown={handleComboKeyDown}
-                  placeholder="Nombre o SKU..."
+                  placeholder="Nombre, SKU o código..."
                   autoComplete="off"
                   className={`${inputClass} pr-8`}
                 />
@@ -453,6 +483,18 @@ export default function NuevaVentaPage() {
                     Sin resultados para &ldquo;{comboQuery}&rdquo;
                   </div>
                 )}
+               </div>
+                <button
+                  type="button"
+                  onClick={() => setPickerOpen(true)}
+                  title="Abrir buscador avanzado (catálogo completo, con imagen)"
+                  className="shrink-0 inline-flex items-center justify-center gap-1.5 border border-slate-200 hover:bg-slate-50 text-slate-700 px-3 rounded-lg text-sm font-medium transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                    <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clipRule="evenodd" />
+                  </svg>
+                  Buscar
+                </button>
               </div>
 
               {/* Info del producto seleccionado */}
@@ -733,6 +775,13 @@ export default function NuevaVentaPage() {
         </div>
 
       </form>
+
+      <ProductPickerModal
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={handleSelectFromPicker}
+        excludeIds={items.map((i) => i.producto_id)}
+      />
     </div>
   );
 }

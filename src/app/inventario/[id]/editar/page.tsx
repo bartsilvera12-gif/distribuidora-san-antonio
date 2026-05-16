@@ -6,6 +6,7 @@ import { useRouter, useParams } from "next/navigation";
 import MontoInput from "@/components/ui/MontoInput";
 import { getProducto, productoExiste, updateProducto } from "@/lib/inventario/storage";
 import type { MetodoValuacion } from "@/lib/inventario/types";
+import ProductImageUploader from "@/components/inventario/ProductImageUploader";
 
 export default function EditarProductoPage() {
   const router = useRouter();
@@ -18,6 +19,8 @@ export default function EditarProductoPage() {
   const [form, setForm] = useState({
     nombre: "",
     sku: "",
+    codigo_barras: "",
+    codigo_barras_interno: false,
     costo_promedio: "",
     markup: "",
     precio_venta: "",
@@ -26,6 +29,10 @@ export default function EditarProductoPage() {
     unidad_medida: "",
     metodo_valuacion: "CPP" as MetodoValuacion,
   });
+  const [imagenPath, setImagenPath] = useState<string | null>(null);
+  const [imagenUrl, setImagenUrl] = useState<string | null>(null);
+  const [codigoOriginal, setCodigoOriginal] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -38,6 +45,8 @@ export default function EditarProductoPage() {
       setForm({
         nombre: p.nombre,
         sku: p.sku,
+        codigo_barras: p.codigo_barras ?? "",
+        codigo_barras_interno: p.codigo_barras_interno === true,
         costo_promedio: String(p.costo_promedio),
         markup: markup.toFixed(2),
         precio_venta: String(p.precio_venta),
@@ -46,6 +55,9 @@ export default function EditarProductoPage() {
         unidad_medida: p.unidad_medida,
         metodo_valuacion: p.metodo_valuacion,
       });
+      setCodigoOriginal(p.codigo_barras ?? null);
+      setImagenPath(p.imagen_path ?? null);
+      setImagenUrl(p.imagen_url ?? null);
     }).finally(() => {
       if (!cancelled) setCargando(false);
     });
@@ -99,7 +111,15 @@ export default function EditarProductoPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting) return;
     setErrorDuplicado(null);
+
+    const codigoIngresado = form.codigo_barras.trim();
+    // Validar: si cambio el codigo y empieza con INT-, rechazar (reservado)
+    if (codigoIngresado && codigoIngresado !== codigoOriginal && /^INT-/i.test(codigoIngresado)) {
+      setErrorDuplicado('El prefijo "INT-" está reservado para códigos generados por el sistema. Usá otro código o dejá el actual.');
+      return;
+    }
 
     const duplicado = await productoExiste(form.sku, form.nombre);
     if (duplicado && duplicado.id !== id) {
@@ -107,18 +127,34 @@ export default function EditarProductoPage() {
       return;
     }
 
-    const actualizado = await updateProducto(id, {
-      nombre: form.nombre.trim().toUpperCase(),
-      sku: form.sku.trim().toUpperCase(),
-      costo_promedio: parseFloat(form.costo_promedio) || 0,
-      precio_venta: parseFloat(form.precio_venta) || 0,
-      stock_actual: parseInt(form.stock_actual) || 0,
-      stock_minimo: parseInt(form.stock_minimo) || 0,
-      unidad_medida: form.unidad_medida.trim().toUpperCase(),
-      metodo_valuacion: form.metodo_valuacion,
-    });
+    setSubmitting(true);
+    try {
+      // Reglas de codigo en edicion:
+      // - Si quedo igual al original -> no tocar el campo (preservar codigo_barras_interno).
+      // - Si cambio y no esta vacio -> codigo_barras_interno = false (manual).
+      // - Si quedo vacio -> codigo_barras = null, codigo_barras_interno = false.
+      //   (No auto-regeneramos en edicion: evita sorprender al usuario.)
+      const cambioCodigo = codigoIngresado !== (codigoOriginal ?? "");
+      const updatePayload: Parameters<typeof updateProducto>[1] = {
+        nombre: form.nombre.trim().toUpperCase(),
+        sku: form.sku.trim().toUpperCase(),
+        costo_promedio: parseFloat(form.costo_promedio) || 0,
+        precio_venta: parseFloat(form.precio_venta) || 0,
+        stock_actual: parseInt(form.stock_actual) || 0,
+        stock_minimo: parseInt(form.stock_minimo) || 0,
+        unidad_medida: form.unidad_medida.trim().toUpperCase(),
+        metodo_valuacion: form.metodo_valuacion,
+      };
+      if (cambioCodigo) {
+        updatePayload.codigo_barras = codigoIngresado || null;
+        updatePayload.codigo_barras_interno = false;
+      }
 
-    if (actualizado) router.push("/inventario");
+      const actualizado = await updateProducto(id, updatePayload);
+      if (actualizado) router.push("/inventario");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   const costo = parseFloat(form.costo_promedio);
@@ -191,6 +227,46 @@ export default function EditarProductoPage() {
                 required
               />
             </div>
+          </div>
+
+          {/* Codigo de barras */}
+          <div>
+            <label className={labelClass}>
+              Código de barras
+              {form.codigo_barras_interno && form.codigo_barras && form.codigo_barras === codigoOriginal && (
+                <span className="ml-2 align-middle text-[10px] uppercase tracking-wider bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded">
+                  Interno
+                </span>
+              )}
+            </label>
+            <input
+              type="text"
+              name="codigo_barras"
+              value={form.codigo_barras}
+              onChange={handleChange}
+              placeholder="Escaneá o escribí un código real"
+              className={inputClass}
+              autoComplete="off"
+            />
+            <p className="mt-1.5 text-xs text-gray-500">
+              {form.codigo_barras_interno && form.codigo_barras === codigoOriginal
+                ? "Código interno generado por el sistema. Podés reemplazarlo por uno real (no puede empezar con \"INT-\")."
+                : "Podés escanearlo o escribirlo. El prefijo \"INT-\" queda reservado para códigos del sistema."}
+            </p>
+          </div>
+
+          {/* Imagen del producto */}
+          <div>
+            <label className={labelClass}>Imagen del producto</label>
+            <ProductImageUploader
+              productoId={id}
+              initialUrl={imagenUrl}
+              initialPath={imagenPath}
+              onChange={(info) => {
+                setImagenPath(info.imagen_path);
+                setImagenUrl(info.imagen_url);
+              }}
+            />
           </div>
 
           <div>
@@ -293,9 +369,10 @@ export default function EditarProductoPage() {
           <div className="flex gap-4 pt-2">
             <button
               type="submit"
-              className="bg-gray-900 text-white px-5 py-3 rounded-lg text-sm hover:bg-gray-700 transition-colors"
+              disabled={submitting}
+              className="bg-gray-900 text-white px-5 py-3 rounded-lg text-sm hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Guardar cambios
+              {submitting ? "Guardando..." : "Guardar cambios"}
             </button>
             <button
               type="button"

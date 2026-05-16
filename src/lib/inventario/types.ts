@@ -12,6 +12,10 @@ export interface Producto {
   stock_minimo: number;
   unidad_medida: string;
   metodo_valuacion: MetodoValuacion;
+  codigo_barras?: string | null;
+  codigo_barras_interno?: boolean;
+  imagen_path?: string | null;
+  imagen_url?: string | null;
 }
 
 export interface MovimientoInventario {

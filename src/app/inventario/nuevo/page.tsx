@@ -14,6 +14,7 @@ export default function NuevoProductoPage() {
   const [form, setForm] = useState({
     nombre: "",
     sku: "",
+    codigo_barras: "",
     costo_promedio: "",
     markup: "",
     precio_venta: "",
@@ -22,6 +23,7 @@ export default function NuevoProductoPage() {
     unidad_medida: "",
     metodo_valuacion: "CPP" as MetodoValuacion,
   });
+  const [submitting, setSubmitting] = useState(false);
 
   // Campos sin lógica reactiva
   function handleChange(
@@ -101,7 +103,14 @@ export default function NuevoProductoPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting) return;
     setErrorDuplicado(null);
+
+    const codigoManual = form.codigo_barras.trim();
+    if (codigoManual && /^INT-/i.test(codigoManual)) {
+      setErrorDuplicado('El prefijo "INT-" está reservado para códigos generados por el sistema. Dejá el campo vacío para autogenerar uno, o ingresá otro código.');
+      return;
+    }
 
     const duplicado = await productoExiste(form.sku, form.nombre);
     if (duplicado) {
@@ -111,18 +120,48 @@ export default function NuevoProductoPage() {
       return;
     }
 
-    const guardado = await saveProducto({
-      nombre: form.nombre.trim().toUpperCase(),
-      sku: form.sku.trim().toUpperCase(),
-      costo_promedio: parseFloat(form.costo_promedio) || 0,
-      precio_venta: parseFloat(form.precio_venta) || 0,
-      stock_actual: parseInt(form.stock_actual) || 0,
-      stock_minimo: parseInt(form.stock_minimo) || 0,
-      unidad_medida: form.unidad_medida.trim().toUpperCase(),
-      metodo_valuacion: form.metodo_valuacion,
-    });
+    setSubmitting(true);
+    try {
+      // Si no hay codigo manual, pedir uno interno al backend (atomico, unico por empresa)
+      let codigo: string | null = codigoManual || null;
+      let interno = false;
+      if (!codigo) {
+        try {
+          const res = await fetch("/api/productos/codigo-interno", {
+            method: "POST",
+            credentials: "include",
+          });
+          const json = await res.json();
+          if (res.ok && json?.success && json.data?.codigo) {
+            codigo = json.data.codigo as string;
+            interno = true;
+          }
+        } catch {
+          // si falla, continuamos sin codigo (queda en NULL)
+          codigo = null;
+        }
+      }
 
-    if (guardado) router.push("/inventario");
+      const guardado = await saveProducto({
+        nombre: form.nombre.trim().toUpperCase(),
+        sku: form.sku.trim().toUpperCase(),
+        costo_promedio: parseFloat(form.costo_promedio) || 0,
+        precio_venta: parseFloat(form.precio_venta) || 0,
+        stock_actual: parseInt(form.stock_actual) || 0,
+        stock_minimo: parseInt(form.stock_minimo) || 0,
+        unidad_medida: form.unidad_medida.trim().toUpperCase(),
+        metodo_valuacion: form.metodo_valuacion,
+        codigo_barras: codigo,
+        codigo_barras_interno: interno,
+      });
+
+      if (guardado) {
+        // Si quiere subir imagen, ir directo a editar
+        router.push(`/inventario/${guardado.id}/editar`);
+      }
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   // ── Cálculos en tiempo real ──────────────────────────────────────────────────
@@ -210,6 +249,25 @@ export default function NuevoProductoPage() {
                 required
               />
             </div>
+          </div>
+
+          {/* Código de barras */}
+          <div>
+            <label className={labelClass}>Código de barras</label>
+            <input
+              type="text"
+              name="codigo_barras"
+              value={form.codigo_barras}
+              onChange={handleChange}
+              placeholder="Escaneá o escribí — dejá vacío para autogenerar"
+              className={inputClass}
+              autoComplete="off"
+            />
+            <p className="mt-1.5 text-xs text-gray-500">
+              Si dejás vacío este campo, el sistema generará un código interno automáticamente
+              (formato <code className="font-mono">INT-XXX-YYYYMM-NNNNNN</code>).
+              El prefijo <code className="font-mono">INT-</code> queda reservado para códigos internos.
+            </p>
           </div>
 
           {/* Costo + Markup + Precio — bloque reactivo */}
@@ -371,9 +429,10 @@ export default function NuevoProductoPage() {
           <div className="flex gap-4 pt-2">
             <button
               type="submit"
-              className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-5 py-3 rounded-lg text-sm font-medium transition-colors shadow-sm active:scale-95"
+              disabled={submitting}
+              className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-5 py-3 rounded-lg text-sm font-medium transition-colors shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Guardar producto
+              {submitting ? "Guardando..." : "Guardar producto"}
             </button>
 
             <button

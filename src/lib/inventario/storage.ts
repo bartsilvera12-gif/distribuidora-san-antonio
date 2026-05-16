@@ -23,6 +23,10 @@ interface ProductoRow {
   activo: boolean;
   created_at: string;
   updated_at: string;
+  codigo_barras?: string | null;
+  codigo_barras_interno?: boolean | null;
+  imagen_path?: string | null;
+  imagen_url?: string | null;
 }
 
 interface MovimientoRow {
@@ -54,6 +58,10 @@ function rowToProducto(row: ProductoRow): Producto {
     stock_minimo: Number(row.stock_minimo),
     unidad_medida: row.unidad_medida,
     metodo_valuacion: row.metodo_valuacion as MetodoValuacion,
+    codigo_barras: row.codigo_barras ?? null,
+    codigo_barras_interno: row.codigo_barras_interno ?? false,
+    imagen_path: row.imagen_path ?? null,
+    imagen_url: row.imagen_url ?? null,
   };
 }
 
@@ -136,7 +144,7 @@ export async function saveProducto(
   const usuario = await getCurrentUser();
   if (!usuario?.empresa_id) throw new Error("Usuario no autenticado o sin empresa");
 
-  const insert = {
+  const insert: Record<string, unknown> = {
     empresa_id: usuario.empresa_id,
     nombre: datos.nombre,
     sku: datos.sku,
@@ -147,6 +155,10 @@ export async function saveProducto(
     unidad_medida: datos.unidad_medida || "Unidad",
     metodo_valuacion: datos.metodo_valuacion,
   };
+  if (datos.codigo_barras !== undefined && datos.codigo_barras !== null && datos.codigo_barras !== "") {
+    insert.codigo_barras = datos.codigo_barras;
+    insert.codigo_barras_interno = datos.codigo_barras_interno === true;
+  }
 
   const { data, error } = await supabase
     .from("productos")
@@ -201,6 +213,16 @@ export async function updateProducto(
   if (datos.stock_minimo !== undefined) patch.stock_minimo = datos.stock_minimo;
   if (datos.unidad_medida !== undefined) patch.unidad_medida = datos.unidad_medida;
   if (datos.metodo_valuacion !== undefined) patch.metodo_valuacion = datos.metodo_valuacion;
+  if (datos.codigo_barras !== undefined) {
+    patch.codigo_barras = datos.codigo_barras || null;
+    if (datos.codigo_barras_interno !== undefined) {
+      patch.codigo_barras_interno = datos.codigo_barras_interno;
+    } else if (!datos.codigo_barras) {
+      patch.codigo_barras_interno = false;
+    }
+  }
+  if (datos.imagen_path !== undefined) patch.imagen_path = datos.imagen_path || null;
+  if (datos.imagen_url !== undefined) patch.imagen_url = datos.imagen_url || null;
 
   const { data, error } = await supabase
     .from("productos")
