@@ -33,6 +33,7 @@ import {
   ListChecks,
   FolderKanban,
   Percent,
+  ChefHat,
 } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
@@ -113,6 +114,7 @@ const MENU_STRUCTURE: MenuItem[] = [
     icon: Activity,
   },
   { key: "ventas", slug: "ventas", label: "Ventas", href: "/ventas", icon: ShoppingCart },
+  { key: "recetas", slug: "recetas", label: "Recetas", href: "/dashboard/recetas", icon: ChefHat },
   { key: "inventario", slug: "inventario", label: "Inventario", href: "/inventario", icon: Package, children: [
     { label: "Productos", href: "/inventario" },
     { label: "Movimientos", href: "/inventario/movimientos" },
