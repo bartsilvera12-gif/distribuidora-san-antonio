@@ -408,8 +408,8 @@ export default function ProyectosKanbanClient() {
     <div className="mx-auto max-w-[1800px] space-y-6 p-4 md:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">Proyectos</h1>
-          <p className="text-sm text-slate-500">Kanban configurable por empresa — producción, clientes y SLA.</p>
+          <h1 className="text-xl font-semibold text-slate-900">Pedidos</h1>
+          <p className="text-sm text-slate-500">Tablero de cocina — pedidos por modalidad y estado.</p>
         </div>
         <Link
           href="/dashboard/proyectos/nuevo"
