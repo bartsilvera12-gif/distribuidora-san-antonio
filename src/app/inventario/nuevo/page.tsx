@@ -182,23 +182,14 @@ export default function NuevoProductoPage() {
   }
 
   /**
-   * Al cambiar costo:
-   * - si hay markup → recalcula precio_venta = costo * (1 + markup/100)
-   * - si no hay markup pero hay precio → recalcula markup = ((precio-costo)/costo)*100
+   * Al cambiar costo: NO movemos el precio (es lo que el cliente paga).
+   * Recalculamos markup a partir del gap precio-costo cuando ambos son válidos.
    */
   function handleCostoChange(costo: number) {
     setErrorDuplicado(null);
-    const markup = parseFloat(form.markup);
     const precio = parseFloat(form.precio_venta);
 
-    if (!isNaN(costo) && costo > 0 && !isNaN(markup)) {
-      const nuevoPrecio = costo * (1 + markup / 100);
-      setForm((prev) => ({
-        ...prev,
-        costo_promedio: String(costo),
-        precio_venta: nuevoPrecio.toFixed(0),
-      }));
-    } else if (!isNaN(costo) && costo > 0 && !isNaN(precio)) {
+    if (!isNaN(costo) && costo > 0 && !isNaN(precio) && precio > 0) {
       const nuevoMarkup = ((precio - costo) / costo) * 100;
       setForm((prev) => ({
         ...prev,

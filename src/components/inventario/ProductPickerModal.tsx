@@ -281,10 +281,6 @@ export default function ProductPickerModal({
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 text-xs">
-                  <DetailItem label="Categoría" value={sel.categoria_nombre} />
-                  <DetailItem label="Proveedor" value={sel.proveedor_nombre} />
-                  <DetailItem label="Ubicación" value={sel.ubicacion_nombre ? `${sel.ubicacion_nombre} (${sel.ubicacion_tipo})` : null} />
-                  <DetailItem label="Unidad" value={sel.unidad_medida} />
                   <DetailItem label="Precio venta" value={formatGs(sel.precio_venta)} highlight />
                   {sel.controla_stock !== false ? (
                     <DetailItem label="Stock disp." value={`${dispSel} ${sel.unidad_medida}`} highlight />
