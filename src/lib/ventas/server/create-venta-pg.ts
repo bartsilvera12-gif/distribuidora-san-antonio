@@ -1,5 +1,4 @@
-import { getChatPostgresPool } from "@/lib/supabase/chat-pg-pool";
-import { quoteSchemaTable } from "@/lib/supabase/chat-pg-pool";
+import { createServiceRoleClientWithDbSchema } from "@/lib/supabase/empresa-data-schema";
 
 export interface CreateVentaItemInput {
   producto_id: string;
@@ -33,16 +32,10 @@ export interface CreateVentaPgParams {
   tipoVenta: "CONTADO" | "CREDITO";
   plazoDias: number | null;
   items: CreateVentaItemInput[];
-  /** Totales enviados por el cliente (se contrastan con el recálculo). */
   subtotalDeclarado: number;
   montoIvaDeclarado: number;
   totalDeclarado: number;
-  /** Si presente, dentro de la misma transacción se crea una tarjeta en `proyectos` (módulo Pedidos). */
   pedidoCocina?: CreateVentaPedidoCocinaInput | null;
-}
-
-function qTable(schema: string, table: string): string {
-  return quoteSchemaTable(schema, table);
 }
 
 function recalcTotals(items: CreateVentaItemInput[]) {
@@ -57,20 +50,23 @@ function recalcTotals(items: CreateVentaItemInput[]) {
   return { subtotal, montoIva, total };
 }
 
-const TOL = 2; // guaraníes — tolerancia de redondeo
+const TOL = 2;
 
 /**
- * Crea venta + ítems + movimientos + descuenta stock en una transacción Postgres.
- * Requiere SUPABASE_DB_URL / DIRECT_URL / DATABASE_URL en el servidor.
+ * Crea venta + ítems + movimientos + descuenta stock vía PostgREST/service-role.
+ * Sin pool PG directo → compatible con Hostinger Node.js App.
+ *
+ * Atomicidad: PostgREST no expone transacciones multi-statement. Se hace best-effort:
+ * si algún paso post-venta falla, se intenta rollback eliminando venta+items creados.
+ * Para una instancia gastronómica de bajo volumen es aceptable.
+ *
+ * Regla `controla_stock`:
+ *  - true (Reventa): valida stock disponible, descuenta stock, genera movimiento.
+ *  - false (Menú): se inserta en ventas_items igual, NO valida stock, NO descuenta, NO movimiento.
  */
 export async function createVentaTransaccionalPg(
   params: CreateVentaPgParams
 ): Promise<{ ventaId: string; numeroControl: string; fechaIso: string }> {
-  const pool = getChatPostgresPool();
-  if (!pool) {
-    throw new Error("Sin conexión directa a Postgres (configura SUPABASE_DB_URL).");
-  }
-
   const items = params.items;
   if (!items.length) {
     throw new Error("La venta debe tener al menos un ítem.");
@@ -87,213 +83,193 @@ export async function createVentaTransaccionalPg(
 
   const qtyByProduct = new Map<string, number>();
   for (const it of items) {
-    const prev = qtyByProduct.get(it.producto_id) ?? 0;
-    qtyByProduct.set(it.producto_id, prev + it.cantidad);
+    qtyByProduct.set(it.producto_id, (qtyByProduct.get(it.producto_id) ?? 0) + it.cantidad);
   }
 
-  const ventasT = qTable(params.schema, "ventas");
-  const itemsT = qTable(params.schema, "ventas_items");
-  const movT = qTable(params.schema, "movimientos_inventario");
-  const prodT = qTable(params.schema, "productos");
-  const cliT = qTable(params.schema, "clientes");
-  const proyT = qTable(params.schema, "proyectos");
-  const proyTipoT = qTable(params.schema, "proyecto_tipos");
-  const proyEstadoT = qTable(params.schema, "proyecto_estados");
+  const sb = createServiceRoleClientWithDbSchema(params.schema);
 
-  const client = await pool.connect();
+  // 1) Cliente
+  if (params.clienteId) {
+    const ck = await sb.from("clientes").select("id").eq("id", params.clienteId).eq("empresa_id", params.empresaId).maybeSingle();
+    if (ck.error) throw new Error(ck.error.message);
+    if (!ck.data) throw new Error("Cliente no encontrado en esta empresa.");
+  }
+
+  // 2) Cargar productos del carrito — TODOS los que existan y pertenezcan a la empresa, sin filtrar controla_stock ni stock>0.
+  const ids = [...qtyByProduct.keys()];
+  const prodQ = await sb
+    .from("productos")
+    .select("id, stock_actual, costo_promedio, nombre, sku, controla_stock")
+    .eq("empresa_id", params.empresaId)
+    .in("id", ids);
+  if (prodQ.error) throw new Error(prodQ.error.message);
+  const prodRows = (prodQ.data ?? []) as unknown as Array<{
+    id: string;
+    stock_actual: number | string;
+    costo_promedio: number | string;
+    nombre: string;
+    sku: string;
+    controla_stock: boolean | null;
+  }>;
+
+  if (prodRows.length !== ids.length) {
+    const found = new Set(prodRows.map((r) => r.id));
+    const faltantes = ids.filter((id) => !found.has(id));
+    throw new Error(
+      `Uno o más productos no existen o no pertenecen a esta empresa. IDs no encontrados: ${faltantes.join(", ")}`
+    );
+  }
+
+  type ProdMeta = { stock: number; costo: number; nombre: string; sku: string; controlaStock: boolean };
+  const stockMap = new Map<string, ProdMeta>();
+  for (const r of prodRows) {
+    stockMap.set(r.id, {
+      stock: Number(r.stock_actual),
+      costo: Number(r.costo_promedio),
+      nombre: r.nombre,
+      sku: r.sku,
+      controlaStock: r.controla_stock !== false,
+    });
+  }
+
+  // 3) Validar stock SOLO para productos que controlan stock (Reventa).
+  for (const [pid, need] of qtyByProduct) {
+    const p = stockMap.get(pid)!;
+    if (!p.controlaStock) continue;
+    if (p.stock < need) {
+      throw new Error(`Stock insuficiente para "${p.nombre}". Disponible: ${p.stock} u.; requerido: ${need}.`);
+    }
+  }
+
+  // 4) Numero control VTA-XXXXXX (best-effort: race posible en entorno multi-usuario).
+  const maxQ = await sb
+    .from("ventas")
+    .select("numero_control")
+    .eq("empresa_id", params.empresaId)
+    .like("numero_control", "VTA-%")
+    .order("numero_control", { ascending: false })
+    .limit(1);
+  if (maxQ.error) throw new Error(maxQ.error.message);
+  let nextNum = 1;
+  const lastNum = (maxQ.data?.[0] as { numero_control?: string } | undefined)?.numero_control;
+  if (lastNum) {
+    const m = lastNum.match(/^VTA-(\d+)$/);
+    if (m) nextNum = parseInt(m[1], 10) + 1;
+  }
+  const numeroControl = `VTA-${String(nextNum).padStart(6, "0")}`;
+  const fechaIso = new Date().toISOString();
+
+  // 5) Insertar venta
+  const insVenta = await sb
+    .from("ventas")
+    .insert({
+      empresa_id: params.empresaId,
+      cliente_id: params.clienteId,
+      numero_control: numeroControl,
+      moneda: params.moneda,
+      tipo_cambio: params.tipoCambio,
+      subtotal: calc.subtotal,
+      monto_iva: calc.montoIva,
+      total: calc.total,
+      estado: "completada",
+      tipo_venta: params.tipoVenta,
+      plazo_dias: params.plazoDias,
+      fecha: fechaIso,
+      observaciones: params.observaciones,
+    })
+    .select("id")
+    .single();
+  if (insVenta.error) throw new Error(insVenta.error.message);
+  const ventaId = String((insVenta.data as { id: string }).id);
+
+  // Helper de rollback best-effort
+  const rollback = async () => {
+    try {
+      await sb.from("movimientos_inventario").delete().eq("venta_id", ventaId).eq("empresa_id", params.empresaId);
+    } catch {}
+    try {
+      await sb.from("ventas_items").delete().eq("venta_id", ventaId).eq("empresa_id", params.empresaId);
+    } catch {}
+    try {
+      await sb.from("ventas").delete().eq("id", ventaId).eq("empresa_id", params.empresaId);
+    } catch {}
+  };
+
   try {
-    await client.query("BEGIN");
+    // 6) Insertar items (bulk)
+    const itemsRows = items.map((line) => ({
+      empresa_id: params.empresaId,
+      venta_id: ventaId,
+      producto_id: line.producto_id,
+      producto_nombre: line.producto_nombre,
+      sku: line.sku,
+      cantidad: line.cantidad,
+      precio_venta_original: line.precio_venta_original,
+      precio_venta: line.precio_venta,
+      tipo_iva: line.tipo_iva,
+      subtotal: line.subtotal,
+      monto_iva: line.monto_iva,
+      total_linea: line.total_linea,
+    }));
+    const insItems = await sb.from("ventas_items").insert(itemsRows);
+    if (insItems.error) throw new Error(insItems.error.message);
 
-    if (params.clienteId) {
-      const ck = await client.query<{ ok: number }>(
-        `SELECT 1 AS ok FROM ${cliT} WHERE id = $1 AND empresa_id = $2 LIMIT 1`,
-        [params.clienteId, params.empresaId]
-      );
-      if (ck.rows.length === 0) {
-        throw new Error("Cliente no encontrado en esta empresa.");
-      }
-    }
-
-    const ids = [...qtyByProduct.keys()];
-    const lockSql = `
-      SELECT id, stock_actual, costo_promedio, nombre, sku, controla_stock
-      FROM ${prodT}
-      WHERE empresa_id = $1 AND id = ANY($2::uuid[])
-      FOR UPDATE
-    `;
-    const locked = await client.query<{
-      id: string;
-      stock_actual: string;
-      costo_promedio: string;
-      nombre: string;
-      sku: string;
-      controla_stock: boolean | null;
-    }>(lockSql, [params.empresaId, ids]);
-
-    if (locked.rows.length !== ids.length) {
-      throw new Error("Uno o más productos no existen o no pertenecen a esta empresa.");
-    }
-
-    const stockMap = new Map<
-      string,
-      { stock: number; costo: number; nombre: string; sku: string; controlaStock: boolean }
-    >();
-    for (const row of locked.rows) {
-      stockMap.set(row.id, {
-        stock: Number(row.stock_actual),
-        costo: Number(row.costo_promedio),
-        nombre: row.nombre,
-        sku: row.sku,
-        // default true: si la columna no está seteada, comportamiento legacy (descuenta).
-        controlaStock: row.controla_stock !== false,
-      });
-    }
-
-    // Validación de stock solo para productos que controlan stock.
-    for (const [pid, need] of qtyByProduct) {
-      const p = stockMap.get(pid)!;
-      if (!p.controlaStock) continue;
-      if (p.stock < need) {
-        throw new Error(
-          `Stock insuficiente para "${p.nombre}". Disponible: ${p.stock} u.; requerido: ${need}.`
-        );
-      }
-    }
-
-    const maxRow = await client.query<{ mx: string | null }>(
-      `
-      SELECT COALESCE(MAX(
-        CASE
-          WHEN numero_control ~ '^VTA-[0-9]+$'
-          THEN substring(numero_control from '[0-9]+$')::bigint
-          ELSE NULL::bigint
-        END
-      ), 0)::text AS mx
-      FROM ${ventasT}
-      WHERE empresa_id = $1
-      `,
-      [params.empresaId]
-    );
-    const nextNum = BigInt(maxRow.rows[0]?.mx ?? "0") + BigInt(1);
-    const numeroControl = `VTA-${String(nextNum).padStart(6, "0")}`;
-
-    const fechaIso = new Date().toISOString();
-
-    const insVenta = await client.query<{ id: string }>(
-      `
-      INSERT INTO ${ventasT} (
-        empresa_id, cliente_id, numero_control, moneda, tipo_cambio,
-        subtotal, monto_iva, total, estado, tipo_venta, plazo_dias, fecha, observaciones
-      ) VALUES (
-        $1, $2, $3, $4, $5,
-        $6, $7, $8, 'completada', $9, $10, $11::timestamptz, $12
-      )
-      RETURNING id
-      `,
-      [
-        params.empresaId,
-        params.clienteId,
-        numeroControl,
-        params.moneda,
-        params.tipoCambio,
-        calc.subtotal,
-        calc.montoIva,
-        calc.total,
-        params.tipoVenta,
-        params.plazoDias,
-        fechaIso,
-        params.observaciones,
-      ]
-    );
-
-    const ventaId = insVenta.rows[0].id;
-
+    // 7) Descuento de stock + movimientos solo para productos con controla_stock=true.
     for (const line of items) {
       const p = stockMap.get(line.producto_id)!;
-      await client.query(
-        `
-        INSERT INTO ${itemsT} (
-          empresa_id, venta_id, producto_id, producto_nombre, sku,
-          cantidad, precio_venta_original, precio_venta, tipo_iva,
-          subtotal, monto_iva, total_linea
-        ) VALUES (
-          $1, $2, $3, $4, $5,
-          $6, $7, $8, $9,
-          $10, $11, $12
-        )
-        `,
-        [
-          params.empresaId,
-          ventaId,
-          line.producto_id,
-          line.producto_nombre,
-          line.sku,
-          line.cantidad,
-          line.precio_venta_original,
-          line.precio_venta,
-          line.tipo_iva,
-          line.subtotal,
-          line.monto_iva,
-          line.total_linea,
-        ]
-      );
+      if (!p.controlaStock) continue;
+      const nuevoStock = p.stock - line.cantidad;
+      const upd = await sb
+        .from("productos")
+        .update({ stock_actual: nuevoStock })
+        .eq("id", line.producto_id)
+        .eq("empresa_id", params.empresaId);
+      if (upd.error) throw new Error(upd.error.message);
+      p.stock = nuevoStock;
 
-      // Solo descuenta stock y genera movimiento si el producto controla stock.
-      // Productos del menú (controla_stock=false) no descuentan ni dejan rastro en movimientos.
-      if (p.controlaStock) {
-        const nuevoStock = p.stock - line.cantidad;
-        await client.query(
-          `UPDATE ${prodT} SET stock_actual = $1 WHERE id = $2 AND empresa_id = $3`,
-          [nuevoStock, line.producto_id, params.empresaId]
-        );
-        p.stock = nuevoStock;
-
-        await client.query(
-          `
-          INSERT INTO ${movT} (
-            empresa_id, producto_id, producto_nombre, producto_sku,
-            tipo, cantidad, costo_unitario, origen, referencia, fecha, venta_id
-          ) VALUES (
-            $1, $2, $3, $4,
-            'SALIDA', $5, $6, 'venta', $7, $8::timestamptz, $9
-          )
-          `,
-          [
-            params.empresaId,
-            line.producto_id,
-            line.producto_nombre,
-            line.sku,
-            line.cantidad,
-            p.costo,
-            numeroControl,
-            fechaIso,
-            ventaId,
-          ]
-        );
-      }
+      const mov = await sb.from("movimientos_inventario").insert({
+        empresa_id: params.empresaId,
+        producto_id: line.producto_id,
+        producto_nombre: line.producto_nombre,
+        producto_sku: line.sku,
+        tipo: "SALIDA",
+        cantidad: line.cantidad,
+        costo_unitario: p.costo,
+        origen: "venta",
+        referencia: numeroControl,
+        fecha: fechaIso,
+        venta_id: ventaId,
+      });
+      if (mov.error) throw new Error(mov.error.message);
     }
 
-    // Pedido cocina (tarjeta en módulo Pedidos = enlodemari.proyectos)
+    // 8) Pedido cocina (tarjeta en proyectos)
     if (params.pedidoCocina) {
-      const tipoQ = await client.query<{ id: string }>(
-        `SELECT id FROM ${proyTipoT} WHERE empresa_id = $1 AND codigo = 'pedido' AND activo = true LIMIT 1`,
-        [params.empresaId]
-      );
-      if (tipoQ.rows.length === 0) {
-        throw new Error("Tipo de proyecto 'pedido' no configurado para esta empresa. Ejecutá la migración de pedidos.");
-      }
-      const tipoId = tipoQ.rows[0].id;
+      const tipoQ = await sb
+        .from("proyecto_tipos")
+        .select("id")
+        .eq("empresa_id", params.empresaId)
+        .eq("codigo", "pedido")
+        .eq("activo", true)
+        .limit(1)
+        .maybeSingle();
+      if (tipoQ.error) throw new Error(tipoQ.error.message);
+      if (!tipoQ.data) throw new Error("Tipo de proyecto 'pedido' no configurado para esta empresa.");
+      const tipoId = (tipoQ.data as { id: string }).id;
 
-      const estadoQ = await client.query<{ id: string }>(
-        `SELECT id FROM ${proyEstadoT} WHERE empresa_id = $1 AND codigo = 'nuevo' AND activo = true LIMIT 1`,
-        [params.empresaId]
-      );
-      if (estadoQ.rows.length === 0) {
-        throw new Error("Estado 'nuevo' no configurado para esta empresa.");
-      }
-      const estadoId = estadoQ.rows[0].id;
+      const estadoQ = await sb
+        .from("proyecto_estados")
+        .select("id")
+        .eq("empresa_id", params.empresaId)
+        .eq("codigo", "nuevo")
+        .eq("activo", true)
+        .limit(1)
+        .maybeSingle();
+      if (estadoQ.error) throw new Error(estadoQ.error.message);
+      if (!estadoQ.data) throw new Error("Estado 'nuevo' no configurado para esta empresa.");
+      const estadoId = (estadoQ.data as { id: string }).id;
 
-      const itemsSnapshot = params.items.map((it) => ({
+      const itemsSnapshot = items.map((it) => ({
         producto_id: it.producto_id,
         producto_nombre: it.producto_nombre,
         sku: it.sku,
@@ -301,7 +277,6 @@ export async function createVentaTransaccionalPg(
         precio_venta: it.precio_venta,
         total_linea: it.total_linea,
       }));
-
       const briefData = {
         modalidad: params.pedidoCocina.modalidad,
         mesa: params.pedidoCocina.mesa,
@@ -320,7 +295,6 @@ export async function createVentaTransaccionalPg(
         numero_control: numeroControl,
         modalidad: params.pedidoCocina.modalidad,
       };
-
       const tituloModalidad =
         params.pedidoCocina.modalidad === "local" ? "Local"
         : params.pedidoCocina.modalidad === "delivery" ? "Delivery"
@@ -333,38 +307,24 @@ export async function createVentaTransaccionalPg(
           : "";
       const titulo = `Venta ${numeroControl} · ${tituloModalidad}${detalle}`.slice(0, 200);
 
-      await client.query(
-        `
-        INSERT INTO ${proyT} (
-          empresa_id, cliente_id, tipo_id, estado_id, titulo,
-          prioridad, monto_vendido, fecha_ingreso,
-          brief_data, metadata
-        ) VALUES (
-          $1, $2, $3, $4, $5,
-          'normal', $6, $7::timestamptz,
-          $8::jsonb, $9::jsonb
-        )
-        `,
-        [
-          params.empresaId,
-          params.clienteId,
-          tipoId,
-          estadoId,
-          titulo,
-          params.totalDeclarado,
-          fechaIso,
-          JSON.stringify(briefData),
-          JSON.stringify(metadata),
-        ]
-      );
+      const insProy = await sb.from("proyectos").insert({
+        empresa_id: params.empresaId,
+        cliente_id: params.clienteId,
+        tipo_id: tipoId,
+        estado_id: estadoId,
+        titulo,
+        prioridad: "normal",
+        monto_vendido: params.totalDeclarado,
+        fecha_ingreso: fechaIso,
+        brief_data: briefData,
+        metadata,
+      });
+      if (insProy.error) throw new Error(insProy.error.message);
     }
 
-    await client.query("COMMIT");
     return { ventaId, numeroControl, fechaIso };
-  } catch (e) {
-    await client.query("ROLLBACK");
-    throw e;
-  } finally {
-    client.release();
+  } catch (err) {
+    await rollback();
+    throw err;
   }
 }

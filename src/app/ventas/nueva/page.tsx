@@ -727,18 +727,6 @@ export default function NuevaVentaPage() {
             </>
           )}
 
-          {/* Banner impacto inventario */}
-          {items.length > 0 && (
-            <div className="mt-5 flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-xs text-blue-700">
-              <span className="text-base leading-none mt-0.5">↓</span>
-              <span>
-                Al confirmar se registrarán{" "}
-                <strong>{items.length} movimiento{items.length > 1 ? "s" : ""} de SALIDA</strong>{" "}
-                en el inventario, uno por cada producto listado.
-              </span>
-            </div>
-          )}
-
           {/* Modalidad del pedido (gastronómico) */}
           <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50/40 px-4 py-4">
             <p className="text-sm font-semibold text-slate-800 mb-3">
