@@ -295,13 +295,14 @@ export default function VentasPage() {
                 <th className="py-3 pr-4 font-medium">IVA</th>
                 <th className="py-3 pr-4 font-medium text-right">Total</th>
                 <th className="py-3 pr-4 font-medium">Tipo</th>
-                <th className="py-3 font-medium">Fecha</th>
+                <th className="py-3 pr-4 font-medium">Fecha</th>
+                <th className="py-3 font-medium text-center">Ticket</th>
               </tr>
             </thead>
             <tbody>
               {filtradas.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-gray-400">
+                  <td colSpan={9} className="py-12 text-center text-gray-400">
                     {todas.length === 0
                       ? "No hay ventas registradas"
                       : "Ninguna venta coincide con los filtros"}
@@ -341,8 +342,19 @@ export default function VentasPage() {
                             : `Crédito ${v.plazo_dias ?? ""}d`}
                         </span>
                       </td>
-                      <td className="py-4 text-gray-500 text-xs tabular-nums align-middle">
+                      <td className="py-4 pr-4 text-gray-500 text-xs tabular-nums align-middle">
                         {formatFecha(v.fecha)}
+                      </td>
+                      <td className="py-4 text-center align-middle">
+                        <a
+                          href={`/api/ventas/${v.id}/ticket`}
+                          target="_blank"
+                          rel="noopener"
+                          className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition-colors"
+                          title="Abrir ticket imprimible"
+                        >
+                          Imprimir
+                        </a>
                       </td>
                     </tr>
                   );

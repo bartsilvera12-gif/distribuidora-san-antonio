@@ -385,6 +385,10 @@ export default function NuevaVentaPage() {
       setErrorVenta(resultado.error);
       return;
     }
+    // Abrir ticket imprimible en nueva pestaña (con diálogo de impresión automático).
+    try {
+      window.open(`/api/ventas/${resultado.venta.id}/ticket?auto=1`, "_blank", "noopener");
+    } catch {}
     router.push("/ventas");
   }
 
