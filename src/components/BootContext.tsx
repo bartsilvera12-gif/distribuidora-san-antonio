@@ -3,33 +3,36 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 
 /**
- * Context para sincronizar el loader inicial del ERP con el estado del Sidebar.
+ * Context para sincronizar el loader inicial + el estado del Sidebar mobile.
  *
- * Flujo típico:
- *  1. AuthGuard envuelve la app con <BootProvider>.
- *  2. Mientras (authLoading || !sidebarReady), muestra <ZentraLoader overlay />.
- *  3. Renderiza los children desde el primer momento (montar el Sidebar abajo)
- *     para que el Sidebar pueda hacer su fetch de módulos/permisos.
- *  4. El Sidebar llama setSidebarReady(true) cuando termina su carga inicial.
+ * - sidebarReady: el Sidebar ya cargo modulos (loader inicial puede cerrarse).
+ * - mobileSidebarOpen: el Sidebar esta abierto como drawer en mobile.
  *
- * Resultado: el loader se mantiene visible hasta que el Sidebar tenga sus
- * datos, y vuelve a aparecer cuando el Sidebar recarga (cambio de pestaña,
- * token refresh, etc.).
+ * El loader del AuthGuard espera sidebarReady para desaparecer.
+ * El Header expone un boton hamburger que abre/cierra mobileSidebarOpen.
+ * El Sidebar lee mobileSidebarOpen para renderizarse fijo o como drawer.
  */
 type BootContextValue = {
   sidebarReady: boolean;
   setSidebarReady: (v: boolean) => void;
+  mobileSidebarOpen: boolean;
+  setMobileSidebarOpen: (v: boolean) => void;
 };
 
 const BootContext = createContext<BootContextValue>({
   sidebarReady: false,
   setSidebarReady: () => {},
+  mobileSidebarOpen: false,
+  setMobileSidebarOpen: () => {},
 });
 
 export function BootProvider({ children }: { children: ReactNode }) {
   const [sidebarReady, setSidebarReady] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   return (
-    <BootContext.Provider value={{ sidebarReady, setSidebarReady }}>
+    <BootContext.Provider
+      value={{ sidebarReady, setSidebarReady, mobileSidebarOpen, setMobileSidebarOpen }}
+    >
       {children}
     </BootContext.Provider>
   );

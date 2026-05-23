@@ -339,7 +339,13 @@ export default function Sidebar() {
   const [esSuperAdmin, setEsSuperAdmin] = useState(false);
   /** Filtro visual del menú (no altera permisos ni rutas). */
   const [menuSearchQuery, setMenuSearchQuery] = useState("");
-  const { setSidebarReady } = useBoot();
+  const { setSidebarReady, mobileSidebarOpen, setMobileSidebarOpen } = useBoot();
+
+  /** Cerrar el drawer mobile al cambiar de ruta. */
+  useEffect(() => {
+    if (mobileSidebarOpen) setMobileSidebarOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
 
   /** Reporta al BootContext cuándo el sidebar tiene sus módulos cargados.
    *  Sticky: solo va false → true, nunca true → false. Esto evita que el
@@ -517,13 +523,28 @@ export default function Sidebar() {
   }, [menuSearchQuery]);
 
   return (
-    <motion.aside
-      id="neura-sidebar"
-      initial={false}
-      animate={{ width: collapsed ? 80 : 260 }}
-      transition={{ duration: 0.2 }}
-      className="zentra-sidebar-bg flex h-svh min-h-0 shrink-0 flex-col border-r border-[color:var(--zentra-sidebar-border)]"
-    >
+    <>
+      {/* Backdrop mobile: cubre el contenido cuando el drawer esta abierto */}
+      {mobileSidebarOpen ? (
+        <button
+          type="button"
+          aria-label="Cerrar menú"
+          onClick={() => setMobileSidebarOpen(false)}
+          className="fixed inset-0 z-40 bg-slate-900/55 backdrop-blur-sm md:hidden"
+        />
+      ) : null}
+
+      <motion.aside
+        id="neura-sidebar"
+        initial={false}
+        animate={{ width: collapsed ? 80 : 260 }}
+        transition={{ duration: 0.2 }}
+        className={`zentra-sidebar-bg flex h-svh min-h-0 shrink-0 flex-col border-r border-[color:var(--zentra-sidebar-border)] md:relative md:translate-x-0 ${
+          mobileSidebarOpen
+            ? "fixed inset-y-0 left-0 z-50 translate-x-0 shadow-2xl transition-transform duration-200"
+            : "fixed inset-y-0 left-0 z-50 -translate-x-full md:translate-x-0 transition-transform duration-200"
+        }`}
+      >
       {/* Logo oficial ZENTRA (blanco sobre azul marca) */}
       <div className="flex h-[7.25rem] shrink-0 items-center justify-between gap-2 border-b border-[color:var(--zentra-sidebar-border)] bg-[color:var(--zentra-sidebar-elevated)]/35 px-3 py-2.5">
         <Link href="/" className={`flex items-center justify-center min-w-0 flex-1 overflow-hidden`}>
@@ -647,6 +668,7 @@ export default function Sidebar() {
           </div>
         )}
       </nav>
-    </motion.aside>
+      </motion.aside>
+    </>
   );
 }

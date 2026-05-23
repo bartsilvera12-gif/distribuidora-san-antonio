@@ -2,9 +2,10 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, ChevronDown, LogOut } from "lucide-react";
+import { Bell, ChevronDown, LogOut, Menu } from "lucide-react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { signOut } from "@/lib/auth";
+import { useBoot } from "@/components/BootContext";
 
 type HeaderUsuario = {
   nombre: string | null;
@@ -43,6 +44,7 @@ export default function Header() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [usuario, setUsuario] = useState<HeaderUsuario | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const { mobileSidebarOpen, setMobileSidebarOpen } = useBoot();
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -82,8 +84,21 @@ export default function Header() {
   return (
     <header
       id="neura-header"
-      className="z-40 flex h-16 shrink-0 items-center justify-end gap-3 border-b border-slate-200/90 bg-white/95 px-4 sm:px-6 shadow-[inset_0_-1px_0_0_rgba(10,37,64,0.05)] backdrop-blur-sm"
+      className="z-40 flex h-16 shrink-0 items-center justify-between gap-3 border-b border-slate-200/90 bg-white/95 px-3 sm:px-6 shadow-[inset_0_-1px_0_0_rgba(10,37,64,0.05)] backdrop-blur-sm"
     >
+      {/* Boton hamburger (solo mobile) */}
+      <button
+        type="button"
+        onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
+        className="rounded-lg p-2 text-slate-600 transition-colors hover:bg-slate-100 hover:text-[#3F8E91] md:hidden"
+        aria-label="Abrir menú"
+      >
+        <Menu className="h-5 w-5" />
+      </button>
+
+      {/* Spacer en desktop para empujar el resto a la derecha */}
+      <div className="hidden md:block md:flex-1" />
+
       <div className="flex items-center gap-2">
         {/* Notificaciones */}
         <button
