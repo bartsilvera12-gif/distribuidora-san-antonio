@@ -1972,15 +1972,22 @@ export function ConversacionesClient({
       )}
 
       <div className="flex flex-1 min-h-0 border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm">
-        {/* Lista */}
-        {!listColumnHidden ? (
-        <div className="w-full max-w-[min(360px,40vw)] shrink-0 border-r border-slate-200 flex flex-col min-h-0 bg-slate-50/80">
+        {/* Lista — Master/Detail responsive:
+              MOBILE (< lg): visible cuando NO hay chat seleccionado, ocupa todo el ancho.
+                             Cuando user selecciona un chat -> se oculta y aparece el panel mensajes.
+              DESKTOP (>= lg): respeta el toggle manual `listColumnHidden`.
+                               Si listColumnHidden=true se oculta tambien en desktop.
+              Logica combinada: selectedId controla mobile, listColumnHidden controla desktop.
+        */}
+        <div className={`${selectedId ? "hidden" : "flex"} ${listColumnHidden ? "lg:hidden" : "lg:flex"} w-full lg:max-w-[min(360px,40vw)] shrink-0 lg:border-r border-slate-200 flex-col min-h-0 bg-slate-50/80`}>
           <div className="px-2 py-1.5 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
             <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Chats</span>
+            {/* Solo desktop: en mobile la lista se auto-oculta al seleccionar un chat,
+                no hace falta toggle manual. */}
             <button
               type="button"
               onClick={() => setListColumnHidden(true)}
-              className="text-[10px] font-medium text-slate-500 hover:text-slate-800 px-1.5 py-0.5 rounded border border-transparent hover:border-slate-200 hover:bg-white"
+              className="hidden lg:inline-flex text-[10px] font-medium text-slate-500 hover:text-slate-800 px-1.5 py-0.5 rounded border border-transparent hover:border-slate-200 hover:bg-white"
               title="Ocultar lista de chats"
             >
               Ocultar
@@ -2080,10 +2087,13 @@ export function ConversacionesClient({
             )}
           </div>
         </div>
-        ) : null}
 
-        {/* Panel mensajes */}
-        <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+        {/* Panel mensajes — Master/Detail responsive:
+              MOBILE (< lg): visible solo cuando HAY chat seleccionado.
+                             Si no, la lista ocupa toda la pantalla.
+              DESKTOP (>= lg): siempre visible (con empty state si no hay chat).
+        */}
+        <div className={`${!selectedId ? "hidden lg:flex" : "flex"} flex-1 flex-col min-w-0 min-h-0 overflow-hidden`}>
           {!selectedId ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-2 text-slate-400 text-sm min-h-0 px-2">
               <span>Seleccioná una conversación</span>
@@ -2104,6 +2114,19 @@ export function ConversacionesClient({
                   <div className="flex flex-col gap-0.5 min-w-0 w-full">
                     <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 min-w-0">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0 flex-1">
+                        {/* Boton "Volver a la lista" — solo en mobile. En desktop la lista ya
+                            esta visible al costado, no hace falta. min-h/min-w 36px para tap target. */}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedId(null)}
+                          className="lg:hidden inline-flex items-center justify-center min-w-[36px] min-h-[36px] -ml-1 rounded-md text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors shrink-0"
+                          aria-label="Volver a la lista de chats"
+                          title="Volver"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                            <path fillRule="evenodd" d="M12.78 5.22a.75.75 0 0 1 0 1.06L9.06 10l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z" clipRule="evenodd" />
+                          </svg>
+                        </button>
                         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0 min-w-0">
                           <span className="font-semibold text-slate-900 text-sm leading-tight truncate max-w-[min(100%,14rem)]">
                             {selected.contact.name?.trim() ? selected.contact.name.trim() : "Sin nombre"}
@@ -2132,7 +2155,7 @@ export function ConversacionesClient({
                             <button
                               type="button"
                               onClick={() => setListColumnHidden(false)}
-                              className="shrink-0 text-[9px] font-medium text-slate-600 hover:text-slate-900 border border-slate-200 rounded px-1 py-0.5 bg-white"
+                              className="hidden lg:inline-flex shrink-0 text-[9px] font-medium text-slate-600 hover:text-slate-900 border border-slate-200 rounded px-1 py-0.5 bg-white"
                               title="Mostrar lista de chats"
                             >
                               Chats
