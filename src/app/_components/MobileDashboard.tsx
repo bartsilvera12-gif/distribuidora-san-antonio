@@ -30,6 +30,12 @@ import {
   type GastoRaw,
   type NotaCreditoDashRow,
 } from "@/lib/dashboard/data";
+// IMPORTANTE: usar enRangoCalendario en vez de "new Date(iso) >= desde && <= hasta".
+// Las fechas en BD vienen como "YYYY-MM-DD" (date only). Si haces new Date("2026-05-25")
+// JS lo parsea como UTC midnight, que en Paraguay (UTC-3) es 24/05 21:00 LOCAL.
+// Resultado: una venta del 25/05 NO matchea el rango "hoy 25/05 00:00 - 23:59 LOCAL".
+// enRangoCalendario compara string vs string YYYY-MM-DD ignorando timezone.
+import { enRangoCalendario } from "@/lib/fechas/calendario";
 
 /**
  * MobileDashboard — versión mobile-first del dashboard.
@@ -98,13 +104,6 @@ function getRangoFechas(periodo: Periodo): { desde: Date; hasta: Date } {
   }
 }
 
-function inRange(iso: string, desde: Date, hasta: Date): boolean {
-  if (!iso) return false;
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return false;
-  return d >= desde && d <= hasta;
-}
-
 function formatGs(n: number): string {
   return `Gs. ${Math.round(n).toLocaleString("es-PY")}`;
 }
@@ -149,7 +148,7 @@ type Props = {
   notasCredito: NotaCreditoDashRow[];
 };
 
-type Seccion = "inicio" | "financiero" | "inventario";
+type Seccion = "ventas" | "financiero" | "inventario";
 
 export default function MobileDashboard({
   clientes,
@@ -161,7 +160,7 @@ export default function MobileDashboard({
   notasCredito,
 }: Props) {
   const [periodo, setPeriodo] = useState<Periodo>("hoy");
-  const [seccion, setSeccion] = useState<Seccion>("inicio");
+  const [seccion, setSeccion] = useState<Seccion>("ventas");
   const { desde, hasta } = useMemo(() => getRangoFechas(periodo), [periodo]);
 
   // ── Cálculos memoizados ──────────────────────────────────────────────────
@@ -176,7 +175,7 @@ export default function MobileDashboard({
       (f) =>
         !esFacturaAnulada(f.estado) &&
         !esFacturaCorregidaNc(f.estado) &&
-        inRange(f.fecha, desde, hasta),
+        enRangoCalendario(f.fecha, desde, hasta),
     );
 
     const facturadoTotal = facturasPeriodo.reduce(
@@ -185,7 +184,7 @@ export default function MobileDashboard({
     );
 
     // Pagos en el período
-    const pagosPeriodo = pagos.filter((p) => inRange(p.fecha_pago, desde, hasta));
+    const pagosPeriodo = pagos.filter((p) => enRangoCalendario(p.fecha_pago, desde, hasta));
     const cobrado = pagosPeriodo.reduce((s, p) => s + (Number(p.monto) || 0), 0);
 
     // Pendiente: suma de saldos > 0 de facturas no anuladas (cartera total, no solo período)
@@ -197,11 +196,11 @@ export default function MobileDashboard({
       }, 0);
 
     // Ventas en período
-    const ventasPeriodo = ventas.filter((v) => inRange(v.fecha, desde, hasta));
+    const ventasPeriodo = ventas.filter((v) => enRangoCalendario(v.fecha, desde, hasta));
     const totalVentas = ventasPeriodo.reduce((s, v) => s + (Number(v.total) || 0), 0);
 
     // Gastos en período
-    const gastosPeriodo = gastos.filter((g) => inRange(g.fecha, desde, hasta));
+    const gastosPeriodo = gastos.filter((g) => enRangoCalendario(g.fecha, desde, hasta));
     const totalGastos = gastosPeriodo.reduce((s, g) => s + (Number(g.monto) || 0), 0);
 
     // Margen estimado (ventas - gastos)
@@ -248,7 +247,7 @@ export default function MobileDashboard({
   // facturado = obligación cobro al emitir; cartera = saldo vivo; recaudado = facturado - cartera.
   const financieroMetrics = useMemo(() => {
     const facturasPeriodo = facturas.filter(
-      (f) => !esFacturaAnulada(f.estado) && inRange(f.fecha, desde, hasta),
+      (f) => !esFacturaAnulada(f.estado) && enRangoCalendario(f.fecha, desde, hasta),
     );
     const facturadoCohort = facturasPeriodo.reduce(
       (s, f) => s + (Number(f.monto) || 0),
@@ -342,7 +341,7 @@ export default function MobileDashboard({
   // Últimas ventas (top 5 más recientes en el período)
   const ultimasVentas = useMemo(() => {
     return ventas
-      .filter((v) => inRange(v.fecha, desde, hasta))
+      .filter((v) => enRangoCalendario(v.fecha, desde, hasta))
       .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())
       .slice(0, 5);
   }, [ventas, desde, hasta]);
@@ -375,31 +374,31 @@ export default function MobileDashboard({
             </button>
           ))}
         </div>
-        {/* Selector de seccion: Inicio / Financiero / Inventario */}
+        {/* Selector de seccion: Ventas / Financiero / Inventario */}
         <div className="mt-2 grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl">
-          <SectionTab active={seccion === "inicio"} onClick={() => setSeccion("inicio")} icon={HomeIcon} label="Inicio" />
+          <SectionTab active={seccion === "ventas"} onClick={() => setSeccion("ventas")} icon={ShoppingCart} label="Ventas" />
           <SectionTab active={seccion === "financiero"} onClick={() => setSeccion("financiero")} icon={Wallet} label="Financiero" />
           <SectionTab active={seccion === "inventario"} onClick={() => setSeccion("inventario")} icon={Boxes} label="Inventario" />
         </div>
       </div>
 
-      {/* ════════════════════════ INICIO ════════════════════════ */}
-      {seccion === "inicio" && (
+      {/* ════════════════════════ VENTAS ════════════════════════ */}
+      {seccion === "ventas" && (
       <>
-      {/* ── KPI principal: Facturado ── */}
+      {/* ── KPI principal: Total Ventas del periodo (tabla ventas, no facturas) ── */}
       <div className="bg-gradient-to-br from-[#4FAEB2] to-[#3F8E91] rounded-2xl p-5 text-white shadow-md">
         <p className="text-[10px] font-bold uppercase tracking-widest opacity-90 mb-2">
-          Facturado {PERIODO_LABELS[periodo].toLowerCase()}
+          Ventas {PERIODO_LABELS[periodo].toLowerCase()}
         </p>
         <p className="text-3xl font-bold tabular-nums leading-tight">
-          {formatGsCompact(metrics.facturadoTotal)}
+          {formatGsCompact(metrics.totalVentas)}
         </p>
         <p className="text-xs opacity-90 mt-1">
-          {metrics.cantidadFacturas} factura{metrics.cantidadFacturas === 1 ? "" : "s"}
+          {metrics.cantidadVentas} venta{metrics.cantidadVentas === 1 ? "" : "s"}
         </p>
       </div>
 
-      {/* ── 2 KPIs secundarios ── */}
+      {/* ── 2 KPIs secundarios: Cobrado (pagos del periodo) + Gastos ── */}
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
           <div className="flex items-center gap-1.5 mb-1.5">
@@ -417,15 +416,15 @@ export default function MobileDashboard({
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
           <div className="flex items-center gap-1.5 mb-1.5">
-            <TrendingDown className="h-3.5 w-3.5 text-amber-600" aria-hidden />
+            <TrendingDown className="h-3.5 w-3.5 text-red-600" aria-hidden />
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-              Pendiente
+              Gastos
             </p>
           </div>
           <p className="text-lg font-bold text-slate-900 tabular-nums">
-            {formatGsCompact(metrics.pendiente)}
+            {formatGsCompact(metrics.totalGastos)}
           </p>
-          <p className="text-[11px] text-slate-500 mt-0.5">total cartera</p>
+          <p className="text-[11px] text-slate-500 mt-0.5">del período</p>
         </div>
       </div>
 
