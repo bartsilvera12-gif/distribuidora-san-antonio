@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import EdgeScrollArea from "@/components/ui/EdgeScrollArea";
 import { FancySelect } from "@/components/ui/FancySelect";
+import MobileFab from "@/components/ui/MobileFab";
 import { getVentas } from "@/lib/ventas/storage";
 import type { Venta, TipoVenta, TipoIvaVenta } from "@/lib/ventas/types";
 
@@ -396,6 +397,8 @@ export default function VentasPage() {
 
       </div>
 
+      {/* FAB mobile: acceso 1-tap a "+ Nueva venta" desde cualquier scroll position */}
+      <MobileFab href="/ventas/nueva" label="Nueva venta" />
     </div>
   );
 }

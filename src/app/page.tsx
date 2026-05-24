@@ -3,6 +3,9 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
+// MobileDashboard se renderiza solo en mobile (md:hidden). El dashboard desktop
+// que vive en este mismo archivo queda intacto.
+import MobileDashboard from "@/app/_components/MobileDashboard";
 import { getConfig } from "@/lib/config/storage";
 import { getUsuarios } from "@/lib/usuarios/storage";
 import type { ConfigGlobal } from "@/lib/config/types";
@@ -2163,8 +2166,26 @@ export default function DashboardPage() {
   }
 
   return (
-    <div
-      className="zentra-dashboard-shell space-y-8 rounded-2xl border border-slate-200 px-4 py-8 sm:px-6 md:px-8"
+    <>
+      {/* MOBILE (< md=768px): dashboard rediseñado especialmente para mobile.
+          Touch-first, KPIs apilados, acciones rápidas grandes, alertas, cards
+          en vez de tablas. Layout COMPLETAMENTE distinto al desktop. */}
+      <div className="md:hidden">
+        <MobileDashboard
+          clientes={clientes}
+          facturas={facturas}
+          pagos={pagos}
+          productos={productos}
+          ventas={ventas}
+          gastos={gastos}
+          notasCredito={notasCredito}
+        />
+      </div>
+
+      {/* DESKTOP (>= md=768px): dashboard original con todos los sub-tabs,
+          gráficos, tablas. Intacto, cero cambios. */}
+      <div
+      className="hidden md:block zentra-dashboard-shell space-y-8 rounded-2xl border border-slate-200 px-4 py-8 sm:px-6 md:px-8"
       style={{ color: Z.muted }}
     >
       <header className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
@@ -2299,5 +2320,6 @@ export default function DashboardPage() {
       )}
 
     </div>
+    </>
   );
 }

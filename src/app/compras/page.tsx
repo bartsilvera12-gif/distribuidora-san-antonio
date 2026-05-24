@@ -6,6 +6,7 @@ import { getCompras } from "@/lib/compras/storage";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import EdgeScrollArea from "@/components/ui/EdgeScrollArea";
 import { FancySelect } from "@/components/ui/FancySelect";
+import MobileFab from "@/components/ui/MobileFab";
 import type { Compra, TipoPago } from "@/lib/compras/types";
 
 const inputFilterClass =
@@ -211,6 +212,7 @@ export default function ComprasPage() {
 
       </div>
 
+      <MobileFab href="/compras/nueva" label="Nueva compra" />
     </div>
   );
 }
