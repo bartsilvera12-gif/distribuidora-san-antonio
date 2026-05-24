@@ -296,11 +296,15 @@ export async function DELETE(
     }
 
     if (anularFacturasPendientes && nFactPend > 0) {
-      for (const f of factPend.data ?? []) {
+      // Antes: un UPDATE por factura (N round-trips a Postgres).
+      // Ahora: un solo UPDATE con .in(ids) — reduce N queries a 1.
+      // Mantiene el filtro de empresa_id para no afectar facturas de otros tenants.
+      const facturaIds = (factPend.data ?? []).map((f) => f.id);
+      if (facturaIds.length > 0) {
         const { error: errF } = await supabase
           .from("facturas")
           .update({ estado: "Anulado", saldo: 0, updated_at: now })
-          .eq("id", f.id)
+          .in("id", facturaIds)
           .eq("empresa_id", auth.empresa_id);
 
         if (errF) {

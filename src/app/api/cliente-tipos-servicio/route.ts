@@ -4,7 +4,6 @@ import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import { getClientesSupabaseFromAuthWithRol } from "@/lib/clientes/clientes-service-client";
 import {
-  contarClientesPorSlug,
   ensureSemillasCatalogoTipos,
   generarSlugDesdeNombre,
 } from "@/lib/clientes/tipo-servicio-catalogo";
@@ -84,11 +83,24 @@ export async function GET(request: NextRequest) {
     const withUsos = sp.get("with_usos") === "1";
     const rows = await loadRows(supabase, auth.empresa_id, false);
     if (withUsos) {
-      const withCounts: Row[] = [];
-      for (const r of rows) {
-        const usos = await contarClientesPorSlug(supabase, auth.empresa_id, r.slug);
-        withCounts.push({ ...r, usos });
+      // Antes: N count() queries (una por slug del catalogo, tipicamente 10-30 por empresa).
+      // Ahora: una sola SELECT que trae solo la columna tipo_servicio_cliente y agrupa en JS.
+      // Para empresas con miles de clientes esto es 30x menos round-trips al pool.
+      const { data: clientesSlugs, error: errCount } = await supabase
+        .from("clientes")
+        .select("tipo_servicio_cliente")
+        .eq("empresa_id", auth.empresa_id)
+        .is("deleted_at", null);
+      if (errCount) {
+        return NextResponse.json(errorResponse(errCount.message), { status: 400 });
       }
+      const counts = new Map<string, number>();
+      for (const row of (clientesSlugs ?? []) as { tipo_servicio_cliente: string | null }[]) {
+        const s = (row.tipo_servicio_cliente ?? "").trim().toLowerCase();
+        if (!s) continue;
+        counts.set(s, (counts.get(s) ?? 0) + 1);
+      }
+      const withCounts: Row[] = rows.map((r) => ({ ...r, usos: counts.get(r.slug) ?? 0 }));
       return NextResponse.json(successResponse(withCounts));
     }
     return NextResponse.json(successResponse(rows));

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 
 /**
  * Context para sincronizar el loader inicial + el estado del Sidebar mobile.
@@ -29,10 +29,15 @@ const BootContext = createContext<BootContextValue>({
 export function BootProvider({ children }: { children: ReactNode }) {
   const [sidebarReady, setSidebarReady] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  // useMemo evita crear un objeto nuevo en cada render del Provider:
+  // sin esto, todos los consumers (Sidebar, Header, AuthGuard) se re-renderizaban
+  // por cualquier cambio del shell, aunque sus props no cambiaran.
+  const value = useMemo(
+    () => ({ sidebarReady, setSidebarReady, mobileSidebarOpen, setMobileSidebarOpen }),
+    [sidebarReady, mobileSidebarOpen],
+  );
   return (
-    <BootContext.Provider
-      value={{ sidebarReady, setSidebarReady, mobileSidebarOpen, setMobileSidebarOpen }}
-    >
+    <BootContext.Provider value={value}>
       {children}
     </BootContext.Provider>
   );

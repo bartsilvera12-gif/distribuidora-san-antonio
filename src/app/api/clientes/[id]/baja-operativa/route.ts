@@ -159,11 +159,14 @@ export async function POST(
         .neq("estado", "Anulado")
         .gt("saldo", 0);
 
-      for (const f of facturas ?? []) {
+      // Antes: N UPDATEs serializados (uno por factura).
+      // Ahora: un solo UPDATE con .in(ids). Mantiene el filtro de empresa_id por seguridad.
+      const facturaIds = (facturas ?? []).map((f) => f.id);
+      if (facturaIds.length > 0) {
         await supabase
           .from("facturas")
           .update({ estado: "Anulado", saldo: 0, updated_at: now })
-          .eq("id", f.id)
+          .in("id", facturaIds)
           .eq("empresa_id", auth.empresa_id);
       }
     }

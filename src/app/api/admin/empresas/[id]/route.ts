@@ -218,10 +218,13 @@ export async function PATCH(
           .from("usuario_modulos")
           .select("id, modulo_id")
           .in("usuario_id", uids);
-        for (const row of ums ?? []) {
-          if (!allowed.has(row.modulo_id as string)) {
-            await supabase.from("usuario_modulos").delete().eq("id", row.id as string);
-          }
+        // Antes: un DELETE por fila huerfana (N round-trips).
+        // Ahora: un solo DELETE con .in(ids). Si no hay huerfanas, no se ejecuta nada.
+        const orphanIds = (ums ?? [])
+          .filter((row) => !allowed.has(row.modulo_id as string))
+          .map((row) => row.id as string);
+        if (orphanIds.length > 0) {
+          await supabase.from("usuario_modulos").delete().in("id", orphanIds);
         }
       }
     }
@@ -260,10 +263,12 @@ export async function PATCH(
           .from("usuario_dashboard_views")
           .select("id, dashboard_view_id")
           .in("usuario_id", uids2);
-        for (const row of udvs ?? []) {
-          if (!allowedDv.has(row.dashboard_view_id as string)) {
-            await supabase.from("usuario_dashboard_views").delete().eq("id", row.id as string);
-          }
+        // Mismo patron que con usuario_modulos: batch DELETE en vez de N round-trips.
+        const orphanDvIds = (udvs ?? [])
+          .filter((row) => !allowedDv.has(row.dashboard_view_id as string))
+          .map((row) => row.id as string);
+        if (orphanDvIds.length > 0) {
+          await supabase.from("usuario_dashboard_views").delete().in("id", orphanDvIds);
         }
       }
     }
@@ -342,13 +347,13 @@ export async function DELETE(
       );
     }
 
-    for (const authUid of authUserIds) {
-      try {
-        await supabase.auth.admin.deleteUser(authUid);
-      } catch {
-        /* puede estar ya borrado */
-      }
-    }
+    // Antes: M llamadas seriales a GoTrue (una por usuario). M usuarios = M * latencia.
+    // Ahora: paralelas con Promise.allSettled. Sigue siendo M llamadas (no hay batch upstream)
+    // pero la latencia total pasa de O(M) a O(max(latencias)). Cada error se ignora
+    // individualmente (idempotencia: el usuario puede haber sido borrado por otra via).
+    await Promise.allSettled(
+      authUserIds.map((authUid) => supabase.auth.admin.deleteUser(authUid)),
+    );
 
     return NextResponse.json({
       ok: true,

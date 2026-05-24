@@ -163,7 +163,13 @@ function opPresenceToggleClass(isSelected: boolean, variant: "ready" | "offline"
 function LiveElapsedLabel({ sinceIso }: { sinceIso: string | null }) {
   const [, setTick] = useState(0);
   useEffect(() => {
-    const id = window.setInterval(() => setTick((x) => x + 1), 1000);
+    // Guard de visibility: si la pestana esta oculta no tiene sentido re-renderizar
+    // cada segundo. Cada item visible monta su propio timer; en un inbox con 100
+    // conversaciones eso son 100 re-renders por segundo desperdiciados en background.
+    const id = window.setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      setTick((x) => x + 1);
+    }, 1000);
     return () => window.clearInterval(id);
   }, []);
   if (!sinceIso) return <span className="text-slate-400">—</span>;
@@ -896,7 +902,12 @@ export function ConversacionesClient({
   useEffect(() => {
     if (mode !== "inbox" || !opInQueues) return;
     void touchChatAgentInboxHeartbeat();
-    const id = window.setInterval(() => void touchChatAgentInboxHeartbeat(), INBOX_HEARTBEAT_INTERVAL_MS);
+    // Guard de visibility para no spamear el endpoint con la pestana oculta.
+    // El handler onVis de mas abajo dispara un heartbeat al volver, asi que no perdemos presencia.
+    const id = window.setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      void touchChatAgentInboxHeartbeat();
+    }, INBOX_HEARTBEAT_INTERVAL_MS);
     const onVis = () => {
       if (document.visibilityState === "visible") void touchChatAgentInboxHeartbeat();
     };

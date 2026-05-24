@@ -100,6 +100,27 @@ export async function POST(request: NextRequest, ctx: RouteCtx) {
 
     const ts = new Date().toISOString();
 
+    // BULK INSERT: antes hacia un INSERT por fila del Excel.
+    // Con 5000 filas eran 5000 round-trips secuenciales al pool de Postgres
+    // (bloqueo de pool garantizado). Ahora acumulamos en memoria y mandamos en
+    // lotes de INSERT_BATCH_SIZE filas. Si una fila del lote rompe, todo el lote
+    // se reporta con el error pero ya hubo menos round-trips. Para mayor
+    // granularidad de error, bajar el tamano del batch.
+    const INSERT_BATCH_SIZE = 500;
+    const insertBatch: Record<string, unknown>[] = [];
+
+    const flushBatch = async (): Promise<NextResponse | null> => {
+      if (insertBatch.length === 0) return null;
+      const { error: insErr } = await sb
+        .from("chat_campaign_recipients")
+        .insert(insertBatch);
+      insertBatch.length = 0;
+      if (insErr) {
+        return NextResponse.json(errorResponse(insErr.message), { status: 400 });
+      }
+      return null;
+    };
+
     for (const row of parsed.rows) {
       rowNum += 1;
       const rawPhone = row[phoneCol] ?? "";
@@ -146,11 +167,17 @@ export async function POST(request: NextRequest, ctx: RouteCtx) {
         insertRow.phone_e164 = `invalid_${rowNum}_${campaignId.slice(0, 8)}`;
       }
 
-      const { error: insErr } = await sb.from("chat_campaign_recipients").insert(insertRow);
-      if (insErr) {
-        return NextResponse.json(errorResponse(insErr.message), { status: 400 });
+      insertBatch.push(insertRow);
+
+      if (insertBatch.length >= INSERT_BATCH_SIZE) {
+        const flushErr = await flushBatch();
+        if (flushErr) return flushErr;
       }
     }
+
+    // Flush final con lo que quede en el batch (< INSERT_BATCH_SIZE filas).
+    const flushErr = await flushBatch();
+    if (flushErr) return flushErr;
 
     const headerImportResolution = evaluateHeaderImageOnImport({
       needsHeader: needsHeaderImage,

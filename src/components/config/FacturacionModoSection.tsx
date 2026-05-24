@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { useAutoClearFlag } from "@/hooks/useAutoClearFlag";
 
 type Modo = "sin_factura_fiscal" | "sifen" | "autoimpresor";
 type Impresion = "pdf_a4" | "pdf_media_hoja" | "ticket_80mm" | "ticket_58mm";
@@ -58,8 +59,9 @@ export default function FacturacionModoSection() {
   const [savingAuto, setSavingAuto] = useState(false);
   const [errModo, setErrModo] = useState<string | null>(null);
   const [errAuto, setErrAuto] = useState<string | null>(null);
-  const [okModo, setOkModo] = useState<string | null>(null);
-  const [okAuto, setOkAuto] = useState<string | null>(null);
+  // Toast "Guardado" auto-limpiable a 1.5s. useAutoClearFlag cancela el timer en unmount.
+  const [okModo, setOkModo] = useAutoClearFlag<string>(1500);
+  const [okAuto, setOkAuto] = useAutoClearFlag<string>(1500);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -93,7 +95,7 @@ export default function FacturacionModoSection() {
       if (!r.ok || !j?.success) { setErrModo(j?.error ?? "No se pudo guardar"); return; }
       setModo(j.data.facturacion_modo as FacturacionModo);
       setOkModo("Guardado ✓");
-      setTimeout(() => setOkModo(null), 1500);
+      // El reset a null lo hace useAutoClearFlag (1.5s, con cleanup en unmount).
     } catch (e) { setErrModo(e instanceof Error ? e.message : "Error de red"); }
     finally { setSavingModo(false); }
   }
@@ -111,7 +113,7 @@ export default function FacturacionModoSection() {
       if (!r.ok || !j?.success) { setErrAuto(j?.error ?? "No se pudo guardar"); return; }
       setAuto(j.data.autoimpresor as Autoimpresor);
       setOkAuto("Guardado ✓");
-      setTimeout(() => setOkAuto(null), 1500);
+      // Reset a null por useAutoClearFlag (1.5s, cleanup garantizado).
     } catch (e) { setErrAuto(e instanceof Error ? e.message : "Error de red"); }
     finally { setSavingAuto(false); }
   }

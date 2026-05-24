@@ -39,6 +39,12 @@ import {
   isDashboardTabSlug,
   type DashboardTabSlug,
 } from "@/lib/dashboard/resolve-effective-dashboard-views";
+// NOTA DE PERFORMANCE: recharts pesa ~90 KB gzipped y entra al bundle inicial.
+// No se puede usar next/dynamic directo en estos componentes porque LineChart
+// hace introspeccion de children por tipo (rompe si los envolves en dynamic()).
+// TODO: extraer el chart de la seccion financiera a un archivo aparte
+// (p.ej. src/app/_components/ChartCobradoPorDia.tsx) y dynamic-importar ESE archivo.
+// Eso saca recharts del bundle inicial sin romper la introspeccion.
 import {
   CartesianGrid,
   Line,
