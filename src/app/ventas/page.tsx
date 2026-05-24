@@ -305,19 +305,20 @@ export default function VentasPage() {
           </span>
         </div>
 
-        {/* Tabla */}
+        {/* Tabla — min-w fuerza scroll horizontal en mobile; columnas secundarias
+            (Items, Cant total, IVA, Pago) se ocultan progresivamente. */}
         <EdgeScrollArea>
-          <table className="w-full text-left text-sm">
+          <table className="w-full min-w-[1000px] lg:min-w-0 text-left text-sm">
             <thead>
               <tr className="bg-slate-50 text-slate-600 text-sm font-semibold">
                 <th className="py-3 pr-4 font-medium">Número</th>
                 <th className="py-3 pr-4 font-medium">Productos</th>
-                <th className="py-3 pr-4 font-medium text-center">Ítems</th>
-                <th className="py-3 pr-4 font-medium text-right">Cant. total</th>
-                <th className="py-3 pr-4 font-medium">IVA</th>
+                <th className="py-3 pr-4 font-medium text-center hidden md:table-cell">Ítems</th>
+                <th className="py-3 pr-4 font-medium text-right hidden lg:table-cell">Cant. total</th>
+                <th className="py-3 pr-4 font-medium hidden lg:table-cell">IVA</th>
                 <th className="py-3 pr-4 font-medium text-right">Total</th>
-                <th className="py-3 pr-4 font-medium">Tipo</th>
-                <th className="py-3 pr-4 font-medium">Pago</th>
+                <th className="py-3 pr-4 font-medium hidden md:table-cell">Tipo</th>
+                <th className="py-3 pr-4 font-medium hidden md:table-cell">Pago</th>
                 <th className="py-3 pr-4 font-medium">Fecha</th>
                 <th className="py-3 font-medium text-center">Ticket</th>
               </tr>
@@ -342,15 +343,15 @@ export default function VentasPage() {
                       <td className="py-4 pr-4 align-middle">
                         <ResumenProductos v={v} />
                       </td>
-                      <td className="py-4 pr-4 text-center align-middle">
+                      <td className="py-4 pr-4 text-center align-middle hidden md:table-cell">
                         <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-xs font-semibold text-gray-600">
                           {v.items.length}
                         </span>
                       </td>
-                      <td className="py-4 pr-4 text-right tabular-nums text-gray-700 align-middle">
+                      <td className="py-4 pr-4 text-right tabular-nums text-gray-700 align-middle hidden lg:table-cell">
                         {cantTotal}
                       </td>
-                      <td className="py-4 pr-4 align-middle">
+                      <td className="py-4 pr-4 align-middle hidden lg:table-cell">
                         <span className="px-2 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700">
                           {ivaResumen(v)}
                         </span>
@@ -358,14 +359,14 @@ export default function VentasPage() {
                       <td className="py-4 pr-4 text-right tabular-nums font-semibold text-gray-800 align-middle">
                         {formatGs(v.total)}
                       </td>
-                      <td className="py-4 pr-4 align-middle">
+                      <td className="py-4 pr-4 align-middle hidden md:table-cell">
                         <span className={`px-2 py-1 rounded-full text-xs font-semibold ${tipoVentaBadge[v.tipo_venta]}`}>
                           {v.tipo_venta === "CONTADO"
                             ? "Contado"
                             : `Crédito ${v.plazo_dias ?? ""}d`}
                         </span>
                       </td>
-                      <td className="py-4 pr-4 align-middle text-xs text-gray-600">
+                      <td className="py-4 pr-4 align-middle text-xs text-gray-600 hidden md:table-cell">
                         {v.metodo_pago === "tarjeta" ? "Tarjeta"
                           : v.metodo_pago === "transferencia" ? "Transfer."
                           : v.metodo_pago === "efectivo" ? "Efectivo"

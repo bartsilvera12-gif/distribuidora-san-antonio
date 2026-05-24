@@ -382,20 +382,23 @@ export default function InventarioPage() {
         </div>
 
         <EdgeScrollArea>
-          <table className="w-full text-left text-sm">
+          {/* min-w-[1100px] fuerza scroll horizontal real en mobile; en >=lg
+              vuelve a comportarse natural. Columnas no críticas (SKU, Unidad,
+              Ubicacion, Valuacion, Margen) se ocultan progresivamente. */}
+          <table className="w-full min-w-[1100px] lg:min-w-0 text-left text-sm">
 
             <thead>
               <tr className="bg-slate-50 text-slate-600 text-sm font-semibold">
                 <th className="py-3 pr-4 font-medium">Nombre</th>
-                <th className="py-3 pr-4 font-medium">SKU</th>
+                <th className="py-3 pr-4 font-medium hidden md:table-cell">SKU</th>
                 <th className="py-3 pr-4 font-medium">Costo Prom.</th>
                 <th className="py-3 pr-4 font-medium">Precio Venta</th>
                 <th className={`py-3 pr-4 font-medium text-center ${tab === "reventa" ? "" : "hidden"}`}>Stock</th>
-                <th className={`py-3 pr-4 font-medium text-center ${tab === "reventa" ? "" : "hidden"}`}>Stock Mín.</th>
-                <th className="py-3 pr-4 font-medium">Unidad</th>
-                <th className="py-3 pr-4 font-medium">Ubicación</th>
-                <th className="py-3 pr-4 font-medium">Valuación</th>
-                <th className="py-3 pr-6 font-medium text-right">
+                <th className={`py-3 pr-4 font-medium text-center ${tab === "reventa" ? "hidden md:table-cell" : "hidden"}`}>Stock Mín.</th>
+                <th className="py-3 pr-4 font-medium hidden lg:table-cell">Unidad</th>
+                <th className="py-3 pr-4 font-medium hidden lg:table-cell">Ubicación</th>
+                <th className="py-3 pr-4 font-medium hidden lg:table-cell">Valuación</th>
+                <th className="py-3 pr-6 font-medium text-right hidden md:table-cell">
                   <span title="(precio - costo) / precio × 100">Margen s/venta</span>
                 </th>
                 <th className="py-3 pl-4 font-medium text-center w-28">Acción</th>
@@ -421,7 +424,7 @@ export default function InventarioPage() {
                         })()}
                       </div>
                     </td>
-                    <td className="py-4 pr-4 text-gray-500 font-mono">{p.sku}</td>
+                    <td className="py-4 pr-4 text-gray-500 font-mono hidden md:table-cell">{p.sku}</td>
                     <td className="py-4 pr-4 text-gray-700">{formatGs(p.costo_promedio)}</td>
                     <td className="py-4 pr-4 text-gray-700">{formatGs(p.precio_venta)}</td>
                     <td className={`py-4 pr-4 text-center ${tab === "reventa" ? "" : "hidden"}`}>
@@ -429,9 +432,9 @@ export default function InventarioPage() {
                         {p.stock_actual}
                       </span>
                     </td>
-                    <td className={`py-4 pr-4 text-center text-gray-500 ${tab === "reventa" ? "" : "hidden"}`}>{p.stock_minimo}</td>
-                    <td className="py-4 pr-4 text-gray-600">{p.unidad_medida}</td>
-                    <td className="py-4 pr-4 text-gray-600 text-xs">
+                    <td className={`py-4 pr-4 text-center text-gray-500 ${tab === "reventa" ? "hidden md:table-cell" : "hidden"}`}>{p.stock_minimo}</td>
+                    <td className="py-4 pr-4 text-gray-600 hidden lg:table-cell">{p.unidad_medida}</td>
+                    <td className="py-4 pr-4 text-gray-600 text-xs hidden lg:table-cell">
                       {p.ubicacion_principal_id
                         ? (() => {
                             const u = ubicacionById.get(p.ubicacion_principal_id);
@@ -446,18 +449,18 @@ export default function InventarioPage() {
                           })()
                         : <span className="text-gray-300">—</span>}
                     </td>
-                    <td className="py-4 pr-4">
+                    <td className="py-4 pr-4 hidden lg:table-cell">
                       <span className={`px-2 py-1 rounded-full text-xs font-semibold ${metodoBadge[p.metodo_valuacion]}`}>
                         {p.metodo_valuacion}
                       </span>
                     </td>
-                    <td className={`py-4 pr-6 text-right tabular-nums font-semibold ${margenColor(margen)}`}>
+                    <td className={`py-4 pr-6 text-right tabular-nums font-semibold hidden md:table-cell ${margenColor(margen)}`}>
                       {margen.toFixed(2)}%
                     </td>
                     <td className="py-4 pl-4 text-center">
                       <Link
                         href={`/inventario/${p.id}/editar`}
-                        className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition-colors"
+                        className="inline-flex items-center justify-center min-h-[40px] rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition-colors"
                       >
                         Editar
                       </Link>

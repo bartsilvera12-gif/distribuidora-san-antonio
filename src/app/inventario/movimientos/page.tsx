@@ -180,18 +180,19 @@ export default function MovimientosPage() {
           </div>
         </div>
 
-        {/* Tabla */}
+        {/* Tabla — min-w activa el scroll horizontal en mobile;
+            SKU, Origen, Usuario se ocultan en pantallas chicas. */}
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
+          <table className="w-full min-w-[860px] sm:min-w-0 text-left text-sm">
             <thead>
               <tr className="border-b text-gray-500">
                 <th className="py-3 pr-4 font-medium">Producto</th>
-                <th className="py-3 pr-4 font-medium">SKU</th>
+                <th className="py-3 pr-4 font-medium hidden md:table-cell">SKU</th>
                 <th className="py-3 pr-4 font-medium">Tipo</th>
                 <th className="py-3 pr-4 font-medium text-right">Cantidad</th>
-                <th className="py-3 pr-4 font-medium text-right">Costo unit.</th>
-                <th className="py-3 pr-4 font-medium">Origen</th>
-                <th className="py-3 pr-4 font-medium">Usuario</th>
+                <th className="py-3 pr-4 font-medium text-right hidden lg:table-cell">Costo unit.</th>
+                <th className="py-3 pr-4 font-medium hidden md:table-cell">Origen</th>
+                <th className="py-3 pr-4 font-medium hidden lg:table-cell">Usuario</th>
                 <th className="py-3 font-medium">Fecha</th>
               </tr>
             </thead>
@@ -218,7 +219,7 @@ export default function MovimientosPage() {
                   return (
                     <tr key={m.id} className="border-b last:border-0 hover:bg-gray-50">
                       <td className="py-4 pr-4 font-medium text-gray-800">{m.producto_nombre}</td>
-                      <td className="py-4 pr-4 text-gray-500 font-mono">{m.producto_sku}</td>
+                      <td className="py-4 pr-4 text-gray-500 font-mono hidden md:table-cell">{m.producto_sku}</td>
                       <td className="py-4 pr-4">
                         <span className={`px-2 py-1 rounded-full text-xs font-semibold ${tipoBadge[m.tipo]}`}>
                           {m.tipo}
@@ -227,15 +228,15 @@ export default function MovimientosPage() {
                       <td className={`py-4 pr-4 text-right font-semibold tabular-nums ${cantidadColor}`}>
                         {signo}{Math.abs(m.cantidad)}
                       </td>
-                      <td className="py-4 pr-4 text-right text-gray-700 tabular-nums">
+                      <td className="py-4 pr-4 text-right text-gray-700 tabular-nums hidden lg:table-cell">
                         {formatGs(m.costo_unitario)}
                       </td>
-                      <td className="py-4 pr-4">
+                      <td className="py-4 pr-4 hidden md:table-cell">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${origenBadge[m.origen]}`}>
                           {origenLabel[m.origen]}
                         </span>
                       </td>
-                      <td className="py-4 pr-4 text-gray-600 text-xs">
+                      <td className="py-4 pr-4 text-gray-600 text-xs hidden lg:table-cell">
                         {m.usuario_nombre ?? <span className="text-gray-300">—</span>}
                       </td>
                       <td className="py-4 text-gray-500 text-xs tabular-nums">

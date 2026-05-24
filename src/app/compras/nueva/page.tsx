@@ -641,7 +641,7 @@ export default function NuevaCompraPage() {
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               <div>
                 <label className={labelClass}>
                   Cantidad <span className="text-red-500">*</span>
@@ -687,7 +687,7 @@ export default function NuevaCompraPage() {
             />
 
             {subtotal > 0 && (
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-3 text-center">
                   <p className="text-xs text-gray-400 mb-1">Subtotal</p>
                   <p className="text-sm font-semibold tabular-nums text-gray-700">{formatGs(subtotal)}</p>

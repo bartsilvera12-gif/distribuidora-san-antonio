@@ -122,7 +122,7 @@ function ClienteFichaSkeleton() {
       <div className={`h-3 w-28 ${bar}`} aria-hidden />
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="h-40 bg-gradient-to-r from-slate-200 via-slate-100 to-slate-200 animate-pulse" aria-hidden />
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 divide-x divide-gray-100 border-t border-gray-100">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 divide-y sm:divide-y-0 sm:divide-x divide-gray-100 border-t border-gray-100">
           {Array.from({ length: 7 }).map((_, i) => (
             <div key={i} className="px-5 py-3 space-y-2">
               <div className={`h-2.5 w-16 ${bar}`} />
@@ -1062,7 +1062,7 @@ export default function ClienteDetailPage() {
         </div>
 
         {/* Estadísticas rápidas */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 divide-x divide-gray-100 border-t border-gray-100">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 divide-y sm:divide-y-0 sm:divide-x divide-gray-100 border-t border-gray-100">
           {(
             [
               { label: "Origen", value: cliente.origen },

@@ -134,20 +134,21 @@ export default function ComprasPage() {
           </span>
         </div>
 
-        {/* Tabla */}
+        {/* Tabla — min-w fuerza scroll horizontal; columnas auxiliares
+            (Costo unit., IVA, Margen, Pago) se ocultan en mobile/tablet. */}
         <EdgeScrollArea>
-          <table className="w-full text-left text-sm">
+          <table className="w-full min-w-[1000px] lg:min-w-0 text-left text-sm">
             <thead>
               <tr className="border-b text-gray-500">
                 <th className="py-3 pr-4 font-medium">N° Control</th>
                 <th className="py-3 pr-4 font-medium">Proveedor</th>
                 <th className="py-3 pr-4 font-medium">Producto</th>
                 <th className="py-3 pr-4 font-medium text-right">Cant.</th>
-                <th className="py-3 pr-4 font-medium text-right">Costo unit.</th>
-                <th className="py-3 pr-4 font-medium">IVA</th>
+                <th className="py-3 pr-4 font-medium text-right hidden lg:table-cell">Costo unit.</th>
+                <th className="py-3 pr-4 font-medium hidden lg:table-cell">IVA</th>
                 <th className="py-3 pr-4 font-medium text-right">Total</th>
-                <th className="py-3 pr-4 font-medium text-right">Margen</th>
-                <th className="py-3 pr-4 font-medium">Pago</th>
+                <th className="py-3 pr-4 font-medium text-right hidden lg:table-cell">Margen</th>
+                <th className="py-3 pr-4 font-medium hidden md:table-cell">Pago</th>
                 <th className="py-3 font-medium">Fecha</th>
               </tr>
             </thead>
@@ -173,7 +174,7 @@ export default function ComprasPage() {
                     <td className="py-4 pr-4 text-right tabular-nums text-gray-700">
                       {c.cantidad}
                     </td>
-                    <td className="py-4 pr-4 text-right tabular-nums text-gray-600 text-xs">
+                    <td className="py-4 pr-4 text-right tabular-nums text-gray-600 text-xs hidden lg:table-cell">
                       {c.moneda === "USD" && c.costo_unitario_original != null ? (
                         <span>
                           USD {c.costo_unitario_original.toLocaleString("es-PY")}
@@ -184,16 +185,16 @@ export default function ComprasPage() {
                         formatGs(c.costo_unitario ?? c.total)
                       )}
                     </td>
-                    <td className="py-4 pr-4 text-xs text-gray-500">
+                    <td className="py-4 pr-4 text-xs text-gray-500 hidden lg:table-cell">
                       {c.iva_tipo ? ivaLabel[c.iva_tipo] : "—"}
                     </td>
                     <td className="py-4 pr-4 text-right tabular-nums font-semibold text-gray-800">
                       {formatGs(c.total)}
                     </td>
-                    <td className="py-4 pr-4 text-right tabular-nums text-sm font-medium text-green-600">
+                    <td className="py-4 pr-4 text-right tabular-nums text-sm font-medium text-green-600 hidden lg:table-cell">
                       {c.margen_venta != null ? `${c.margen_venta.toFixed(1)}%` : "—"}
                     </td>
-                    <td className="py-4 pr-4">
+                    <td className="py-4 pr-4 hidden md:table-cell">
                       <span className={`px-2 py-1 rounded-full text-xs font-semibold ${c.tipo_pago ? tipoPagoBadge[c.tipo_pago] : "bg-gray-100 text-gray-500"}`}>
                         {c.tipo_pago === "contado" ? "Contado" : c.tipo_pago === "credito" ? `Crédito ${c.plazo_dias ?? ""}d` : "—"}
                       </span>

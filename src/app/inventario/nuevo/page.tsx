@@ -536,7 +536,7 @@ export default function NuevoProductoPage() {
           </div>
 
           {/* SKU + Unidad de medida */}
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div>
               <label className={labelClass}>
                 SKU{tipoGastro === "reventa" ? "" : <span className="text-xs font-normal text-gray-400 ml-1">(opcional)</span>}
@@ -653,7 +653,7 @@ export default function NuevoProductoPage() {
             <p className="text-xs text-gray-400 mb-3 uppercase tracking-wide font-semibold">
               Precios — los tres campos son reactivos entre sí
             </p>
-            <div className="grid grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
 
               <div>
                 <label className={labelClass}>Costo promedio (Gs.)</label>
@@ -930,7 +930,7 @@ export default function NuevoProductoPage() {
 
           {/* Stock actual + Stock mínimo — solo para Reventa (Menú/Materia no controlan stock en UX simple) */}
           <div className={showStock ? "" : "hidden"}>
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               <div>
                 <label className={labelClass}>Stock actual</label>
                 <input

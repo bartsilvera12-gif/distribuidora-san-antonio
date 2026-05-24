@@ -157,9 +157,11 @@ export default function ProductPickerModal({
   const subtotal = (parseInt(cantidad, 10) || 0) * precioGsEquiv;
   const ivaMonto = iva === "10%" ? subtotal * 0.10 : iva === "5%" ? subtotal * 0.05 : 0;
 
+  // Mobile: pt-3 (gana viewport vertical valioso, evita el modal "cortado")
+  // y pt-12 en sm+ donde si hay espacio para el aire decorativo.
   return (
-    <div className="fixed inset-0 z-[100] flex items-start justify-center bg-slate-900/60 backdrop-blur-sm pt-12 px-4" onClick={onClose}>
-      <div className="w-full max-w-6xl bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[88vh]" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[100] flex items-start justify-center bg-slate-900/60 backdrop-blur-sm pt-3 sm:pt-12 px-2 sm:px-4" onClick={onClose}>
+      <div className="w-full max-w-6xl bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[94vh] sm:max-h-[88vh]" onClick={(e) => e.stopPropagation()}>
         {/* Header con buscador */}
         <div className="p-4 border-b border-slate-200">
           <div className="flex items-center gap-3">
