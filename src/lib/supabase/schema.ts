@@ -1,12 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
- * Instancia dedicada monocliente (En lo de Mari).
+ * Instancia dedicada monocliente (Distribuidora San Antonio).
  * Schema único Postgres para catálogo + datos operativos.
  * Override opcional vía NEURA_CLIENT_SCHEMA si se reusa el repo para otro cliente.
  */
 export const NEURA_CLIENT_SCHEMA: string =
-  (typeof process !== "undefined" && process.env.NEURA_CLIENT_SCHEMA?.trim()) || "enlodemari";
+  (typeof process !== "undefined" && process.env.NEURA_CLIENT_SCHEMA?.trim()) || "sanantonio";
 
 /**
  * Schema Postgres principal de la app.
