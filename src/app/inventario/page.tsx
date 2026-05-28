@@ -441,16 +441,51 @@ export default function InventarioPage() {
                 return (
                   <tr key={p.id} className="border-b border-slate-200 last:border-0 hover:bg-[#4FAEB2]/[0.04] transition-colors">
                     <td className="py-4 pr-4 font-medium text-gray-800">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span>{p.nombre}</span>
-                        {(() => {
-                          const v = p.es_vendible !== false;
-                          const i = p.es_insumo === true;
-                          // Mixto/Insumo se siguen mostrando; Vendible queda oculto (redundante: ya hay tab).
-                          if (v && i) return <span className="inline-flex items-center rounded-full bg-purple-100 text-purple-700 text-[10px] font-medium px-2 py-0.5">Mixto</span>;
-                          if (i) return <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-medium px-2 py-0.5">Insumo</span>;
-                          return null;
-                        })()}
+                      <div className="flex items-center gap-3">
+                        {/* Thumbnail 40x40 — usa <img> plano para no requerir config de dominios en next.config */}
+                        <div className="flex-shrink-0 w-10 h-10 rounded-md overflow-hidden bg-slate-100 border border-slate-200">
+                          {p.imagen_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={p.imagen_url}
+                              alt={p.nombre}
+                              className="w-full h-full object-cover"
+                              loading="lazy"
+                              onError={(e) => {
+                                // Si la URL fallece (404/CORS), reemplaza con placeholder
+                                const target = e.currentTarget as HTMLImageElement;
+                                target.style.display = "none";
+                                const parent = target.parentElement;
+                                if (parent && !parent.querySelector("[data-img-placeholder]")) {
+                                  parent.insertAdjacentHTML(
+                                    "beforeend",
+                                    '<div data-img-placeholder class="w-full h-full flex items-center justify-center text-slate-300"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div>'
+                                  );
+                                }
+                              }}
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-slate-300" aria-label="Sin imagen">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                <circle cx="8.5" cy="8.5" r="1.5"/>
+                                <polyline points="21 15 16 10 5 21"/>
+                              </svg>
+                            </div>
+                          )}
+                        </div>
+                        {/* Nombre + badges */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span>{p.nombre}</span>
+                          {(() => {
+                            const v = p.es_vendible !== false;
+                            const i = p.es_insumo === true;
+                            // Mixto/Insumo se siguen mostrando; Vendible queda oculto (redundante: ya hay tab).
+                            if (v && i) return <span className="inline-flex items-center rounded-full bg-purple-100 text-purple-700 text-[10px] font-medium px-2 py-0.5">Mixto</span>;
+                            if (i) return <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-medium px-2 py-0.5">Insumo</span>;
+                            return null;
+                          })()}
+                        </div>
                       </div>
                     </td>
                     <td className="py-4 pr-4 text-gray-500 font-mono hidden md:table-cell">{p.sku}</td>
