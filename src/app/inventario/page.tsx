@@ -56,6 +56,35 @@ export default function InventarioPage() {
   const [tab,              setTab]               = useState<"reventa" | "menu" | "materia">("reventa");
   const [cargandoLista,    setCargandoLista]     = useState(true);
   const [soloStockBajo,    setSoloStockBajo]    = useState(false);
+  const [eliminandoId,     setEliminandoId]     = useState<string | null>(null);
+
+  async function handleEliminarProducto(id: string, nombre: string) {
+    if (eliminandoId) return; // evitar doble click
+    const ok = window.confirm(
+      `¿Eliminar el producto "${nombre}"?\n\n` +
+      `Por seguridad se hace baja lógica (queda inactivo) — si tiene movimientos o ventas asociadas se conservan.`
+    );
+    if (!ok) return;
+    setEliminandoId(id);
+    try {
+      const res = await fetch(`/api/productos/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.success) {
+        const msg = json?.error || `Error ${res.status}`;
+        window.alert(`No se pudo eliminar: ${msg}`);
+        return;
+      }
+      // Refrescar la lista
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      window.alert(`Error de red al eliminar: ${err instanceof Error ? err.message : "desconocido"}`);
+    } finally {
+      setEliminandoId(null);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -401,7 +430,7 @@ export default function InventarioPage() {
                 <th className="py-3 pr-6 font-medium text-right hidden md:table-cell">
                   <span title="(precio - costo) / precio × 100">Margen s/venta</span>
                 </th>
-                <th className="py-3 pl-4 font-medium text-center w-28">Acción</th>
+                <th className="py-3 pl-4 font-medium text-center w-44">Acción</th>
               </tr>
             </thead>
 
@@ -458,12 +487,22 @@ export default function InventarioPage() {
                       {margen.toFixed(2)}%
                     </td>
                     <td className="py-4 pl-4 text-center">
-                      <Link
-                        href={`/inventario/${p.id}/editar`}
-                        className="inline-flex items-center justify-center min-h-[40px] rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition-colors"
-                      >
-                        Editar
-                      </Link>
+                      <div className="inline-flex items-center justify-center gap-2">
+                        <Link
+                          href={`/inventario/${p.id}/editar`}
+                          className="inline-flex items-center justify-center min-h-[40px] rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition-colors"
+                        >
+                          Editar
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => handleEliminarProducto(p.id, p.nombre)}
+                          disabled={eliminandoId === p.id}
+                          className="inline-flex items-center justify-center min-h-[40px] rounded-md border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-600 hover:border-red-300 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {eliminandoId === p.id ? "..." : "Eliminar"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

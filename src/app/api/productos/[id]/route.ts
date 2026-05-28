@@ -226,3 +226,79 @@ export async function PATCH(
     return NextResponse.json(errorResponse("No se pudo actualizar el producto."), { status: 500 });
   }
 }
+
+/**
+ * DELETE /api/productos/[id]
+ *
+ * Por defecto hace **soft delete** (set `activo = false`). Esto preserva la
+ * integridad de movimientos / ventas históricas que referencian al producto.
+ *
+ * Si se pasa `?hard=1` en la query, intenta hard delete:
+ *   - Falla con 409 si hay FKs (ventas, movimientos, recetas, etc.).
+ *   - El frontend cae al soft delete si recibe 409.
+ */
+export async function DELETE(
+  request: NextRequest,
+  ctxParams: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await ctxParams.params;
+    const ctx = await getTenantSupabaseFromAuth(request);
+    if (!ctx) return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
+    const empresaId = ctx.auth.empresa_id;
+    const sb = ctx.supabase;
+
+    const url = new URL(request.url);
+    const hard = url.searchParams.get("hard") === "1";
+
+    // Verificar que existe y pertenece a la empresa.
+    const { data: existing, error: errGet } = await sb
+      .from("productos")
+      .select("id, nombre, activo")
+      .eq("empresa_id", empresaId)
+      .eq("id", id)
+      .maybeSingle();
+    if (errGet) throw new Error(errGet.message);
+    if (!existing) return NextResponse.json(errorResponse(API_ERRORS.NOT_FOUND), { status: 404 });
+
+    if (hard) {
+      // Intento de hard delete — puede fallar por FKs (ventas/movimientos).
+      const del = await sb
+        .from("productos")
+        .delete()
+        .eq("empresa_id", empresaId)
+        .eq("id", id);
+      if (del.error) {
+        const msg = del.error.message ?? "";
+        if (/foreign key|fk|23503/i.test(msg)) {
+          return NextResponse.json(
+            errorResponse(
+              "El producto tiene movimientos o ventas asociadas. Probá desactivarlo (soft delete) en vez de eliminarlo."
+            ),
+            { status: 409 }
+          );
+        }
+        console.error("[/api/productos/[id] DELETE hard]", msg);
+        return NextResponse.json(errorResponse("No se pudo eliminar el producto."), { status: 500 });
+      }
+      return NextResponse.json(successResponse({ deleted: true, hard: true, id }));
+    }
+
+    // Soft delete (default): activo = false.
+    const upd = await sb
+      .from("productos")
+      .update({ activo: false })
+      .eq("empresa_id", empresaId)
+      .eq("id", id)
+      .select("id, nombre, activo")
+      .maybeSingle();
+    if (upd.error) {
+      console.error("[/api/productos/[id] DELETE soft]", upd.error.message);
+      return NextResponse.json(errorResponse("No se pudo desactivar el producto."), { status: 500 });
+    }
+    return NextResponse.json(successResponse({ deleted: true, hard: false, id, producto: upd.data }));
+  } catch (err) {
+    console.error("[/api/productos/[id] DELETE] outer", err instanceof Error ? err.message : err);
+    return NextResponse.json(errorResponse("No se pudo eliminar el producto."), { status: 500 });
+  }
+}
