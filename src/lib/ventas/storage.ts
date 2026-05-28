@@ -5,9 +5,14 @@ export type ResultadoGuardarVenta =
   | { success: true; venta: Venta }
   | { success: false; error: string };
 
-/** Modalidad del pedido (instancia gastronómica En lo de Mari). */
+/**
+ * Pedido asociado a la venta (kanban).
+ * - Gastronomía: modalidad obligatoria (local|delivery|carry_out) + mesa o datos delivery.
+ * - Distribuidora / no-gastronomía: modalidad = null. Igual se crea el pedido
+ *   en el kanban como tarjeta de seguimiento, con título genérico.
+ */
 export type PedidoCocinaInput = {
-  modalidad: "local" | "delivery" | "carry_out";
+  modalidad: "local" | "delivery" | "carry_out" | null;
   mesa?: string | null;
   cliente_nombre?: string | null;
   cliente_telefono?: string | null;

@@ -14,7 +14,12 @@ export interface CreateVentaItemInput {
 }
 
 export interface CreateVentaPedidoCocinaInput {
-  modalidad: "local" | "delivery" | "carry_out";
+  /**
+   * Modalidad del pedido. Solo aplica en vertical gastronomía (En lo de Mari).
+   * En distribuidora / verticales no-gastronómicas viene como `null` — el
+   * pedido se crea en el kanban con título genérico, sin info de mesa/delivery.
+   */
+  modalidad: "local" | "delivery" | "carry_out" | null;
   mesa: string | null;
   cliente_nombre: string | null;
   cliente_telefono: string | null;
@@ -297,17 +302,23 @@ export async function createVentaTransaccionalPg(
         numero_control: numeroControl,
         modalidad: params.pedidoCocina.modalidad,
       };
+      // Si modalidad es null (distribuidora) → título sólo "Venta {numero}".
+      // Si tiene modalidad (gastronomía) → "Venta {numero} · {Modalidad}[ · Mesa N | · Cliente]".
+      const mod = params.pedidoCocina.modalidad;
       const tituloModalidad =
-        params.pedidoCocina.modalidad === "local" ? "Local"
-        : params.pedidoCocina.modalidad === "delivery" ? "Delivery"
-        : "Retiro";
+        mod === "local" ? "Local"
+        : mod === "delivery" ? "Delivery"
+        : mod === "carry_out" ? "Retiro"
+        : null;
       const detalle =
-        params.pedidoCocina.modalidad === "local" && params.pedidoCocina.mesa
+        mod === "local" && params.pedidoCocina.mesa
           ? ` · Mesa ${params.pedidoCocina.mesa}`
-          : params.pedidoCocina.modalidad === "delivery" && params.pedidoCocina.cliente_nombre
+          : mod === "delivery" && params.pedidoCocina.cliente_nombre
           ? ` · ${params.pedidoCocina.cliente_nombre}`
           : "";
-      const titulo = `Venta ${numeroControl} · ${tituloModalidad}${detalle}`.slice(0, 200);
+      const titulo = tituloModalidad
+        ? `Venta ${numeroControl} · ${tituloModalidad}${detalle}`.slice(0, 200)
+        : `Venta ${numeroControl}`.slice(0, 200);
 
       const insProy = await sb.from("proyectos").insert({
         empresa_id: params.empresaId,

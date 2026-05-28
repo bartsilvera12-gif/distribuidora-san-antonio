@@ -120,10 +120,13 @@ export async function POST(request: NextRequest) {
         ? null
         : String(o.observaciones).slice(0, 4000);
 
-    // Pedido de cocina (modalidad obligatoria en instancia En lo de Mari)
+    // Pedido de cocina / proyecto-kanban.
+    // - En gastronomía (En lo de Mari): modalidad obligatoria (local|delivery|carry_out).
+    // - En distribuidora / no-gastronomía: modalidad = null. Igual se crea el pedido
+    //   en el kanban (estado "Nuevo") como tarjeta de seguimiento de la venta.
     const pedidoRaw = (o.pedido_cocina ?? null) as Record<string, unknown> | null;
     type PedidoCocinaParsed = {
-      modalidad: "local" | "delivery" | "carry_out";
+      modalidad: "local" | "delivery" | "carry_out" | null;
       mesa: string | null;
       cliente_nombre: string | null;
       cliente_telefono: string | null;
@@ -133,9 +136,16 @@ export async function POST(request: NextRequest) {
     let pedidoCocina: PedidoCocinaParsed | null = null;
     if (pedidoRaw && typeof pedidoRaw === "object") {
       const m = pedidoRaw.modalidad;
-      if (m !== "local" && m !== "delivery" && m !== "carry_out") {
+      // Modalidad puede ser null/undefined (distribuidora) o uno de los 3 valores
+      // de gastronomía. Cualquier otro string es rechazado.
+      let modalidadParsed: "local" | "delivery" | "carry_out" | null;
+      if (m === null || m === undefined) {
+        modalidadParsed = null;
+      } else if (m === "local" || m === "delivery" || m === "carry_out") {
+        modalidadParsed = m;
+      } else {
         return NextResponse.json(
-          errorResponse("Modalidad de pedido inválida (local | delivery | carry_out)."),
+          errorResponse("Modalidad de pedido inválida (local | delivery | carry_out | null)."),
           { status: 400 }
         );
       }
@@ -145,14 +155,15 @@ export async function POST(request: NextRequest) {
       const cliTel = trim(pedidoRaw.cliente_telefono);
       const direccion = trim(pedidoRaw.direccion_entrega);
       const obs = trim(pedidoRaw.observacion);
-      if (m === "delivery" && (cliTel.length === 0 || direccion.length === 0)) {
+      // Validación específica de delivery solo aplica si efectivamente hay modalidad delivery.
+      if (modalidadParsed === "delivery" && (cliTel.length === 0 || direccion.length === 0)) {
         return NextResponse.json(
           errorResponse("Teléfono y dirección requeridos para Delivery."),
           { status: 400 }
         );
       }
       pedidoCocina = {
-        modalidad: m,
+        modalidad: modalidadParsed,
         mesa: mesa || null,
         cliente_nombre: cliNombre || null,
         cliente_telefono: cliTel || null,

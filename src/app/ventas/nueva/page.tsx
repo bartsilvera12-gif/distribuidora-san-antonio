@@ -387,17 +387,29 @@ export default function NuevaVentaPage() {
         tipo_venta:   tipoVenta,
         metodo_pago:  metodoPago,
       },
-      // Solo enviamos pedido de cocina si es vertical gastronomía Y hay modalidad elegida.
-      // En distribuidora siempre va undefined → el backend no crea proyecto-pedido.
-      !ES_GASTRONOMIA || modalidad === ""
-        ? undefined
+      // Pedido para el kanban:
+      // - Gastronomía con modalidad elegida: mandar la info completa (mesa/delivery/etc).
+      // - Gastronomía sin modalidad elegida: undefined (el form bloquea el submit antes).
+      // - No-gastronomía (distribuidora): mandar siempre con modalidad=null → el backend
+      //   igual crea el pedido en el kanban con título genérico "Venta {numero}".
+      ES_GASTRONOMIA
+        ? (modalidad === ""
+            ? undefined
+            : {
+                modalidad,
+                mesa: modalidad === "local" ? pedidoMesa.trim() || null : null,
+                cliente_nombre: pedidoClienteNombre.trim() || null,
+                cliente_telefono: pedidoClienteTelefono.trim() || null,
+                direccion_entrega: pedidoDireccion.trim() || null,
+                observacion: pedidoObservacion.trim() || null,
+              })
         : {
-            modalidad,
-            mesa: modalidad === "local" ? pedidoMesa.trim() || null : null,
-            cliente_nombre: pedidoClienteNombre.trim() || null,
-            cliente_telefono: pedidoClienteTelefono.trim() || null,
-            direccion_entrega: pedidoDireccion.trim() || null,
-            observacion: pedidoObservacion.trim() || null,
+            modalidad: null,
+            mesa: null,
+            cliente_nombre: null,
+            cliente_telefono: null,
+            direccion_entrega: null,
+            observacion: null,
           }
     );
 
