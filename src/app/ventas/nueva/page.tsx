@@ -11,6 +11,20 @@ import type { Producto } from "@/lib/inventario/types";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
+/**
+ * Flag de vertical de negocio del cliente.
+ * - "gastronomia" (legacy En lo de Mari): muestra modalidad de pedido (local/delivery/carry_out),
+ *   número de mesa, datos de delivery, y obliga seleccionar una modalidad antes de
+ *   confirmar la venta. Al confirmar también crea un proyecto-pedido de cocina.
+ * - cualquier otro valor (default "distribuidora"): oculta toda la sección
+ *   de modalidad/mesa. La venta se confirma solo con cliente + productos.
+ *
+ * Se lee de NEXT_PUBLIC_NEURA_VERTICAL en build/runtime de cliente.
+ * Default seguro: "distribuidora" (no gastronomía).
+ */
+const ES_GASTRONOMIA =
+  (typeof process !== "undefined" && process.env.NEXT_PUBLIC_NEURA_VERTICAL?.trim().toLowerCase()) === "gastronomia";
+
 function formatGs(valor: number) {
   return `Gs. ${Math.round(valor).toLocaleString("es-PY")}`;
 }
@@ -245,6 +259,8 @@ export default function NuevaVentaPage() {
   const totalIva      = items.reduce((s, i) => s + i.monto_iva, 0);
   const totalGeneral  = items.reduce((s, i) => s + i.total_linea, 0);
   const pedidoValido = (() => {
+    // En verticales no-gastronomía no hay concepto de modalidad de pedido.
+    if (!ES_GASTRONOMIA) return true;
     if (modalidad === "") return false;
     if (modalidad === "delivery") return pedidoClienteTelefono.trim().length > 0 && pedidoDireccion.trim().length > 0;
     return true; // local + carry_out: todos opcionales
@@ -371,7 +387,9 @@ export default function NuevaVentaPage() {
         tipo_venta:   tipoVenta,
         metodo_pago:  metodoPago,
       },
-      modalidad === ""
+      // Solo enviamos pedido de cocina si es vertical gastronomía Y hay modalidad elegida.
+      // En distribuidora siempre va undefined → el backend no crea proyecto-pedido.
+      !ES_GASTRONOMIA || modalidad === ""
         ? undefined
         : {
             modalidad,
@@ -755,7 +773,8 @@ export default function NuevaVentaPage() {
             </>
           )}
 
-          {/* Modalidad del pedido (gastronómico) */}
+          {/* Modalidad del pedido (gastronómico) — solo en vertical gastronomía */}
+          {ES_GASTRONOMIA && (
           <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50/40 px-4 py-4">
             <p className="text-sm font-semibold text-slate-800 mb-3">
               Modalidad del pedido <span className="text-red-500">*</span>
@@ -902,6 +921,7 @@ export default function NuevaVentaPage() {
               </p>
             )}
           </div>
+          )}
 
           {/* Error confirmar */}
           {errorVenta && (
