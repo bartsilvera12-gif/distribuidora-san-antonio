@@ -17,8 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Neura ERP",
-  description: "Sistema de gestión empresarial de Neura",
+  title: "Distribuidora San Antonio",
+  description: "Sistema de gestión — Distribuidora San Antonio",
 };
 
 export default function RootLayout({
