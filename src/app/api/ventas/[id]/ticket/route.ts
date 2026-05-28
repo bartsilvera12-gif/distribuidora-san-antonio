@@ -17,7 +17,12 @@ import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
  * No toca SIFEN, no genera XML, no usa timbrado.
  */
 
-const NEGOCIO = "EN LO DE MARI";
+/**
+ * Nombre del negocio que aparece en la cabecera del ticket impreso.
+ * Lee de NEURA_CLIENT_NAME (env de instancia monocliente). Se pasa a
+ * MAYÚSCULAS para el look ticket-de-térmica. Fallback "NEGOCIO".
+ */
+const NEGOCIO = (process.env.NEURA_CLIENT_NAME?.trim() || "Negocio").toUpperCase();
 
 // ── Clasificación PIZZERÍA / PLANCHA ───────────────────────────────────────
 // Primary: categoría hija del producto. Fallback: prefijo de SKU.
