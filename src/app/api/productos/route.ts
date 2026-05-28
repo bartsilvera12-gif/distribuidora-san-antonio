@@ -3,6 +3,7 @@ import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import { normalizeUpperText, normalizeUpperCodigoBarras } from "@/lib/text/normalize";
+import { signProductoImagen } from "@/lib/inventario/imagen-storage";
 import type { AppSupabaseClient } from "@/lib/supabase/schema";
 
 /**
@@ -59,6 +60,33 @@ export async function GET(request: NextRequest) {
       .order("nombre");
     if (error) throw new Error(error.message);
     const rows = ((data ?? []) as unknown as Record<string, unknown>[]).map(rowToApi);
+
+    // Generar signed URLs en batch para los productos que tienen imagen_path.
+    // El sistema deja imagen_url en null en BD (ver /imagen POST línea ~128) y
+    // genera URLs firmadas on-demand. Acá las generamos en paralelo así la
+    // lista del frontend ya recibe las URLs listas para renderizar el thumbnail.
+    // TTL 3600s (1h) — la página de inventario se refresca con suficiente
+    // frecuencia como para que no caduque en uso normal.
+    const conImagen = rows.filter((r) => typeof r.imagen_path === "string" && r.imagen_path);
+    if (conImagen.length > 0) {
+      const signed = await Promise.all(
+        conImagen.map(async (r) => {
+          try {
+            const url = await signProductoImagen(ctx.supabase, String(r.imagen_path), 3600);
+            return { id: r.id, url };
+          } catch {
+            return { id: r.id, url: null };
+          }
+        })
+      );
+      const byId = new Map(signed.map((s) => [s.id, s.url]));
+      for (const r of rows) {
+        if (byId.has(r.id)) {
+          r.imagen_url = byId.get(r.id);
+        }
+      }
+    }
+
     return NextResponse.json(successResponse({ productos: rows }));
   } catch (err) {
     console.error("[/api/productos GET]", err instanceof Error ? err.message : err);
