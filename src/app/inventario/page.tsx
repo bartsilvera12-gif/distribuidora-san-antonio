@@ -354,22 +354,6 @@ export default function InventarioPage() {
                 <option value="LIFO">LIFO</option>
               </select>
             </div>
-            <div className="min-w-[14rem]">
-              <label className="block text-xs text-gray-400 mb-1">Depósito / Ubicación</label>
-              <select
-                value={filtroUbicacion}
-                onChange={(e) => setFiltroUbicacion(e.target.value)}
-                className={`${inputFilterClass} w-full`}
-              >
-                <option value="">Todas las ubicaciones</option>
-                <option value="__sin__">Sin ubicación asignada</option>
-                {ubicaciones.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.nombre} — {u.tipo}
-                  </option>
-                ))}
-              </select>
-            </div>
             <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none mt-4">
               <input
                 type="checkbox"
@@ -425,7 +409,6 @@ export default function InventarioPage() {
                 <th className={`py-3 pr-4 font-medium text-center ${tab === "reventa" ? "" : "hidden"}`}>Stock</th>
                 <th className={`py-3 pr-4 font-medium text-center ${tab === "reventa" ? "hidden md:table-cell" : "hidden"}`}>Stock Mín.</th>
                 <th className="py-3 pr-4 font-medium hidden lg:table-cell">Unidad</th>
-                <th className="py-3 pr-4 font-medium hidden lg:table-cell">Ubicación</th>
                 <th className="py-3 pr-4 font-medium hidden lg:table-cell">Valuación</th>
                 <th className="py-3 pr-6 font-medium text-right hidden md:table-cell">
                   <span title="(precio - costo) / precio × 100">Margen s/venta</span>
@@ -498,21 +481,6 @@ export default function InventarioPage() {
                     </td>
                     <td className={`py-4 pr-4 text-center text-gray-500 ${tab === "reventa" ? "hidden md:table-cell" : "hidden"}`}>{p.stock_minimo}</td>
                     <td className="py-4 pr-4 text-gray-600 hidden lg:table-cell">{p.unidad_medida}</td>
-                    <td className="py-4 pr-4 text-gray-600 text-xs hidden lg:table-cell">
-                      {p.ubicacion_principal_id
-                        ? (() => {
-                            const u = ubicacionById.get(p.ubicacion_principal_id);
-                            return u ? (
-                              <span>
-                                <span className="font-medium text-gray-700">{u.nombre}</span>
-                                <span className="text-gray-400"> — {u.tipo}</span>
-                              </span>
-                            ) : (
-                              <span className="text-gray-300">—</span>
-                            );
-                          })()
-                        : <span className="text-gray-300">—</span>}
-                    </td>
                     <td className="py-4 pr-4 hidden lg:table-cell">
                       <span className={`px-2 py-1 rounded-full text-xs font-semibold ${metodoBadge[p.metodo_valuacion]}`}>
                         {p.metodo_valuacion}
