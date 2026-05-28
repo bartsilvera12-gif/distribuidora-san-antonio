@@ -15,7 +15,7 @@ const UNIDADES_OPCIONES = [
 
 const TIPO_SUMMARY = {
   reventa: { titulo: "Producto de reventa", descripcion: "Se compra y se vende tal cual. Controla stock y descuenta al vender.", icono: "🥤" },
-  menu:    { titulo: "Producto del menú",   descripcion: "Se vende en Ventas y genera pedido. No descuenta stock directo.",     icono: "🍕" },
+  menu:    { titulo: "Producto del menú",   descripcion: "Se vende en Ventas y genera pedido. No descuenta stock directo.",     icono: "🌭" },
   materia: { titulo: "Materia prima / insumo", descripcion: "Se usa para recetas y costeo. No aparece como producto de venta.", icono: "🌾" },
 } as const;
 
@@ -404,10 +404,10 @@ export default function NuevoProductoPage() {
             {
               tipo: "menu" as const,
               titulo: "Producto del menú",
-              icono: "🍕",
+              icono: "🌭",
               ejemplo: "Pizzas, lomitos, hamburguesas, combos",
               descripcion: "Producto preparado por el local. No descuenta stock directo (usá receta para costeo).",
-              acento: "border-amber-300 bg-amber-50/40 hover:border-amber-500",
+              acento: "border-rose-300 bg-rose-50/40 hover:border-rose-500",
             },
             {
               tipo: "materia" as const,

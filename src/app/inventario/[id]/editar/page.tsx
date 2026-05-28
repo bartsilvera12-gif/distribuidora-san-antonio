@@ -16,7 +16,7 @@ const UNIDADES_OPCIONES = [
 
 const TIPO_SUMMARY = {
   reventa: { titulo: "Producto de reventa", descripcion: "Se compra y se vende tal cual. Controla stock y descuenta al vender.", icono: "🥤" },
-  menu:    { titulo: "Producto del menú",   descripcion: "Se vende en Ventas y genera pedido. No descuenta stock directo.",     icono: "🍕" },
+  menu:    { titulo: "Producto del menú",   descripcion: "Se vende en Ventas y genera pedido. No descuenta stock directo.",     icono: "🌭" },
   materia: { titulo: "Materia prima / insumo", descripcion: "Se usa para recetas y costeo. No aparece como producto de venta.", icono: "🌾" },
 } as const;
 
@@ -391,7 +391,7 @@ export default function EditarProductoPage() {
           <div>
             <label className={labelClass}>
               Descripción
-              {tipoGastro === "menu" && <span className="text-xs font-normal text-amber-700 ml-2">(visible al cliente)</span>}
+              {tipoGastro === "menu" && <span className="text-xs font-normal text-rose-700 ml-2">(visible al cliente)</span>}
             </label>
             <textarea
               value={descripcion}
