@@ -1,12 +1,13 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getCompras } from "@/lib/compras/storage";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import EdgeScrollArea from "@/components/ui/EdgeScrollArea";
 import { FancySelect } from "@/components/ui/FancySelect";
 import MobileFab from "@/components/ui/MobileFab";
+import PageHeader from "@/components/ui/PageHeader";
+import Button from "@/components/ui/Button";
 import type { Compra, TipoPago } from "@/lib/compras/types";
 
 const inputFilterClass =
@@ -71,34 +72,24 @@ export default function ComprasPage() {
   return (
     <div className="space-y-8">
 
-      <div>
-        <div className="flex items-center gap-2">
-          <span
-            aria-hidden="true"
-            className="inline-block h-1.5 w-1.5 rounded-full bg-[#4FAEB2]"
-            style={{ boxShadow: "0 0 0 3px rgba(79, 174, 178, 0.18)" }}
-          />
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#4FAEB2]">
-            San Antonio · Adquisiciones
-          </p>
-        </div>
-        <h1 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Compras</h1>
-        <p className="mt-0.5 text-xs text-slate-500">Registro de órdenes de compra a proveedores</p>
-      </div>
+      <PageHeader
+        eyebrow="San Antonio · Adquisiciones"
+        title="Compras"
+        description="Registro de órdenes de compra a proveedores"
+        actions={
+          <>
+            <ExportExcelButton url="/api/compras/export" />
+            <Button href="/compras/nueva" size="sm">
+              <span aria-hidden>+</span> Nueva compra
+            </Button>
+          </>
+        }
+      />
 
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm ring-1 ring-[#4FAEB2]/15 p-6">
 
-        <div className="flex justify-between items-center mb-5">
-          <h2 className="text-xl font-semibold">Órdenes de compra</h2>
-          <div className="flex items-center gap-3">
-            <ExportExcelButton url="/api/compras/export" />
-            <Link
-              href="/compras/nueva"
-              className="rounded-lg bg-[#4FAEB2] px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-[#4FAEB2]/25 transition-colors hover:bg-[#3F8E91] active:scale-95"
-            >
-              + Nueva compra
-            </Link>
-          </div>
+        <div className="mb-5">
+          <h2 className="text-base font-semibold text-slate-800">Órdenes de compra</h2>
         </div>
 
         {/* Filtros */}

@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { getMovimientos } from "@/lib/inventario/storage";
+import PageHeader from "@/components/ui/PageHeader";
+import Button from "@/components/ui/Button";
 import type { MovimientoInventario, TipoMovimiento, OrigenMovimiento } from "@/lib/inventario/types";
 
 const tipoBadge: Record<TipoMovimiento, string> = {
@@ -84,23 +85,23 @@ export default function MovimientosPage() {
   return (
     <div className="space-y-8">
 
-      <div>
-        <h1 className="text-3xl font-bold text-gray-800">Movimientos de inventario</h1>
-        <p className="text-gray-600">Registro de entradas, salidas y ajustes de stock</p>
-      </div>
+      <PageHeader
+        eyebrow="San Antonio · Stock"
+        title="Movimientos de inventario"
+        description="Registro de entradas, salidas y ajustes de stock"
+        actions={
+          <Button href="/inventario/movimientos/nuevo" variant="secondary" size="sm">
+            <span aria-hidden>+</span> Nuevo movimiento
+          </Button>
+        }
+      />
 
-      <div className="bg-white rounded-xl shadow p-6">
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm ring-1 ring-[#4FAEB2]/10 p-6">
 
         {/* Header */}
-        <div className="flex justify-between items-center mb-5">
+        <div className="flex flex-wrap justify-between items-center gap-2 mb-5">
           <div className="flex items-center gap-3">
-            <h2 className="text-xl font-semibold">Historial</h2>
-            <Link
-              href="/inventario/movimientos/nuevo"
-              className="text-sm text-gray-600 hover:text-gray-900 underline"
-            >
-              Nuevo movimiento
-            </Link>
+            <h2 className="text-base font-semibold text-slate-800">Historial</h2>
             <span className="text-sm text-gray-400">
               {filtrados.length} de {todos.length} registros
             </span>

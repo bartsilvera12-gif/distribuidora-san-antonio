@@ -7,6 +7,7 @@ import type { Producto, MetodoValuacion } from "@/lib/inventario/types";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import ImportExcelButton from "@/components/ui/ImportExcelButton";
 import EdgeScrollArea from "@/components/ui/EdgeScrollArea";
+import PageHeader from "@/components/ui/PageHeader";
 import { useIsAdmin } from "@/lib/auth/use-is-admin";
 
 const inputFilterClass =
@@ -216,34 +217,25 @@ export default function InventarioPage() {
   return (
     <div className="space-y-8">
 
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <span
-              aria-hidden="true"
-              className="inline-block h-1.5 w-1.5 rounded-full bg-[#4FAEB2]"
-              style={{ boxShadow: "0 0 0 3px rgba(79, 174, 178, 0.18)" }}
+      <PageHeader
+        eyebrow="San Antonio · Stock"
+        title="Inventario"
+        description="Gestión de productos y control de stock"
+        actions={
+          <>
+            <ExportExcelButton url="/api/inventario/productos/export" />
+            <ImportExcelButton
+              entidad="Productos"
+              previewUrl="/api/inventario/productos/import/preview"
+              commitUrl="/api/inventario/productos/import/commit"
+              templateUrl="/api/inventario/productos/import/template"
+              permiteCrearFaltantes
+              visible={isAdmin}
+              onCompleted={() => setRefreshKey((k) => k + 1)}
             />
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#4FAEB2]">
-              San Antonio · Stock
-            </p>
-          </div>
-          <h1 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Inventario</h1>
-          <p className="mt-0.5 text-xs text-slate-500">Gestión de productos y control de stock</p>
-        </div>
-        <div className="flex items-center gap-2 mt-1">
-          <ExportExcelButton url="/api/inventario/productos/export" />
-          <ImportExcelButton
-            entidad="Productos"
-            previewUrl="/api/inventario/productos/import/preview"
-            commitUrl="/api/inventario/productos/import/commit"
-            templateUrl="/api/inventario/productos/import/template"
-            permiteCrearFaltantes
-            visible={isAdmin}
-            onCompleted={() => setRefreshKey((k) => k + 1)}
-          />
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Tabs gastronómicos (filtran por tipo de producto) */}
       <div className="border-b border-gray-200">

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import ImportExcelButton from "@/components/ui/ImportExcelButton";
+import PageHeader from "@/components/ui/PageHeader";
 import { useIsAdmin } from "@/lib/auth/use-is-admin";
 
 interface Categoria {
@@ -87,31 +88,32 @@ export default function CategoriasProductosPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-800">Categorías de productos</h1>
-          <p className="text-gray-600">Clasificá tus productos para reportes y búsqueda.</p>
-          <div className="mt-3 max-w-2xl rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
-            Estas categorías aparecen en el selector <strong>Categoría principal</strong> de Nuevo producto.
-            Los <Link href="/proveedores/categorias" className="underline font-medium">rubros de proveedor</Link>{" "}
-            también se importan automáticamente acá, así no tenés que cargarlos dos veces.
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <ExportExcelButton url="/api/inventario/categorias/export" />
-          <ImportExcelButton
-            entidad="Categorías"
-            previewUrl="/api/inventario/categorias/import/preview"
-            commitUrl="/api/inventario/categorias/import/commit"
-            templateUrl="/api/inventario/categorias/import/template"
-            permiteCrearFaltantes
-            visible={isAdmin}
-            onCompleted={load}
-          />
-          <Link href="/inventario" className="text-sm text-sky-700 hover:text-sky-900 underline">
-            ← Volver a Inventario
-          </Link>
-        </div>
+      <PageHeader
+        eyebrow="San Antonio · Stock"
+        title="Categorías de productos"
+        description="Clasificá tus productos para reportes y búsqueda."
+        backHref="/inventario"
+        backLabel="Volver a Inventario"
+        actions={
+          <>
+            <ExportExcelButton url="/api/inventario/categorias/export" />
+            <ImportExcelButton
+              entidad="Categorías"
+              previewUrl="/api/inventario/categorias/import/preview"
+              commitUrl="/api/inventario/categorias/import/commit"
+              templateUrl="/api/inventario/categorias/import/template"
+              permiteCrearFaltantes
+              visible={isAdmin}
+              onCompleted={load}
+            />
+          </>
+        }
+      />
+
+      <div className="max-w-2xl rounded-lg border border-[#4FAEB2]/20 bg-[#E5F4F4] px-3 py-2 text-xs text-[#2F6F72]">
+        Estas categorías aparecen en el selector <strong>Categoría principal</strong> de Nuevo producto.
+        Los <Link href="/proveedores/categorias" className="underline font-medium text-[#3F8E91]">rubros de proveedor</Link>{" "}
+        también se importan automáticamente acá, así no tenés que cargarlos dos veces.
       </div>
 
       {/* Alta */}

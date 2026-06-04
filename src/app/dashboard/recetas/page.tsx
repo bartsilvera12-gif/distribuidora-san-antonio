@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
-import { ChefHat, Plus, Loader2 } from "lucide-react";
+import { Plus, Loader2 } from "lucide-react";
+import PageHeader from "@/components/ui/PageHeader";
+import Button from "@/components/ui/Button";
 
 type RecetaRow = {
   id: string;
@@ -47,31 +49,17 @@ export default function RecetasListPage() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span
-              aria-hidden="true"
-              className="inline-block h-1.5 w-1.5 rounded-full bg-[#4FAEB2]"
-              style={{ boxShadow: "0 0 0 3px rgba(79, 174, 178, 0.18)" }}
-            />
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#4FAEB2]">
-              San Antonio · Cocina
-            </p>
-          </div>
-          <div className="mt-1 flex items-center gap-3">
-            <ChefHat className="h-5 w-5 text-[#4FAEB2]" />
-            <h1 className="text-lg font-semibold tracking-tight text-slate-900">Recetas</h1>
-          </div>
-          <p className="mt-0.5 text-xs text-slate-500">Recetario de productos preparados por el local.</p>
-        </div>
-        <Link
-          href="/dashboard/recetas/nueva"
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[#4FAEB2] px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-[#4FAEB2]/25 transition-colors hover:bg-[#3F8E91] active:scale-95"
-        >
-          <Plus className="h-4 w-4" />
-          Nueva receta
-        </Link>
+      <div className="mb-6">
+        <PageHeader
+          eyebrow="San Antonio · Cocina"
+          title="Recetas"
+          description="Recetario de productos preparados por el local."
+          actions={
+            <Button href="/dashboard/recetas/nueva" size="sm">
+              <Plus className="h-4 w-4" /> Nueva receta
+            </Button>
+          }
+        />
       </div>
 
       {loading && (

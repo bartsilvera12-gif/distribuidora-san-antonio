@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { readSaasBriefData } from "@/lib/proyectos/brief-data";
 import ProyectoDetalleModal from "./components/ProyectoDetalleModal";
+import PageHeader from "@/components/ui/PageHeader";
 
 type EstadoRow = {
   id: string;
@@ -463,31 +464,20 @@ export default function ProyectosKanbanClient() {
 
   return (
     <div className="mx-auto max-w-[1800px] space-y-4 p-4 md:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span
-              aria-hidden="true"
-              className="inline-block h-1.5 w-1.5 rounded-full bg-[#4FAEB2]"
-              style={{ boxShadow: "0 0 0 3px rgba(79, 174, 178, 0.18)" }}
-            />
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#4FAEB2]">
-              San Antonio · Cocina
-            </p>
-          </div>
-          <h1 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Pedidos</h1>
-          <p className="mt-0.5 text-xs text-slate-500">Tablero de cocina — pedidos por modalidad y estado.</p>
-        </div>
-        <div className="flex items-center">
+      <PageHeader
+        eyebrow="San Antonio · Cocina"
+        title="Pedidos"
+        description="Tablero de cocina — pedidos por modalidad y estado."
+        actions={
           <input
-            className="w-72 rounded-md border border-slate-200 px-3 py-1.5 text-sm"
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-[#4FAEB2]/50 focus:ring-2 focus:ring-[#4FAEB2]/30 sm:w-72"
             placeholder="Buscar título o cliente…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && void load()}
           />
-        </div>
-      </div>
+        }
+      />
 
       {err ? <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{err}</div> : null}
 

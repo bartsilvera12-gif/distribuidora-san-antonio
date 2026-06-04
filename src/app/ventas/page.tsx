@@ -1,10 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import EdgeScrollArea from "@/components/ui/EdgeScrollArea";
 import { FancySelect } from "@/components/ui/FancySelect";
 import MobileFab from "@/components/ui/MobileFab";
+import PageHeader from "@/components/ui/PageHeader";
+import Button from "@/components/ui/Button";
 import { getVentas } from "@/lib/ventas/storage";
 import type { Venta, TipoVenta, TipoIvaVenta } from "@/lib/ventas/types";
 
@@ -194,20 +195,16 @@ export default function VentasPage() {
   return (
     <div className="space-y-8">
 
-      <div>
-        <div className="flex items-center gap-2">
-          <span
-            aria-hidden="true"
-            className="inline-block h-1.5 w-1.5 rounded-full bg-[#4FAEB2]"
-            style={{ boxShadow: "0 0 0 3px rgba(79, 174, 178, 0.18)" }}
-          />
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#4FAEB2]">
-            San Antonio · Operaciones
-          </p>
-        </div>
-        <h1 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Ventas</h1>
-        <p className="mt-0.5 text-xs text-slate-500">Registro de ventas y salidas de inventario</p>
-      </div>
+      <PageHeader
+        eyebrow="San Antonio · Operaciones"
+        title="Ventas"
+        description="Registro de ventas y salidas de inventario"
+        actions={
+          <Button href="/ventas/nueva" size="sm">
+            <span aria-hidden>+</span> Nueva venta
+          </Button>
+        }
+      />
 
       {/* ── Métricas del día ──────────────────────────────────────────────────── */}
       <div>
@@ -249,14 +246,8 @@ export default function VentasPage() {
       {/* ── Tabla de ventas ───────────────────────────────────────────────────── */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm ring-1 ring-[#4FAEB2]/15 p-6">
 
-        <div className="flex justify-between items-center mb-5">
-          <h2 className="text-xl font-semibold">Órdenes de venta</h2>
-          <Link
-            href="/ventas/nueva"
-            className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm"
-          >
-            + Nueva venta
-          </Link>
+        <div className="mb-5">
+          <h2 className="text-base font-semibold text-slate-800">Órdenes de venta</h2>
         </div>
 
         {/* Filtros */}

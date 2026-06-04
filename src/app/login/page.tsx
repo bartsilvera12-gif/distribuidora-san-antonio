@@ -5,7 +5,6 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 import { signIn } from "@/lib/auth";
-import { BRAND } from "@/lib/brand/brand";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -47,8 +46,8 @@ export default function LoginPage() {
       <div className="flex w-full max-w-[22rem] shrink-0 flex-col items-center gap-3 sm:max-w-sm sm:gap-4">
         <div className="w-full max-w-[13.5rem] shrink-0 sm:max-w-[15rem]">
           <Image
-            src={BRAND.logo}
-            alt={BRAND.name}
+            src="/brand/zentra-logo-official.png"
+            alt="ZENTRA"
             width={480}
             height={264}
             priority
