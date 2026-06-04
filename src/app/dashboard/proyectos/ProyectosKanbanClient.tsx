@@ -195,7 +195,8 @@ function saasModuleCountLabel(p: ProyectoCard): string | null {
 
 // ── Pedidos (gastronomía) — helpers para renderizar cards con brief_data del pedido ─────
 type PedidoBrief = {
-  modalidad: "local" | "delivery" | "carry_out";
+  // null = pedido de distribuidora (creado desde una venta, sin modalidad gastronómica).
+  modalidad: "local" | "delivery" | "carry_out" | null;
   mesa: string | null;
   cliente_nombre: string | null;
   cliente_telefono: string | null;
@@ -210,10 +211,14 @@ function readPedidoBrief(
 ): PedidoBrief | null {
   if (!brief || typeof brief !== "object") return null;
   const m = (brief as Record<string, unknown>).modalidad;
-  if (m !== "local" && m !== "delivery" && m !== "carry_out") return null;
+  const modalidad = m === "local" || m === "delivery" || m === "carry_out" ? m : null;
   const itemsRaw = Array.isArray(brief.items) ? (brief.items as Array<Record<string, unknown>>) : [];
+  const numeroControl = typeof brief.numero_control === "string" ? brief.numero_control : null;
+  // Es un pedido renderizable si tiene modalidad (gastronomía) o si proviene de una
+  // venta (distribuidora): hay items o número de control. Si no, es un proyecto común.
+  if (modalidad === null && itemsRaw.length === 0 && !numeroControl) return null;
   return {
-    modalidad: m,
+    modalidad,
     mesa: typeof brief.mesa === "string" ? brief.mesa : null,
     cliente_nombre: typeof brief.cliente_nombre === "string" ? brief.cliente_nombre : null,
     cliente_telefono: typeof brief.cliente_telefono === "string" ? brief.cliente_telefono : null,
@@ -228,7 +233,7 @@ function readPedidoBrief(
 }
 
 const PEDIDO_MODALIDAD_BADGE: Record<
-  PedidoBrief["modalidad"],
+  "local" | "delivery" | "carry_out",
   { label: string; cls: string }
 > = {
   local:     { label: "En local",  cls: "border-amber-300 bg-amber-50 text-amber-800" },
@@ -654,10 +659,16 @@ function ProjectCardView({
         </div>
         <div className="mt-2 flex flex-wrap gap-1">
           {pedido ? (
-            <span className={`${baseBadgeClass} font-semibold ${PEDIDO_MODALIDAD_BADGE[pedido.modalidad].cls}`}>
-              {PEDIDO_MODALIDAD_BADGE[pedido.modalidad].label}
-              {pedido.modalidad === "local" && pedido.mesa ? ` · Mesa ${pedido.mesa}` : ""}
-            </span>
+            pedido.modalidad ? (
+              <span className={`${baseBadgeClass} font-semibold ${PEDIDO_MODALIDAD_BADGE[pedido.modalidad].cls}`}>
+                {PEDIDO_MODALIDAD_BADGE[pedido.modalidad].label}
+                {pedido.modalidad === "local" && pedido.mesa ? ` · Mesa ${pedido.mesa}` : ""}
+              </span>
+            ) : (
+              <span className={`${baseBadgeClass} border-[#4FAEB2]/40 bg-[#E5F4F4] font-semibold text-[#3F8E91]`}>
+                Pedido
+              </span>
+            )
           ) : (
             <span className={neutralBadgeClass}>
               {p.proyecto_tipo?.nombre ?? "Tipo"}
@@ -668,11 +679,9 @@ function ProjectCardView({
               {saasModulesLabel}
             </span>
           ) : null}
-          {!pedido && (
-            <span className={`${baseBadgeClass} font-semibold ${priorityStyles.badgeClass}`}>
-              {prioridadConfig?.nombre ?? prioridadFallbackLabel(p.prioridad)}
-            </span>
-          )}
+          <span className={`${baseBadgeClass} font-semibold ${priorityStyles.badgeClass}`}>
+            {prioridadConfig?.nombre ?? prioridadFallbackLabel(p.prioridad)}
+          </span>
           {!pedido && (
             <span className={p.sla_estado_actual?.vencido ? `${baseBadgeClass} border-rose-200 bg-rose-50 text-rose-700` : neutralBadgeClass}>
               {slaEstadoLabel(p)}
@@ -695,6 +704,7 @@ function ProjectCardView({
             pedido={pedido}
             total={Number(p.monto_vendido ?? 0)}
             horaIso={p.fecha_ingreso ?? p.last_activity_at ?? null}
+            repartidor={p.responsable_tecnico?.nombre ?? null}
           />
         ) : (
           <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-xl bg-slate-50/80 px-3 py-2 text-[11px] text-slate-700">
@@ -748,10 +758,12 @@ function PedidoCardBody({
   pedido,
   total,
   horaIso,
+  repartidor,
 }: {
   pedido: PedidoBrief;
   total: number;
   horaIso: string | null;
+  repartidor?: string | null;
 }) {
   const maxItems = 4;
   const visibleItems = pedido.items.slice(0, maxItems);
@@ -759,8 +771,9 @@ function PedidoCardBody({
 
   return (
     <div className="mt-3 space-y-2 rounded-xl bg-slate-50/80 px-3 py-2 text-[12px] text-slate-700">
-      {/* Detalle modalidad */}
-      {pedido.modalidad === "delivery" && (
+      {/* Detalle entrega — delivery (gastronomía) o pedido de distribuidora (modalidad null) */}
+      {(pedido.modalidad === "delivery" || pedido.modalidad === null) &&
+      (pedido.cliente_telefono || pedido.direccion_entrega) ? (
         <div className="flex flex-col gap-0.5">
           {pedido.cliente_telefono ? (
             <div className="font-semibold text-slate-800">📞 {pedido.cliente_telefono}</div>
@@ -769,7 +782,7 @@ function PedidoCardBody({
             <div className="text-slate-600">📍 {pedido.direccion_entrega}</div>
           ) : null}
         </div>
-      )}
+      ) : null}
       {pedido.modalidad === "carry_out" && (pedido.cliente_nombre || pedido.cliente_telefono) ? (
         <div className="flex flex-col gap-0.5">
           {pedido.cliente_nombre ? (
@@ -803,10 +816,18 @@ function PedidoCardBody({
         </div>
       ) : null}
 
+      {/* Repartidor asignado */}
+      {repartidor ? (
+        <div className="flex items-center gap-1 border-t border-slate-200 pt-1.5 text-[11px] text-slate-600">
+          <span aria-hidden>🚚</span>
+          <span className="truncate font-medium text-slate-800">{repartidor}</span>
+        </div>
+      ) : null}
+
       {/* Footer total + hora */}
       <div className="flex items-center justify-between border-t border-slate-200 pt-1.5">
         <span className="text-[11px] text-slate-500">{fmtPedidoHora(horaIso)}</span>
-        <span className="text-[13px] font-semibold tabular-nums text-slate-900">
+        <span className="text-[13px] font-bold tabular-nums text-[#3F8E91]">
           {fmtPedidoTotal(total)}
         </span>
       </div>
