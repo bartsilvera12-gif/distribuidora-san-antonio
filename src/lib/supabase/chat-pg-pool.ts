@@ -40,9 +40,12 @@ export function getPgPoolConfigMax(): number {
   const raw = process.env.PG_POOL_MAX?.trim();
   if (raw) {
     const n = parseInt(raw, 10);
-    if (!Number.isNaN(n) && n >= 1 && n <= 10) return n;
+    if (!Number.isNaN(n) && n >= 1 && n <= 20) return n;
   }
-  return 3;
+  // Default subido de 3 → 5 para server persistente (Coolify/VPS). Tuneable con
+  // PG_POOL_MAX (hasta 20). Ojo si compartís el pooler de Supabase entre varias
+  // instancias: el límite total suele ser ~15.
+  return 5;
 }
 
 export function isPgPoolExhaustionMessage(message: string): boolean {
@@ -102,9 +105,12 @@ export function getChatPostgresPool(): pg.Pool | null {
     pool = new pg.Pool({
       connectionString: url,
       max,
-      idleTimeoutMillis: 20_000,
+      // Conexiones calientes en server persistente: evita reconectar (TLS
+      // handshake nuevo) en cada request tras un breve período de inactividad.
+      idleTimeoutMillis: 60_000,
       connectionTimeoutMillis: 12_000,
-      allowExitOnIdle: true,
+      // En proceso Node persistente no necesitamos permitir exit por idle.
+      allowExitOnIdle: false,
       ssl: url.includes("supabase") ? { rejectUnauthorized: false } : undefined,
     });
     pool.on("error", (err) => {

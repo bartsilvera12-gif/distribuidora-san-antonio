@@ -61,6 +61,43 @@ type UsuarioRow = {
   nombre?: string | null;
 };
 
+/**
+ * Cache en memoria del row de `usuarios` por `auth_user_id`.
+ *
+ * Antes, CADA request a una ruta /api/* hacía una query a la tabla `usuarios`
+ * para resolver empresa_id/rol/nombre. En un proceso Node persistente
+ * (Coolify/VPS) podemos cachearlo con TTL corto: empresa/rol cambian rara vez y
+ * cualquier cambio se refleja en <= TTL. Esto NO cachea la validación del token
+ * (`auth.getUser` se sigue ejecutando cada request por seguridad), solo el
+ * lookup de catálogo.
+ */
+const USUARIO_ROW_TTL_MS = 60_000;
+const usuarioRowCache = new Map<string, { row: UsuarioRow; exp: number }>();
+
+function getCachedUsuarioRow(authUserId: string): UsuarioRow | undefined {
+  const hit = usuarioRowCache.get(authUserId);
+  if (!hit) return undefined;
+  if (hit.exp < Date.now()) {
+    usuarioRowCache.delete(authUserId);
+    return undefined;
+  }
+  return hit.row;
+}
+
+function setCachedUsuarioRow(authUserId: string, row: UsuarioRow): void {
+  usuarioRowCache.set(authUserId, { row, exp: Date.now() + USUARIO_ROW_TTL_MS });
+  // Cota defensiva de tamaño (evita crecer sin límite ante muchos usuarios).
+  if (usuarioRowCache.size > 5000) {
+    const oldest = usuarioRowCache.keys().next().value;
+    if (oldest !== undefined) usuarioRowCache.delete(oldest);
+  }
+}
+
+/** Invalida la cache de un usuario (llamar tras cambiar su empresa/rol). */
+export function invalidateUsuarioRowCache(authUserId: string): void {
+  usuarioRowCache.delete(authUserId);
+}
+
 export type ResolveApiAuthOptions = {
   forDataSchemaEndpoint?: boolean;
 };
@@ -139,9 +176,16 @@ async function resolveApiAuthContextUncached(
           return cookieStore.getAll().map((c) => ({ name: c.name, value: c.value }));
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options)
-          );
+          // En un Server Component las cookies son read-only y `.set` lanza.
+          // El refresh real lo hace el middleware, así que acá lo ignoramos
+          // (patrón estándar de @supabase/ssr para uso desde RSC).
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            );
+          } catch {
+            /* RSC: ignorar; el middleware ya refresca la sesión. */
+          }
         },
       },
     });
@@ -158,19 +202,28 @@ async function resolveApiAuthContextUncached(
           return cookieStore.getAll().map((c) => ({ name: c.name, value: c.value }));
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options)
-          );
+          // En un Server Component las cookies son read-only y `.set` lanza.
+          // El refresh real lo hace el middleware, así que acá lo ignoramos
+          // (patrón estándar de @supabase/ssr para uso desde RSC).
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            );
+          } catch {
+            /* RSC: ignorar; el middleware ya refresca la sesión. */
+          }
         },
       },
     }) as AppSupabaseClient;
   }
 
-  let row: UsuarioRow | undefined;
+  // Cache hit: si tenemos el row fresco en memoria, evitamos la query a `usuarios`.
+  let row: UsuarioRow | undefined = user.id ? getCachedUsuarioRow(user.id) : undefined;
+  const rowFromCache = !!row;
   let lastUsuarioErr: string | null = null;
 
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-  if (serviceKey) {
+  if (!row && serviceKey) {
     const sr = createServiceRoleClient();
     if (user.id) {
       const { data: byId, error: e1 } = await sr
@@ -198,7 +251,7 @@ async function resolveApiAuthContextUncached(
         }
       }
     }
-  } else {
+  } else if (!row) {
     if (user.id) {
       const { data: byId, error: e1 } = await userScopedSupabase
         .from("usuarios")
@@ -225,6 +278,11 @@ async function resolveApiAuthContextUncached(
         }
       }
     }
+  }
+
+  // Guardar en cache solo si lo trajimos fresco de la base (no si vino de cache).
+  if (row && !rowFromCache && user.id) {
+    setCachedUsuarioRow(user.id, row);
   }
 
   if (!row && lastUsuarioErr) {

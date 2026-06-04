@@ -35,11 +35,20 @@ export async function middleware(request: NextRequest) {
 }
 
 /**
- * Excluir `/api/webhooks/*`: Meta hace GET sin cookies para verificar el webhook;
- * no debe pasar por refresh de sesión Supabase (y queda listo para proxies estrictos).
+ * Excluir TODO `/api/*` del middleware.
+ *
+ * Las rutas API se autentican solas vía `resolveApiAuthContext` (Bearer token de
+ * localStorage, o cookies como fallback), así que el `auth.getUser()` del
+ * middleware ahí era un viaje de red a Supabase Auth REDUNDANTE por cada llamada
+ * de datos. Sacarlo elimina ~1 round-trip a Auth por request /api/*.
+ *
+ * El refresh de sesión en cookies se mantiene para navegaciones de páginas / RSC,
+ * que es donde el servidor sí lee la cookie. (Antes solo se excluía
+ * `/api/webhooks`, que Meta llama sin cookies; ahora queda cubierto por excluir
+ * `/api` entero.)
  */
 export const config = {
   matcher: [
-    "/((?!api/webhooks|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

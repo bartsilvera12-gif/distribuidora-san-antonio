@@ -8,7 +8,10 @@ import "./globals.css";
 const plusJakarta = Plus_Jakarta_Sans({
   variable: "--font-plus-jakarta",
   subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700", "800"],
+  // Solo los pesos realmente usados (400/500/600/700). Antes cargaba 6 pesos;
+  // el 300 (light) no se usa en ningún lado y el 800 (extrabold) solo en 1 logo
+  // que con 700 se ve igual. Menos archivos de fuente = menos payload inicial.
+  weight: ["400", "500", "600", "700"],
 });
 
 const geistMono = Geist_Mono({

@@ -18,7 +18,7 @@ const nextConfig: NextConfig = {
     //   import { ChevronDown, X, Search } from "lucide-react"
     // Next solo bundlea esas 3 icons en vez del barrel completo de la libreria.
     // Aplica tambien a recharts (aunque ya hicimos dynamic import del chart).
-    optimizePackageImports: ["lucide-react", "recharts"],
+    optimizePackageImports: ["lucide-react", "recharts", "framer-motion"],
   },
 
   // Headers HTTP para caching agresivo de assets estaticos generados por Next
