@@ -3,46 +3,24 @@ import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
 import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
-import type { Proveedor, ProveedorCategoria } from "@/lib/proveedores/types";
+import type { ProveedorCategoria } from "@/lib/proveedores/types";
 import {
-  listProveedores,
   insertProveedor,
   findProveedorByRuc,
   listCategoriasMin,
-  listRelaciones,
   replaceRelacionesProveedor,
   deleteProveedor,
-  type ProveedorRow,
 } from "@/lib/proveedores/server/proveedores-pg";
+import {
+  mapProveedorRow,
+  getProveedoresConCategorias,
+} from "@/lib/proveedores/server/proveedores-service";
 import { normalizeUpperText, normalizeUpperNullable } from "@/lib/text/normalize";
-
-function mapProveedorRow(r: ProveedorRow): Proveedor {
-  return {
-    id: r.id,
-    empresa_id: r.empresa_id,
-    nombre: r.nombre ?? "",
-    nombre_comercial: r.nombre_comercial ?? null,
-    razon_social: r.razon_social ?? null,
-    ruc: r.ruc ?? null,
-    telefono: r.telefono ?? null,
-    email: r.email ?? null,
-    direccion: r.direccion ?? null,
-    contacto: r.contacto ?? null,
-    estado: r.estado === "inactivo" ? "inactivo" : "activo",
-    condicion_pago:
-      r.condicion_pago === "contado" || r.condicion_pago === "credito" || r.condicion_pago === "mixto"
-        ? r.condicion_pago
-        : null,
-    plazo_pago_dias: r.plazo_pago_dias != null ? Number(r.plazo_pago_dias) : null,
-    moneda_preferida: r.moneda_preferida === "USD" ? "USD" : r.moneda_preferida === "GS" ? "GS" : null,
-    observaciones: r.observaciones ?? null,
-    created_at: r.created_at,
-    updated_at: r.updated_at,
-  };
-}
 
 /**
  * GET /api/proveedores — lista con categorías resueltas (PG directo).
+ * La lógica vive en `getProveedoresConCategorias` (compartida con el Server
+ * Component de la página /proveedores).
  */
 export async function GET(request: NextRequest) {
   try {
@@ -51,28 +29,7 @@ export async function GET(request: NextRequest) {
     const schema = await fetchDataSchemaForEmpresaId(ctx.auth.empresa_id);
     const empresaId = ctx.auth.empresa_id;
 
-    // Serializado para no agotar pool (session mode max 15 conexiones).
-    const provs = await listProveedores(schema, empresaId);
-    const cats = await listCategoriasMin(schema, empresaId);
-    const rels = await listRelaciones(schema, empresaId);
-
-    const catById = new Map<string, Pick<ProveedorCategoria, "id" | "nombre" | "activo">>();
-    for (const c of cats) catById.set(c.id, { id: c.id, nombre: c.nombre, activo: c.activo });
-
-    const catsByProveedor = new Map<string, Pick<ProveedorCategoria, "id" | "nombre" | "activo">[]>();
-    for (const rel of rels) {
-      const cat = catById.get(rel.categoria_id);
-      if (!cat) continue;
-      const list = catsByProveedor.get(rel.proveedor_id) ?? [];
-      list.push(cat);
-      catsByProveedor.set(rel.proveedor_id, list);
-    }
-
-    const proveedores: Proveedor[] = provs.map((row) => {
-      const p = mapProveedorRow(row);
-      p.categorias = catsByProveedor.get(p.id) ?? [];
-      return p;
-    });
+    const proveedores = await getProveedoresConCategorias(schema, empresaId);
 
     return NextResponse.json(successResponse({ proveedores }));
   } catch (err) {
