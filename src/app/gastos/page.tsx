@@ -5,6 +5,10 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getGastos, deleteGasto } from "@/lib/gastos/actions";
 import type { Gasto } from "@/lib/gastos/actions";
+import PageHeader from "@/components/ui/PageHeader";
+import Button from "@/components/ui/Button";
+import Card from "@/components/ui/Card";
+import EmptyState from "@/components/ui/EmptyState";
 
 function formatGs(valor: number) {
   return `${valor.toLocaleString("es-PY")} ₲`;
@@ -56,44 +60,31 @@ export default function GastosPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <span
-              aria-hidden="true"
-              className="inline-block h-1.5 w-1.5 rounded-full bg-[#4FAEB2]"
-              style={{ boxShadow: "0 0 0 3px rgba(79, 174, 178, 0.18)" }}
-            />
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#4FAEB2]">
-              San Antonio · Egresos
-            </p>
-          </div>
-          <h1 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Gastos operativos</h1>
-          <p className="mt-0.5 text-xs text-slate-500">Registro de gastos de la empresa</p>
-        </div>
-        <Link
-          href="/gastos/nuevo"
-          className="flex shrink-0 items-center gap-1.5 rounded-lg bg-[#4FAEB2] px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-[#4FAEB2]/25 transition-colors hover:bg-[#3F8E91] active:scale-95"
-        >
-          <span>+</span>
-          Nuevo gasto
-        </Link>
-      </div>
+      <PageHeader
+        eyebrow="San Antonio · Egresos"
+        title="Gastos operativos"
+        description="Registro de gastos de la empresa"
+        actions={
+          <Button href="/gastos/nuevo" size="sm">
+            <span aria-hidden>+</span> Nuevo gasto
+          </Button>
+        }
+      />
 
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm ring-1 ring-[#4FAEB2]/15">
+      <Card padded={false} className="overflow-hidden">
         {cargando ? (
           <div className="py-16 text-center text-gray-400 text-sm animate-pulse">Cargando gastos…</div>
         ) : gastos.length === 0 ? (
-          <div className="py-16 text-center text-gray-400">
-            <p className="text-4xl mb-3">📋</p>
-            <p className="font-medium text-gray-600">No hay gastos registrados</p>
-            <Link
-              href="/gastos/nuevo"
-              className="mt-4 inline-block text-sm text-[#0EA5E9] hover:underline"
-            >
-              Registrar primer gasto
-            </Link>
-          </div>
+          <EmptyState
+            icon="📋"
+            title="No hay gastos registrados"
+            description="Registrá tu primer gasto operativo para empezar a llevar el control."
+            action={
+              <Button href="/gastos/nuevo" variant="secondary" size="sm">
+                Registrar primer gasto
+              </Button>
+            }
+          />
         ) : (
           /* overflow-x-auto + min-w fuerza scroll horizontal en mobile;
               Categoria + Tipo se ocultan en pantallas chicas. */
@@ -151,7 +142,7 @@ export default function GastosPage() {
           </table>
           </div>
         )}
-      </div>
+      </Card>
 
       {gastos.length > 0 && (
         <p className="text-sm text-gray-500">
