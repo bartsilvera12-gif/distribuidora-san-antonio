@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import MontoInput from "@/components/ui/MontoInput";
+import PageHeader from "@/components/ui/PageHeader";
 import { saveCompra } from "@/lib/compras/storage";
 import { getProveedores, proveedorExiste, createProveedor } from "@/lib/proveedores/storage";
 import {
@@ -354,10 +355,13 @@ export default function NuevaCompraPage() {
   return (
     <div className="space-y-8">
 
-      <div>
-        <h1 className="text-3xl font-bold text-gray-800">Nueva compra</h1>
-        <p className="text-gray-600">Cada compra guardada impacta inmediatamente en el inventario</p>
-      </div>
+      <PageHeader
+        eyebrow="San Antonio · Adquisiciones"
+        title="Nueva compra"
+        description="Cada compra guardada impacta inmediatamente en el inventario"
+        backHref="/compras"
+        backLabel="Compras"
+      />
 
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 max-w-2xl">
         <form className="space-y-8" onSubmit={handleSubmit}>

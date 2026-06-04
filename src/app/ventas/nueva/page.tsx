@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import MontoInput from "@/components/ui/MontoInput";
+import PageHeader from "@/components/ui/PageHeader";
 import ProductPickerModal, { type ProductoPickerItem, type AgregarVentaPayload } from "@/components/inventario/ProductPickerModal";
 import { saveVenta } from "@/lib/ventas/storage";
 import { getProductos } from "@/lib/inventario/storage";
@@ -429,12 +430,13 @@ export default function NuevaVentaPage() {
   return (
     <div className="space-y-8">
 
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">Nueva venta</h1>
-        <p className="text-gray-600">
-          Agregá productos del menú o reventa. Al confirmar se registra la venta y se genera el pedido.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="San Antonio · Operaciones"
+        title="Nueva venta"
+        description="Agregá productos del menú o reventa. Al confirmar se registra la venta y se genera el pedido."
+        backHref="/ventas"
+        backLabel="Ventas"
+      />
 
       <form onSubmit={handleSubmit} className="space-y-6 max-w-7xl">
 

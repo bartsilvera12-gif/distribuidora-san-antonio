@@ -6,6 +6,7 @@ import { FancySelect } from "@/components/ui/FancySelect";
 import MobileFab from "@/components/ui/MobileFab";
 import PageHeader from "@/components/ui/PageHeader";
 import Button from "@/components/ui/Button";
+import Badge from "@/components/ui/Badge";
 import { getVentas } from "@/lib/ventas/storage";
 import type { Venta, TipoVenta, TipoIvaVenta } from "@/lib/ventas/types";
 
@@ -34,10 +35,6 @@ function formatFecha(iso: string) {
 const inputFilterClass =
   "border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none";
 
-const tipoVentaBadge: Record<TipoVenta, string> = {
-  CONTADO: "bg-blue-50 text-blue-700",
-  CREDITO: "bg-orange-50 text-orange-700",
-};
 
 const ivaLabel: Record<TipoIvaVenta, string> = {
   EXENTA: "Exenta",
@@ -344,19 +341,17 @@ export default function VentasPage() {
                         {cantTotal}
                       </td>
                       <td className="py-4 pr-4 align-middle hidden lg:table-cell">
-                        <span className="px-2 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700">
-                          {ivaResumen(v)}
-                        </span>
+                        <Badge tone="primary">{ivaResumen(v)}</Badge>
                       </td>
                       <td className="py-4 pr-4 text-right tabular-nums font-semibold text-gray-800 align-middle">
                         {formatGs(v.total)}
                       </td>
                       <td className="py-4 pr-4 align-middle hidden md:table-cell">
-                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${tipoVentaBadge[v.tipo_venta]}`}>
+                        <Badge tone={v.tipo_venta === "CONTADO" ? "neutral" : "warning"}>
                           {v.tipo_venta === "CONTADO"
                             ? "Contado"
                             : `Crédito ${v.plazo_dias ?? ""}d`}
-                        </span>
+                        </Badge>
                       </td>
                       <td className="py-4 pr-4 align-middle text-xs text-gray-600 hidden md:table-cell">
                         {v.metodo_pago === "tarjeta" ? "Tarjeta"

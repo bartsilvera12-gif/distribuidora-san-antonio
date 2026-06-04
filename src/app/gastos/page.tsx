@@ -9,6 +9,7 @@ import PageHeader from "@/components/ui/PageHeader";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import EmptyState from "@/components/ui/EmptyState";
+import Badge from "@/components/ui/Badge";
 
 function formatGs(valor: number) {
   return `${valor.toLocaleString("es-PY")} ₲`;
@@ -26,11 +27,6 @@ function formatFecha(fecha: string) {
     return fecha;
   }
 }
-
-const tipoBadge: Record<string, string> = {
-  fijo: "bg-blue-50 text-blue-700",
-  variable: "bg-slate-100 text-slate-700",
-};
 
 export default function GastosPage() {
   const router = useRouter();
@@ -112,11 +108,7 @@ export default function GastosPage() {
                     {formatGs(g.monto)}
                   </td>
                   <td className="px-5 py-3.5 hidden md:table-cell">
-                    <span
-                      className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${tipoBadge[g.tipo] ?? "bg-slate-100"}`}
-                    >
-                      {g.tipo}
-                    </span>
+                    <Badge tone={g.tipo === "fijo" ? "info" : "neutral"}>{g.tipo}</Badge>
                   </td>
                   <td className="px-5 py-3.5">
                     <div className="flex gap-2">

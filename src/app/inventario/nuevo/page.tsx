@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import MontoInput from "@/components/ui/MontoInput";
+import PageHeader from "@/components/ui/PageHeader";
 import SelectFromList from "@/components/inventario/SelectFromList";
 import { productoExiste, saveProducto } from "@/lib/inventario/storage";
 import type { MetodoValuacion } from "@/lib/inventario/types";
@@ -387,10 +388,13 @@ export default function NuevoProductoPage() {
   if (tipoGastro === null) {
     return (
       <div className="space-y-8">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-800">Nuevo producto</h1>
-          <p className="text-gray-600">¿Qué tipo de producto vas a cargar?</p>
-        </div>
+        <PageHeader
+          eyebrow="San Antonio · Stock"
+          title="Nuevo producto"
+          description="¿Qué tipo de producto vas a cargar?"
+          backHref="/inventario"
+          backLabel="Inventario"
+        />
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-5xl">
           {([
             {
@@ -451,9 +455,12 @@ export default function NuevoProductoPage() {
   return (
     <div className="space-y-8">
 
-      <div>
-        <h1 className="text-3xl font-bold text-gray-800">Nuevo producto</h1>
-      </div>
+      <PageHeader
+        eyebrow="San Antonio · Stock"
+        title="Nuevo producto"
+        backHref="/inventario"
+        backLabel="Inventario"
+      />
 
       <div className="bg-white rounded-xl border border-amber-200 shadow-sm p-5 max-w-5xl">
         <div className="flex items-start gap-4">

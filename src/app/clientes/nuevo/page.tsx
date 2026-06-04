@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import PageHeader from "@/components/ui/PageHeader";
 import {
   apiCreateCliente,
   apiCreateFactura,
@@ -384,17 +385,13 @@ function NuevoClienteForm() {
   return (
     <div className="space-y-8">
 
-      {/* Header */}
-      <div>
-        <button
-          onClick={() => router.push("/clientes")}
-          className="text-xs text-gray-400 hover:text-gray-600 mb-2 flex items-center gap-1"
-        >
-          ← Clientes
-        </button>
-        <h1 className="text-3xl font-bold text-gray-800">Nuevo cliente</h1>
-        <p className="text-gray-500 text-sm mt-1">Registrá un cliente en la base de datos</p>
-      </div>
+      <PageHeader
+        eyebrow="San Antonio · Base"
+        title="Nuevo cliente"
+        description="Registrá un cliente en la base de datos"
+        backHref="/clientes"
+        backLabel="Clientes"
+      />
 
       {/* Banner CRM */}
       {crmBanner && (
