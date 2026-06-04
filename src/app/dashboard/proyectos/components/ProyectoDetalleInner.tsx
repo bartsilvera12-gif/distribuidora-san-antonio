@@ -321,15 +321,15 @@ export default function ProyectoDetalleInner({
 
   if (!projectId) return null;
   if (loading && !data) {
-    return <div className="p-6 text-sm text-slate-400">Cargando…</div>;
+    return <div className="p-6 text-sm text-slate-500">Cargando…</div>;
   }
-  if (err && !data) return <div className="p-6 text-sm text-red-400">{err}</div>;
+  if (err && !data) return <div className="p-6 text-sm text-red-600">{err}</div>;
   if (!data || !proyecto) return null;
 
-  const panelCls = "rounded-xl border border-slate-700/80 bg-slate-800/40 p-4 shadow-sm";
-  const labelCls = "text-slate-400";
+  const panelCls = "rounded-xl border border-slate-200 bg-slate-50 p-4 shadow-sm";
+  const labelCls = "text-slate-500";
   const inputCls =
-    "mt-1 w-full rounded-lg border border-slate-600 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500";
+    "mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus:border-[#4FAEB2] focus:outline-none focus:ring-1 focus:ring-[#4FAEB2]";
 
   return (
     <div
@@ -341,28 +341,28 @@ export default function ProyectoDetalleInner({
     >
       {variant === "page" ? (
         <div className="flex flex-wrap items-center gap-3">
-          <Link href="/dashboard/proyectos" className="text-sm text-sky-400 hover:text-sky-300 hover:underline">
+          <Link href="/dashboard/proyectos" className="text-sm text-[#3F8E91] hover:text-[#4FAEB2] hover:underline">
             ← Kanban
           </Link>
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-700/80 pb-4">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-4">
         <div className="min-w-0 flex-1">
           <h1
             id={variant === "modal" ? "proyecto-detalle-titulo" : undefined}
-            className="truncate text-xl font-semibold text-slate-100"
+            className="truncate text-xl font-semibold text-slate-900"
           >
             {String(proyecto.titulo ?? "")}
           </h1>
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-slate-500">
             {(proyecto as { proyecto_tipo?: { nombre?: string } }).proyecto_tipo?.nombre ?? "—"} · Avance{" "}
             {data.avance_pct ?? "—"}%
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <select
-            className="rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
             value={String(proyecto.estado_id ?? "")}
             onChange={(e) => void cambiarEstado(e.target.value)}
           >
@@ -375,7 +375,7 @@ export default function ProyectoDetalleInner({
           {variant === "modal" ? (
             <button
               type="button"
-              className="rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
               onClick={() => onClose?.()}
             >
               Cerrar
@@ -383,7 +383,7 @@ export default function ProyectoDetalleInner({
           ) : (
             <button
               type="button"
-              className="rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
               onClick={() => router.push("/dashboard/proyectos")}
             >
               Cerrar
@@ -392,9 +392,9 @@ export default function ProyectoDetalleInner({
         </div>
       </div>
 
-      {err ? <div className="rounded-lg border border-amber-700/50 bg-amber-950/40 px-3 py-2 text-sm text-amber-100">{err}</div> : null}
+      {err ? <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{err}</div> : null}
 
-      <div className="flex flex-wrap gap-2 border-b border-slate-700/80 pb-2">
+      <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2">
         {TAB_IDS.map((t) => (
           <button
             key={t}
@@ -402,8 +402,8 @@ export default function ProyectoDetalleInner({
             onClick={() => setTab(t)}
             className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
               tab === t
-                ? "border border-sky-600/40 bg-sky-600/20 text-sky-100"
-                : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                ? "border border-[#4FAEB2]/40 bg-[#E5F4F4] text-[#3F8E91]"
+                : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
             }`}
           >
             {TAB_LABELS[t]}
@@ -415,27 +415,27 @@ export default function ProyectoDetalleInner({
         {tab === "resumen" ? (
           <div className="grid gap-4 md:grid-cols-2">
             <div className={panelCls}>
-              <h2 className="text-sm font-semibold text-slate-200">Resumen del proyecto</h2>
+              <h2 className="text-sm font-semibold text-slate-700">Resumen del proyecto</h2>
               <dl className="mt-4 space-y-3 text-sm">
-                <div className="flex justify-between gap-3 border-b border-slate-700/50 pb-2">
+                <div className="flex justify-between gap-3 border-b border-slate-200 pb-2">
                   <dt className={labelCls}>Cliente</dt>
-                  <dd className="text-right text-slate-100">{clienteNombre(proyecto)}</dd>
+                  <dd className="text-right text-slate-900">{clienteNombre(proyecto)}</dd>
                 </div>
-                <div className="flex justify-between gap-3 border-b border-slate-700/50 pb-2">
+                <div className="flex justify-between gap-3 border-b border-slate-200 pb-2">
                   <dt className={labelCls}>Vendedor / comercial</dt>
-                  <dd className="text-right text-slate-100">
+                  <dd className="text-right text-slate-900">
                     {(proyecto as { responsable_comercial?: { nombre?: string } }).responsable_comercial?.nombre ?? "—"}
                   </dd>
                 </div>
-                <div className="flex justify-between gap-3 border-b border-slate-700/50 pb-2">
+                <div className="flex justify-between gap-3 border-b border-slate-200 pb-2">
                   <dt className={labelCls}>Técnico responsable</dt>
-                  <dd className="text-right text-slate-100">
+                  <dd className="text-right text-slate-900">
                     {(proyecto as { responsable_tecnico?: { nombre?: string } }).responsable_tecnico?.nombre ?? "—"}
                   </dd>
                 </div>
-                <div className="flex justify-between gap-3 border-b border-slate-700/50 pb-2">
+                <div className="flex justify-between gap-3 border-b border-slate-200 pb-2">
                   <dt className={labelCls}>Fecha prometida</dt>
-                  <dd className="text-right text-slate-100">
+                  <dd className="text-right text-slate-900">
                     {proyecto.fecha_prometida != null && String(proyecto.fecha_prometida).trim() !== ""
                       ? formatFechaPyFull(String(proyecto.fecha_prometida))
                       : "—"}
@@ -443,23 +443,23 @@ export default function ProyectoDetalleInner({
                 </div>
                 {esSaas ? (
                   <>
-                    <div className="flex justify-between gap-3 border-b border-slate-700/50 pb-2">
+                    <div className="flex justify-between gap-3 border-b border-slate-200 pb-2">
                       <dt className={labelCls}>Empresa SaaS / ERP</dt>
-                      <dd className="max-w-[55%] text-right text-slate-100">
+                      <dd className="max-w-[55%] text-right text-slate-900">
                         {saasForm.empresa_nombre.trim() || "—"}
                       </dd>
                     </div>
-                    <div className="flex justify-between gap-3 border-b border-slate-700/50 pb-2">
+                    <div className="flex justify-between gap-3 border-b border-slate-200 pb-2">
                       <dt className={labelCls}>Módulos necesarios</dt>
-                      <dd className="max-w-[55%] text-right text-slate-100">
+                      <dd className="max-w-[55%] text-right text-slate-900">
                         {saasForm.modulos_necesarios.length > 0
                           ? saasForm.modulos_necesarios.map((m) => m.nombre).join(", ")
                           : "—"}
                       </dd>
                     </div>
-                    <div className="flex justify-between gap-3 border-b border-slate-700/50 pb-2">
+                    <div className="flex justify-between gap-3 border-b border-slate-200 pb-2">
                       <dt className={labelCls}>WhatsApp contacto</dt>
-                      <dd className="max-w-[55%] text-right text-slate-100">
+                      <dd className="max-w-[55%] text-right text-slate-900">
                         {saasForm.whatsapp_contacto.trim() || "—"}
                       </dd>
                     </div>
@@ -471,25 +471,25 @@ export default function ProyectoDetalleInner({
                      ensuciaban el resumen con "Nombre de la marca: —", etc. */
                   <>
                     {(briefCoerced.marca || "").trim() ? (
-                      <div className="flex justify-between gap-3 border-b border-slate-700/50 pb-2">
+                      <div className="flex justify-between gap-3 border-b border-slate-200 pb-2">
                         <dt className={labelCls}>Nombre de la marca</dt>
-                        <dd className="max-w-[55%] text-right text-slate-100">
+                        <dd className="max-w-[55%] text-right text-slate-900">
                           {(briefCoerced.marca || "").trim()}
                         </dd>
                       </div>
                     ) : null}
                     {(briefCoerced.dominio_usar || "").trim() ? (
-                      <div className="flex justify-between gap-3 border-b border-slate-700/50 pb-2">
+                      <div className="flex justify-between gap-3 border-b border-slate-200 pb-2">
                         <dt className={labelCls}>Dominio a usar</dt>
-                        <dd className="max-w-[55%] break-all text-right text-slate-100">
+                        <dd className="max-w-[55%] break-all text-right text-slate-900">
                           {(briefCoerced.dominio_usar || "").trim()}
                         </dd>
                       </div>
                     ) : null}
                     {(briefCoerced.tipo_web || "").trim() ? (
-                      <div className="flex justify-between gap-3 border-b border-slate-700/50 pb-2">
+                      <div className="flex justify-between gap-3 border-b border-slate-200 pb-2">
                         <dt className={labelCls}>Tipo de web</dt>
-                        <dd className="max-w-[55%] text-right text-slate-100">
+                        <dd className="max-w-[55%] text-right text-slate-900">
                           {(briefCoerced.tipo_web || "").trim()}
                         </dd>
                       </div>
@@ -497,9 +497,9 @@ export default function ProyectoDetalleInner({
                     {/* Datos de entrega (pedidos de distribución): solo los que tengan valor. */}
                     {PROYECTO_ENTREGA_BRIEF_FIELDS.map((f) =>
                       (briefCoerced[f.key] || "").trim() ? (
-                        <div key={f.key} className="flex justify-between gap-3 border-b border-slate-700/50 pb-2">
+                        <div key={f.key} className="flex justify-between gap-3 border-b border-slate-200 pb-2">
                           <dt className={labelCls}>{f.label}</dt>
-                          <dd className="max-w-[55%] text-right text-slate-100">
+                          <dd className="max-w-[55%] text-right text-slate-900">
                             {(briefCoerced[f.key] || "").trim()}
                           </dd>
                         </div>
@@ -509,24 +509,24 @@ export default function ProyectoDetalleInner({
                 )}
                 <div className="flex justify-between gap-3">
                   <dt className={labelCls}>Prioridad</dt>
-                  <dd className="text-right text-slate-100">{prioridadLabel(proyecto.prioridad)}</dd>
+                  <dd className="text-right text-slate-900">{prioridadLabel(proyecto.prioridad)}</dd>
                 </div>
               </dl>
             </div>
             <div className={panelCls}>
-              <h2 className="text-sm font-semibold text-slate-200">SLA acumulado</h2>
+              <h2 className="text-sm font-semibold text-slate-700">SLA acumulado</h2>
               <dl className="mt-4 space-y-3 text-sm">
                 <div className="flex justify-between gap-2">
                   <dt className={labelCls}>Tiempo interno</dt>
-                  <dd className="text-slate-100">{slaFmt?.interno}</dd>
+                  <dd className="text-slate-900">{slaFmt?.interno}</dd>
                 </div>
                 <div className="flex justify-between gap-2">
                   <dt className={labelCls}>Espera cliente</dt>
-                  <dd className="text-slate-100">{slaFmt?.cliente}</dd>
+                  <dd className="text-slate-900">{slaFmt?.cliente}</dd>
                 </div>
                 <div className="flex justify-between gap-2">
                   <dt className={labelCls}>Pausado</dt>
-                  <dd className="text-slate-100">{slaFmt?.pausado}</dd>
+                  <dd className="text-slate-900">{slaFmt?.pausado}</dd>
                 </div>
               </dl>
             </div>
@@ -537,14 +537,14 @@ export default function ProyectoDetalleInner({
           <div className={`space-y-4 ${panelCls}`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h2 className="text-sm font-semibold text-slate-200">Datos del proyecto</h2>
+                <h2 className="text-sm font-semibold text-slate-700">Datos del proyecto</h2>
                 <p className="mt-1 text-xs text-slate-500">
                   Editá los campos guardados en el proyecto. Los datos previos se conservan al guardar.
                 </p>
               </div>
               <button
                 type="button"
-                className="rounded-lg bg-sky-600 px-4 py-2 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+                className="rounded-lg bg-[#4FAEB2] px-4 py-2 text-xs font-medium text-white hover:bg-[#3F8E91] disabled:opacity-50"
                 disabled={!datosDirty}
                 onClick={() => void guardarDatos()}
               >
@@ -597,10 +597,10 @@ export default function ProyectoDetalleInner({
               <div className="grid gap-3 sm:grid-cols-2">
                 {PROYECTO_WEB_BRIEF_FIELDS.map((f) =>
                   f.kind === "checkbox" ? (
-                    <label key={f.key} className="flex items-center gap-2 text-sm text-slate-200">
+                    <label key={f.key} className="flex items-center gap-2 text-sm text-slate-700">
                       <input
                         type="checkbox"
-                        className="rounded border-slate-600 bg-slate-900"
+                        className="rounded border-slate-300 bg-white text-[#4FAEB2] focus:ring-[#4FAEB2]"
                         checked={briefForm[f.key] === "1"}
                         onChange={(e) =>
                           setBriefForm((b) => ({ ...b, [f.key]: e.target.checked ? "1" : "" }))
@@ -669,7 +669,7 @@ export default function ProyectoDetalleInner({
                       modulos={modulosCatalogo}
                       selectedIds={saasModuloIds}
                       onChange={updateSaasModulos}
-                      variant="dark"
+                      variant="light"
                     />
                   </div>
                 </div>
@@ -687,7 +687,7 @@ export default function ProyectoDetalleInner({
 
             {Object.keys(briefCoerced).length === 0 &&
             !observaciones.trim() ? (
-              <p className="rounded-lg border border-dashed border-slate-600 bg-slate-900/50 px-4 py-6 text-center text-sm text-slate-500">
+              <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
                 Todavía no hay datos cargados. Completá el formulario y guardá.
               </p>
             ) : null}
@@ -705,20 +705,20 @@ export default function ProyectoDetalleInner({
               />
               <button
                 type="submit"
-                className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-white"
+                className="rounded-lg bg-[#4FAEB2] px-4 py-2 text-sm font-medium text-white hover:bg-[#3F8E91]"
               >
                 Agregar
               </button>
             </form>
-            <ul className="divide-y divide-slate-700/80">
+            <ul className="divide-y divide-slate-200">
               {(data.tareas ?? []).map((t) => {
                 const tid = String(t.id ?? "");
                 const estado = String(t.estado ?? "");
                 return (
                   <li key={tid} className="flex flex-wrap items-center gap-2 py-3 text-sm">
-                    <span className="flex-1 font-medium text-slate-100">{String(t.titulo ?? "")}</span>
+                    <span className="flex-1 font-medium text-slate-900">{String(t.titulo ?? "")}</span>
                     <select
-                      className="rounded-lg border border-slate-600 bg-slate-900 px-2 py-1 text-xs text-slate-100"
+                      className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900"
                       value={estado}
                       onChange={(e) => void patchTarea(tid, { estado: e.target.value })}
                     >
@@ -746,19 +746,19 @@ export default function ProyectoDetalleInner({
               />
               <button
                 type="submit"
-                className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500"
+                className="rounded-lg bg-[#4FAEB2] px-4 py-2 text-sm font-medium text-white hover:bg-[#3F8E91]"
               >
                 Publicar
               </button>
             </form>
             <ul className="space-y-3">
               {(data.comentarios ?? []).map((c) => (
-                <li key={String(c.id)} className="rounded-lg border border-slate-700/60 bg-slate-900/40 px-3 py-2 text-sm">
+                <li key={String(c.id)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
                   <div className="text-xs text-slate-500">
                     {String((c as { usuario_nombre?: string }).usuario_nombre ?? "")} ·{" "}
                     {formatFechaPyFull(String(c.created_at ?? ""))}
                   </div>
-                  <div className="mt-1 text-slate-200">{String(c.comentario ?? "")}</div>
+                  <div className="mt-1 text-slate-700">{String(c.comentario ?? "")}</div>
                 </li>
               ))}
             </ul>
@@ -766,8 +766,8 @@ export default function ProyectoDetalleInner({
         ) : null}
 
         {tab === "archivos" ? (
-          <div className="rounded-xl border border-dashed border-slate-600 bg-slate-900/30 p-6 text-sm text-slate-400">
-            <p className="font-medium text-slate-200">Archivos del proyecto</p>
+          <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-500">
+            <p className="font-medium text-slate-700">Archivos del proyecto</p>
             <p className="mt-2 text-xs">
               Registro en base de datos listo; subida a almacenamiento en una siguiente iteración.
             </p>
@@ -776,7 +776,7 @@ export default function ProyectoDetalleInner({
                 <li className="text-slate-500">Sin archivos registrados.</li>
               ) : (
                 (data.archivos ?? []).map((a) => (
-                  <li key={String(a.id)} className="text-slate-300">
+                  <li key={String(a.id)} className="text-slate-600">
                     {String(a.nombre ?? "")}{" "}
                     <span className="text-xs text-slate-500">{formatFechaPyFull(String(a.created_at ?? ""))}</span>
                   </li>
@@ -787,10 +787,10 @@ export default function ProyectoDetalleInner({
         ) : null}
 
         {tab === "historial" ? (
-          <div className="overflow-hidden rounded-xl border border-slate-700/80 bg-slate-800/30 shadow-sm">
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-700 text-sm">
-                <thead className="bg-slate-900/50 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
+              <table className="min-w-full divide-y divide-slate-200text-sm">
+                <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-3 py-2">Estado anterior</th>
                     <th className="px-3 py-2">Estado nuevo</th>
@@ -801,7 +801,7 @@ export default function ProyectoDetalleInner({
                     <th className="px-3 py-2">Usuario</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-700/80">
+                <tbody className="divide-y divide-slate-200">
                   {(data.historial ?? []).map((h) => {
                     const hr = h as Record<string, unknown>;
                     const ant =
@@ -818,18 +818,18 @@ export default function ProyectoDetalleInner({
                       (hr.duration_label as string | undefined) ??
                       (hr.duration_seconds != null ? String(hr.duration_seconds) + " s" : "—");
                     return (
-                      <tr key={String(h.id)} className="text-slate-200">
+                      <tr key={String(h.id)} className="text-slate-700">
                         <td className="px-3 py-2 text-xs">{ant}</td>
                         <td className="px-3 py-2 text-xs font-medium">{nue}</td>
-                        <td className="px-3 py-2 text-xs text-slate-300">{slaL}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-xs tabular-nums text-slate-300">
+                        <td className="px-3 py-2 text-xs text-slate-600">{slaL}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-xs tabular-nums text-slate-600">
                           {formatFechaPyFull(String(h.entered_at ?? ""))}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2 text-xs tabular-nums text-slate-300">
+                        <td className="whitespace-nowrap px-3 py-2 text-xs tabular-nums text-slate-600">
                           {h.exited_at ? formatFechaPyFull(String(h.exited_at)) : "—"}
                         </td>
-                        <td className="px-3 py-2 text-xs text-slate-300">{dur}</td>
-                        <td className="max-w-[140px] truncate px-3 py-2 text-xs text-slate-400" title={usr}>
+                        <td className="px-3 py-2 text-xs text-slate-600">{dur}</td>
+                        <td className="max-w-[140px] truncate px-3 py-2 text-xs text-slate-500" title={usr}>
                           {usr}
                         </td>
                       </tr>
