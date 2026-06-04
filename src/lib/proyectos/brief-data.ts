@@ -207,6 +207,11 @@ export function slaTipoSnapshotLabel(raw: string | null | undefined): string {
 
 /**
  * Preserva claves extra del JSON y actualiza solo los campos del formulario de Datos.
+ *
+ * Los campos vacíos/desmarcados se devuelven como `null` (no se omiten): el
+ * backend hace `mergeBriefDataPatch`, que conserva las claves ausentes y solo
+ * elimina las que llegan en `null`. Si acá se hiciera `delete`, limpiar un campo
+ * en la UI no lo borraría nunca (quedaría el valor viejo del lado del servidor).
  */
 export function applyBriefFormToExisting(
   existingRaw: unknown,
@@ -219,12 +224,10 @@ export function applyBriefFormToExisting(
   for (const f of PROYECTO_DATOS_BRIEF_FIELDS) {
     const v = form[f.key] ?? "";
     if (f.kind === "checkbox") {
-      if (v === "1") base[f.key] = true;
-      else delete base[f.key];
+      base[f.key] = v === "1" ? true : null;
     } else {
       const t = v.trim();
-      if (!t) delete base[f.key];
-      else base[f.key] = t;
+      base[f.key] = t ? t : null;
     }
   }
   return base;
