@@ -158,6 +158,32 @@ body {
 .focus\:border-\[\#14B8A6\]:focus { border-color: #4FAEB2 !important; }
 
 /* =============================================================================
+   <select> nativos — estilo premium consistente sin tocar 160+ archivos.
+   Reemplaza el chevron del OS por uno turquesa y unifica el focus, dejando que
+   el borde/padding/fondo de cada select (clases Tailwind) sigan mandando. Solo
+   visual; no cambia ninguna lógica. Excluye multi-select y list-box (size>1).
+   ============================================================================= */
+select:not([multiple]):not([size]) {
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  appearance: none !important;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%233F8E91' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 0.7rem center !important;
+  background-size: 1rem !important;
+  padding-right: 2.25rem !important;
+}
+select:not([multiple]):not([size]):focus {
+  outline: none !important;
+  border-color: #4FAEB2 !important;
+  box-shadow: 0 0 0 2px rgba(79, 174, 178, 0.25) !important;
+}
+select:not([multiple]):not([size]):disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* =============================================================================
    Sidebar — gradiente sutil estilo Zentra (top más claro, bottom más oscuro).
    Base #0B3A3D con elevated #104A4E. La luz cae hacia esquina superior derecha,
    sombra hacia abajo.
