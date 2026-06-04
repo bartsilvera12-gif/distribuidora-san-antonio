@@ -9,7 +9,8 @@ import {
   type ProyectoModuloCatalogo as ModuloCatalogo,
 } from "@/app/dashboard/proyectos/components/ProyectoModuloSelector";
 import {
-  PROYECTO_DATOS_BRIEF_FIELDS,
+  PROYECTO_WEB_BRIEF_FIELDS,
+  PROYECTO_ENTREGA_BRIEF_FIELDS,
   applyBriefFormToExisting,
   applySaasFormToExisting,
   coalesceBriefData,
@@ -493,6 +494,17 @@ export default function ProyectoDetalleInner({
                         </dd>
                       </div>
                     ) : null}
+                    {/* Datos de entrega (pedidos de distribución): solo los que tengan valor. */}
+                    {PROYECTO_ENTREGA_BRIEF_FIELDS.map((f) =>
+                      (briefCoerced[f.key] || "").trim() ? (
+                        <div key={f.key} className="flex justify-between gap-3 border-b border-slate-700/50 pb-2">
+                          <dt className={labelCls}>{f.label}</dt>
+                          <dd className="max-w-[55%] text-right text-slate-100">
+                            {(briefCoerced[f.key] || "").trim()}
+                          </dd>
+                        </div>
+                      ) : null
+                    )}
                   </>
                 )}
                 <div className="flex justify-between gap-3">
@@ -583,7 +595,7 @@ export default function ProyectoDetalleInner({
 
             {esWeb ? (
               <div className="grid gap-3 sm:grid-cols-2">
-                {PROYECTO_DATOS_BRIEF_FIELDS.map((f) =>
+                {PROYECTO_WEB_BRIEF_FIELDS.map((f) =>
                   f.kind === "checkbox" ? (
                     <label key={f.key} className="flex items-center gap-2 text-sm text-slate-200">
                       <input
@@ -608,6 +620,26 @@ export default function ProyectoDetalleInner({
                     </label>
                   )
                 )}
+              </div>
+            ) : null}
+
+            {/* Pedidos de distribución (tipo no-web/no-saas): datos de entrega. */}
+            {!esWeb && !esSaas ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {PROYECTO_ENTREGA_BRIEF_FIELDS.map((f) => (
+                  <label
+                    key={f.key}
+                    className={`block text-sm ${f.key === "observaciones_entrega" ? "sm:col-span-2" : ""}`}
+                  >
+                    <span className={labelCls}>{f.label}</span>
+                    <input
+                      className={inputCls}
+                      placeholder={f.kind === "text" ? f.placeholder : undefined}
+                      value={briefForm[f.key] ?? ""}
+                      onChange={(e) => setBriefForm((b) => ({ ...b, [f.key]: e.target.value }))}
+                    />
+                  </label>
+                ))}
               </div>
             ) : null}
 

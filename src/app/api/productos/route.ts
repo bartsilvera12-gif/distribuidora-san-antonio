@@ -229,6 +229,9 @@ export async function POST(request: NextRequest) {
         costo_unitario: costoPromedio,
         origen: "inventario_inicial",
         referencia: null,
+        // Atribución del movimiento (columna "Usuario" en Movimientos).
+        created_by: ctx.auth.usuarioCatalogId ?? null,
+        usuario_nombre: ctx.auth.user?.email ?? null,
       });
       if (movIns.error) {
         console.error("[/api/productos POST] inventario_inicial", movIns.error.message);

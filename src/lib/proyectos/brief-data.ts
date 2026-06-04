@@ -20,8 +20,8 @@ export type ProyectoSaasBriefForm = {
   modulos_necesarios: ProyectoModuloSnapshot[];
 };
 
-/** Campos editables en la pestaña "Datos" (proyecto web y compat. con JSON previo). */
-export const PROYECTO_DATOS_BRIEF_FIELDS: BriefFieldDef[] = [
+/** Campos del brief para proyectos tipo "web" (agencia). */
+export const PROYECTO_WEB_BRIEF_FIELDS: BriefFieldDef[] = [
   { kind: "text", key: "marca", label: "Nombre de la marca" },
   { kind: "text", key: "dominio_usar", label: "Dominio a usar", placeholder: "ej. midominio.com.py" },
   { kind: "text", key: "tipo_web", label: "Tipo de web" },
@@ -34,6 +34,29 @@ export const PROYECTO_DATOS_BRIEF_FIELDS: BriefFieldDef[] = [
   { kind: "text", key: "whatsapp_contacto", label: "WhatsApp de contacto" },
   { kind: "checkbox", key: "hosting_existente", label: "Hosting existente" },
   { kind: "text", key: "referencias_urls", label: "Referencias de páginas" },
+];
+
+/**
+ * Campos del brief para pedidos de entrega / distribución (verticales no-web).
+ * Se muestran en la pestaña "Datos" del pedido y en el resumen.
+ */
+export const PROYECTO_ENTREGA_BRIEF_FIELDS: BriefFieldDef[] = [
+  { kind: "text", key: "direccion_entrega", label: "Dirección de entrega", placeholder: "Calle y número, barrio, ciudad" },
+  { kind: "text", key: "referencia_entrega", label: "Referencia / indicaciones", placeholder: "ej. casa de portón verde, entre X e Y" },
+  { kind: "text", key: "telefono_contacto", label: "Teléfono de contacto", placeholder: "ej. 0981 123 456" },
+  { kind: "text", key: "horario_entrega", label: "Horario preferido de entrega", placeholder: "ej. 9 a 12 hs" },
+  { kind: "text", key: "observaciones_entrega", label: "Observaciones del pedido" },
+];
+
+/**
+ * Unión de todos los campos conocidos del brief. Se usa para PERSISTIR
+ * (applyBriefFormToExisting): así, según el tipo de proyecto, se guardan los
+ * campos web o los de entrega que el usuario completó, y los vacíos se limpian.
+ * El render por pestaña usa los subconjuntos `*_WEB_*` / `*_ENTREGA_*`.
+ */
+export const PROYECTO_DATOS_BRIEF_FIELDS: BriefFieldDef[] = [
+  ...PROYECTO_WEB_BRIEF_FIELDS,
+  ...PROYECTO_ENTREGA_BRIEF_FIELDS,
 ];
 
 export const PROYECTO_SAAS_BRIEF_KEYS = {

@@ -10,7 +10,8 @@ import {
   type ProyectoModuloCatalogo as ModuloCatalogo,
 } from "@/app/dashboard/proyectos/components/ProyectoModuloSelector";
 import {
-  PROYECTO_DATOS_BRIEF_FIELDS,
+  PROYECTO_WEB_BRIEF_FIELDS,
+  PROYECTO_ENTREGA_BRIEF_FIELDS,
   applySaasFormToExisting,
   type ProyectoModuloSnapshot,
 } from "@/lib/proyectos/brief-data";
@@ -96,7 +97,7 @@ export default function ProyectoNuevoClient() {
     setErr(null);
     const brief_data = esWeb
       ? Object.fromEntries(
-          PROYECTO_DATOS_BRIEF_FIELDS.map(({ key }) => [key, brief[key] ?? ""]).filter(([, v]) => v !== "")
+          PROYECTO_WEB_BRIEF_FIELDS.map(({ key }) => [key, brief[key] ?? ""]).filter(([, v]) => v !== "")
         )
       : esSaas
         ? applySaasFormToExisting(
@@ -108,7 +109,9 @@ export default function ProyectoNuevoClient() {
               modulos_necesarios: saasModulosSeleccionados,
             }
           )
-        : {};
+        : Object.fromEntries(
+            PROYECTO_ENTREGA_BRIEF_FIELDS.map(({ key }) => [key, brief[key] ?? ""]).filter(([, v]) => v !== "")
+          );
 
     const body: Record<string, unknown> = {
       tipo_id: tipoId,
@@ -272,7 +275,7 @@ export default function ProyectoNuevoClient() {
           <div className="space-y-3 rounded-lg border border-indigo-100 bg-indigo-50/40 p-4">
             <h2 className="text-sm font-semibold text-indigo-900">Datos del proyecto (web)</h2>
             <div className="grid gap-3 sm:grid-cols-2">
-              {PROYECTO_DATOS_BRIEF_FIELDS.map((f) =>
+              {PROYECTO_WEB_BRIEF_FIELDS.map((f) =>
                 f.kind === "checkbox" ? (
                   <label key={f.key} className="flex items-center gap-2 text-sm">
                     <input
@@ -296,6 +299,28 @@ export default function ProyectoNuevoClient() {
                   </label>
                 )
               )}
+            </div>
+          </div>
+        ) : null}
+
+        {!esWeb && !esSaas ? (
+          <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/60 p-4">
+            <h2 className="text-sm font-semibold text-slate-800">Datos de entrega</h2>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {PROYECTO_ENTREGA_BRIEF_FIELDS.map((f) => (
+                <label
+                  key={f.key}
+                  className={`block text-sm ${f.key === "observaciones_entrega" ? "sm:col-span-2" : ""}`}
+                >
+                  <span className="text-slate-700">{f.label}</span>
+                  <input
+                    className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                    placeholder={f.kind === "text" ? f.placeholder : undefined}
+                    value={brief[f.key] ?? ""}
+                    onChange={(e) => setBrief((b) => ({ ...b, [f.key]: e.target.value }))}
+                  />
+                </label>
+              ))}
             </div>
           </div>
         ) : null}
