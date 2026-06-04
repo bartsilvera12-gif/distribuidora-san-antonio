@@ -89,18 +89,18 @@ export default function Header() {
       id="neura-header"
       className="z-40 flex h-16 shrink-0 items-center justify-between gap-3 border-b border-slate-200/90 bg-white/95 px-3 sm:px-6 shadow-[inset_0_-1px_0_0_rgba(10,37,64,0.05)] backdrop-blur-sm"
     >
-      {/* Boton hamburger (solo mobile) */}
+      {/* Botón hamburger (mobile + tablet: abre el sidebar como drawer hasta lg) */}
       <button
         type="button"
         onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
-        className="rounded-lg p-2 text-slate-600 transition-colors hover:bg-slate-100 hover:text-[#3F8E91] md:hidden"
+        className="rounded-lg p-2 text-slate-600 transition-colors hover:bg-slate-100 hover:text-[#3F8E91] lg:hidden"
         aria-label="Abrir menú"
       >
         <Menu className="h-5 w-5" />
       </button>
 
       {/* Spacer en desktop para empujar el resto a la derecha */}
-      <div className="hidden md:block md:flex-1" />
+      <div className="hidden lg:block lg:flex-1" />
 
       <div className="flex items-center gap-2">
         {/* Notificaciones */}
