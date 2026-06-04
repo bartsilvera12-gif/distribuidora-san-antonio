@@ -15,6 +15,7 @@ import {
   applySaasFormToExisting,
   coalesceBriefData,
   formatFechaPyFull,
+  formatMontoPyg,
   readSaasBriefData,
   type ProyectoModuloSnapshot,
   type ProyectoSaasBriefForm,
@@ -305,6 +306,10 @@ export default function ProyectoDetalleInner({
   const codigoTipo = proyecto?.proyecto_tipo?.codigo ?? "";
   const esWeb = codigoTipo === "web";
   const esSaas = codigoTipo === "saas";
+  // Pedido de distribución: cualquier tipo que no sea web/saas. Es el caso de la
+  // distribuidora (tarjeta creada desde una venta), donde el Resumen funciona como
+  // "hoja de reparto": productos + datos de entrega para el repartidor.
+  const esPedido = !esWeb && !esSaas;
   const briefCoerced = coalesceBriefData(proyecto?.brief_data);
   const saasModuloIds = saasForm.modulos_necesarios
     .map((modulo) => modulo.id)
@@ -334,6 +339,30 @@ export default function ProyectoDetalleInner({
     );
   }
   if (!data || !proyecto) return null;
+
+  // Datos del pedido para la "hoja de reparto" (Resumen). Los items vienen del
+  // snapshot guardado al crear la venta (brief_data.items); el total de
+  // monto_vendido. Los datos de entrega salen del brief (editables en Datos).
+  const briefRaw =
+    proyecto.brief_data && typeof proyecto.brief_data === "object" && !Array.isArray(proyecto.brief_data)
+      ? (proyecto.brief_data as Record<string, unknown>)
+      : {};
+  const pedidoItems = Array.isArray(briefRaw.items)
+    ? (briefRaw.items as Array<Record<string, unknown>>)
+    : [];
+  const montoVendido = (proyecto as { monto_vendido?: number | null }).monto_vendido ?? null;
+  const clienteResumen = clienteNombre(proyecto) !== "—" ? clienteNombre(proyecto) : briefCoerced.cliente_nombre || "—";
+  const telefonoEntrega = briefCoerced.telefono_contacto || briefCoerced.cliente_telefono || "—";
+  const direccionEntrega = briefCoerced.direccion_entrega || "—";
+  const referenciaEntrega = briefCoerced.referencia_entrega || "—";
+  const horarioEntrega = briefCoerced.horario_entrega || "—";
+  const observacionEntrega = briefCoerced.observaciones_entrega || briefCoerced.observacion || "";
+  const repartidorNombre =
+    (proyecto as { responsable_tecnico?: { nombre?: string } }).responsable_tecnico?.nombre ?? "—";
+  const fechaPrometidaResumen =
+    proyecto.fecha_prometida != null && String(proyecto.fecha_prometida).trim() !== ""
+      ? formatFechaPyFull(String(proyecto.fecha_prometida))
+      : "—";
 
   const panelCls = "rounded-xl border border-slate-200 bg-slate-50 p-4 shadow-sm";
   const labelCls = "text-slate-500";
@@ -365,8 +394,12 @@ export default function ProyectoDetalleInner({
             {String(proyecto.titulo ?? "")}
           </h1>
           <p className="text-sm text-slate-500">
-            {(proyecto as { proyecto_tipo?: { nombre?: string } }).proyecto_tipo?.nombre ?? "—"} · Avance{" "}
-            {data.avance_pct ?? "—"}%
+            {(proyecto as { proyecto_tipo?: { nombre?: string } }).proyecto_tipo?.nombre ?? "—"}
+            {esPedido
+              ? montoVendido != null
+                ? ` · ${formatMontoPyg(montoVendido)}`
+                : ""
+              : ` · Avance ${data.avance_pct ?? "—"}%`}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -422,6 +455,105 @@ export default function ProyectoDetalleInner({
 
       <div className={variant === "modal" ? "min-h-0 flex-1 overflow-y-auto pr-1" : ""}>
         {tab === "resumen" ? (
+          esPedido ? (
+            <div className="grid gap-4 md:grid-cols-2">
+              {/* Productos del pedido (snapshot de la venta) */}
+              <div className={panelCls}>
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-sm font-semibold text-slate-700">Productos del pedido</h2>
+                  <span className="text-xs text-slate-500">
+                    {pedidoItems.length} {pedidoItems.length === 1 ? "ítem" : "ítems"}
+                  </span>
+                </div>
+                {pedidoItems.length > 0 ? (
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        <tr>
+                          <th className="pb-2 pr-2">Producto</th>
+                          <th className="px-2 pb-2 text-right">Cant.</th>
+                          <th className="px-2 pb-2 text-right">Precio</th>
+                          <th className="pb-2 pl-2 text-right">Subtotal</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {pedidoItems.map((it, i) => (
+                          <tr key={i} className="text-slate-700">
+                            <td className="py-2 pr-2">
+                              <span className="font-medium text-slate-900">
+                                {String(it.producto_nombre ?? "—")}
+                              </span>
+                              {it.sku ? (
+                                <span className="ml-1 text-xs text-slate-400">{String(it.sku)}</span>
+                              ) : null}
+                            </td>
+                            <td className="px-2 py-2 text-right tabular-nums">{String(it.cantidad ?? "—")}</td>
+                            <td className="px-2 py-2 text-right tabular-nums">{formatMontoPyg(it.precio_venta)}</td>
+                            <td className="py-2 pl-2 text-right font-medium tabular-nums text-slate-900">
+                              {formatMontoPyg(it.total_linea)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-slate-500">Sin productos registrados en este pedido.</p>
+                )}
+                <div className="mt-4 flex items-center justify-between border-t border-slate-200 pt-3">
+                  <span className="text-sm font-semibold text-slate-700">Total del pedido</span>
+                  <span className="text-base font-bold tabular-nums text-[#3F8E91]">
+                    {formatMontoPyg(montoVendido)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Entrega · para el repartidor */}
+              <div className={panelCls}>
+                <h2 className="text-sm font-semibold text-slate-700">Entrega · para el repartidor</h2>
+                <dl className="mt-4 space-y-3 text-sm">
+                  <div className="flex justify-between gap-3 border-b border-slate-200 pb-2">
+                    <dt className={labelCls}>Cliente</dt>
+                    <dd className="max-w-[60%] text-right text-slate-900">{clienteResumen}</dd>
+                  </div>
+                  <div className="flex justify-between gap-3 border-b border-slate-200 pb-2">
+                    <dt className={labelCls}>Teléfono</dt>
+                    <dd className="text-right text-slate-900">{telefonoEntrega}</dd>
+                  </div>
+                  <div className="flex justify-between gap-3 border-b border-slate-200 pb-2">
+                    <dt className={labelCls}>Dirección de entrega</dt>
+                    <dd className="max-w-[60%] text-right text-slate-900">{direccionEntrega}</dd>
+                  </div>
+                  <div className="flex justify-between gap-3 border-b border-slate-200 pb-2">
+                    <dt className={labelCls}>Referencia</dt>
+                    <dd className="max-w-[60%] text-right text-slate-900">{referenciaEntrega}</dd>
+                  </div>
+                  <div className="flex justify-between gap-3 border-b border-slate-200 pb-2">
+                    <dt className={labelCls}>Horario preferido</dt>
+                    <dd className="text-right text-slate-900">{horarioEntrega}</dd>
+                  </div>
+                  <div className="flex justify-between gap-3 border-b border-slate-200 pb-2">
+                    <dt className={labelCls}>Repartidor</dt>
+                    <dd className="text-right text-slate-900">{repartidorNombre}</dd>
+                  </div>
+                  <div className="flex justify-between gap-3 border-b border-slate-200 pb-2">
+                    <dt className={labelCls}>Fecha prometida</dt>
+                    <dd className="text-right text-slate-900">{fechaPrometidaResumen}</dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt className={labelCls}>Prioridad</dt>
+                    <dd className="text-right text-slate-900">{prioridadLabel(proyecto.prioridad)}</dd>
+                  </div>
+                  {observacionEntrega ? (
+                    <div className="border-t border-slate-200 pt-3">
+                      <dt className={`${labelCls} mb-1`}>Observación</dt>
+                      <dd className="text-slate-700">{observacionEntrega}</dd>
+                    </div>
+                  ) : null}
+                </dl>
+              </div>
+            </div>
+          ) : (
           <div className="grid gap-4 md:grid-cols-2">
             <div className={panelCls}>
               <h2 className="text-sm font-semibold text-slate-700">Resumen del proyecto</h2>
@@ -540,6 +672,7 @@ export default function ProyectoDetalleInner({
               </dl>
             </div>
           </div>
+          )
         ) : null}
 
         {tab === "datos" ? (
@@ -574,7 +707,7 @@ export default function ProyectoDetalleInner({
 
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block text-sm">
-                <span className={labelCls}>Técnico responsable</span>
+                <span className={labelCls}>{esPedido ? "Repartidor" : "Técnico responsable"}</span>
                 <select
                   className={inputCls}
                   value={responsableTecnicoId}
