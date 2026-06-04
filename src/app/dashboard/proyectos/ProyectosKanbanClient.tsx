@@ -265,8 +265,6 @@ export default function ProyectosKanbanClient() {
   const [filtroTipo, setFiltroTipo] = useState("");
   const [filtroRc, setFiltroRc] = useState("");
   const [filtroRt, setFiltroRt] = useState("");
-  const [tipoOpts, setTipoOpts] = useState<{ id: string; nombre: string }[]>([]);
-  const [userOpts, setUserOpts] = useState<{ id: string; nombre?: string }[]>([]);
   const [modalProjectId, setModalProjectId] = useState<string | null>(null);
 
   const sensors = useSensors(
@@ -284,25 +282,18 @@ export default function ProyectosKanbanClient() {
     if (filtroRc) sp.set("responsable_comercial_id", filtroRc);
     if (filtroRt) sp.set("responsable_tecnico_id", filtroRt);
 
-    const [rEst, rPr, rTipos, rUsers, rPrioridades] = await Promise.all([
+    // Críticos para pintar el board: estados (columnas) + proyectos (cards).
+    // Antes se pedían 5 endpoints en paralelo y el board esperaba al MÁS LENTO
+    // (~2.2s). Optimización: `tipos` y `empresa-activos` se removieron (sus
+    // resultados no se renderizaban en ningún lado) y `prioridades` se difiere
+    // (solo afecta el color/etiqueta de prioridad de las cards).
+    const [rEst, rPr] = await Promise.all([
       fetchWithSupabaseSession("/api/proyectos/estados", { cache: "no-store" }),
       fetchWithSupabaseSession(`/api/proyectos?${sp.toString()}`, { cache: "no-store" }),
-      fetchWithSupabaseSession("/api/proyectos/tipos", { cache: "no-store" }),
-      fetchWithSupabaseSession("/api/usuarios/empresa-activos", { cache: "no-store" }),
-      fetchWithSupabaseSession("/api/configuracion/proyectos/prioridades", { cache: "no-store" }),
     ]);
 
     const jEst = (await rEst.json().catch(() => ({}))) as { success?: boolean; data?: EstadoRow[]; error?: string };
     const jPr = (await rPr.json().catch(() => ({}))) as { success?: boolean; data?: ProyectoCard[]; error?: string };
-    const jTipos = (await rTipos.json().catch(() => ({}))) as {
-      success?: boolean;
-      data?: { id: string; nombre: string }[];
-    };
-    const jUsers = (await rUsers.json().catch(() => ({}))) as { usuarios?: { id: string; nombre?: string }[] };
-    const jPrioridades = (await rPrioridades.json().catch(() => ({}))) as {
-      success?: boolean;
-      data?: { prioridades?: PrioridadConfig[] };
-    };
 
     if (!rEst.ok || !jEst.success) {
       setErr(jEst.error ?? "No se pudieron cargar estados");
@@ -316,16 +307,22 @@ export default function ProyectosKanbanClient() {
     }
     setEstados(jEst.data ?? []);
     setProyectos(jPr.data ?? []);
+    setLoading(false); // el board ya puede renderizar (sin esperar config no crítica)
 
-    if (jTipos.success && jTipos.data) setTipoOpts(jTipos.data);
-    if (jUsers.usuarios) setUserOpts(jUsers.usuarios);
-    if (rPrioridades.ok && jPrioridades.success && jPrioridades.data?.prioridades) {
-      setPrioridadesConfig(jPrioridades.data.prioridades);
-    } else {
-      setPrioridadesConfig([]);
-    }
-
-    setLoading(false);
+    // No crítico: config de prioridades (solo el color/etiqueta de prioridad en
+    // las cards). Se difiere para no retrasar el board; hasta que llega, las
+    // cards usan su fallback de prioridad.
+    void fetchWithSupabaseSession("/api/configuracion/proyectos/prioridades", { cache: "no-store" })
+      .then(async (r) => {
+        const j = (await r.json().catch(() => ({}))) as {
+          success?: boolean;
+          data?: { prioridades?: PrioridadConfig[] };
+        };
+        if (r.ok && j.success && j.data?.prioridades) setPrioridadesConfig(j.data.prioridades);
+      })
+      .catch(() => {
+        /* sin config: las cards usan el fallback de prioridad */
+      });
   }, [q, filtroEstado, filtroTipo, filtroRc, filtroRt]);
 
   useEffect(() => {
