@@ -231,7 +231,7 @@ export async function POST(request: NextRequest) {
         referencia: null,
         // Atribución del movimiento (columna "Usuario" en Movimientos).
         created_by: ctx.auth.usuarioCatalogId ?? null,
-        usuario_nombre: ctx.auth.user?.email ?? null,
+        usuario_nombre: ctx.auth.usuarioNombre ?? ctx.auth.user?.email ?? null,
       });
       if (movIns.error) {
         console.error("[/api/productos POST] inventario_inicial", movIns.error.message);

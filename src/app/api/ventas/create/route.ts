@@ -201,6 +201,8 @@ export async function POST(request: NextRequest) {
       montoIvaDeclarado,
       totalDeclarado,
       pedidoCocina,
+      usuarioCatalogId: auth.usuarioCatalogId ?? null,
+      usuarioNombre: auth.usuarioNombre ?? auth.user?.email ?? null,
     });
 
     let sub = 0;

@@ -42,6 +42,9 @@ export interface CreateVentaPgParams {
   montoIvaDeclarado: number;
   totalDeclarado: number;
   pedidoCocina?: CreateVentaPedidoCocinaInput | null;
+  /** Atribución del movimiento de inventario (columna "Usuario"). */
+  usuarioCatalogId?: string | null;
+  usuarioNombre?: string | null;
 }
 
 function recalcTotals(items: CreateVentaItemInput[]) {
@@ -246,6 +249,8 @@ export async function createVentaTransaccionalPg(
         referencia: numeroControl,
         fecha: fechaIso,
         venta_id: ventaId,
+        created_by: params.usuarioCatalogId ?? null,
+        usuario_nombre: params.usuarioNombre ?? null,
       });
       if (mov.error) throw new Error(mov.error.message);
     }

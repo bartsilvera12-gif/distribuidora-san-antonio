@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
           ? parseInt(String(body.plazo_dias), 10) || null : null,
         nro_timbrado: String(body.nro_timbrado).trim().toUpperCase(),
         created_by: ctx.auth.usuarioCatalogId ?? null,
-        usuario_nombre: ctx.auth.user?.email ?? null,
+        usuario_nombre: ctx.auth.usuarioNombre ?? ctx.auth.user?.email ?? null,
       });
 
       return NextResponse.json(successResponse({
