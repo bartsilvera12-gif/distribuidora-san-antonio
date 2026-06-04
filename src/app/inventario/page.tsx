@@ -8,15 +8,16 @@ import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import ImportExcelButton from "@/components/ui/ImportExcelButton";
 import EdgeScrollArea from "@/components/ui/EdgeScrollArea";
 import PageHeader from "@/components/ui/PageHeader";
+import Badge, { type BadgeTone } from "@/components/ui/Badge";
 import { useIsAdmin } from "@/lib/auth/use-is-admin";
 
 const inputFilterClass =
   "border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none";
 
-const metodoBadge: Record<MetodoValuacion, string> = {
-  CPP: "bg-blue-100 text-blue-700",
-  FIFO: "bg-green-100 text-green-700",
-  LIFO: "bg-purple-100 text-purple-700",
+const metodoTone: Record<MetodoValuacion, BadgeTone> = {
+  CPP: "info",
+  FIFO: "success",
+  LIFO: "primary",
 };
 
 function formatGs(valor: number) {
@@ -456,8 +457,8 @@ export default function InventarioPage() {
                             const v = p.es_vendible !== false;
                             const i = p.es_insumo === true;
                             // Mixto/Insumo se siguen mostrando; Vendible queda oculto (redundante: ya hay tab).
-                            if (v && i) return <span className="inline-flex items-center rounded-full bg-purple-100 text-purple-700 text-[10px] font-medium px-2 py-0.5">Mixto</span>;
-                            if (i) return <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-medium px-2 py-0.5">Insumo</span>;
+                            if (v && i) return <Badge tone="primary">Mixto</Badge>;
+                            if (i) return <Badge tone="success">Insumo</Badge>;
                             return null;
                           })()}
                         </div>
@@ -474,9 +475,7 @@ export default function InventarioPage() {
                     <td className={`py-4 pr-4 text-center text-gray-500 ${tab === "reventa" ? "hidden md:table-cell" : "hidden"}`}>{p.stock_minimo}</td>
                     <td className="py-4 pr-4 text-gray-600 hidden lg:table-cell">{p.unidad_medida}</td>
                     <td className="py-4 pr-4 hidden lg:table-cell">
-                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${metodoBadge[p.metodo_valuacion]}`}>
-                        {p.metodo_valuacion}
-                      </span>
+                      <Badge tone={metodoTone[p.metodo_valuacion]}>{p.metodo_valuacion}</Badge>
                     </td>
                     <td className={`py-4 pr-6 text-right tabular-nums font-semibold hidden md:table-cell ${margenColor(margen)}`}>
                       {margen.toFixed(2)}%

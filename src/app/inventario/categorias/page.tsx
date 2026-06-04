@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import ImportExcelButton from "@/components/ui/ImportExcelButton";
 import PageHeader from "@/components/ui/PageHeader";
+import Badge from "@/components/ui/Badge";
 import { useIsAdmin } from "@/lib/auth/use-is-admin";
 
 interface Categoria {
@@ -195,16 +196,14 @@ export default function CategoriasProductosPage() {
                     <td className="px-4 py-2 text-gray-500">{c.codigo ?? "—"}</td>
                     <td className="px-4 py-2 text-gray-500">{parent?.nombre ?? "—"}</td>
                     <td className="px-4 py-2">
-                      {c.activo ? (
-                        <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">Activo</span>
-                      ) : (
-                        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">Inactivo</span>
-                      )}
+                      <Badge tone={c.activo ? "success" : "neutral"}>
+                        {c.activo ? "Activo" : "Inactivo"}
+                      </Badge>
                     </td>
                     <td className="px-4 py-2 text-right">
                       <button
                         onClick={() => toggleActivo(c)}
-                        className="text-xs text-sky-700 hover:text-sky-900 underline"
+                        className="text-xs font-medium text-[#3F8E91] hover:text-[#2F6F72] underline"
                       >
                         {c.activo ? "Desactivar" : "Activar"}
                       </button>

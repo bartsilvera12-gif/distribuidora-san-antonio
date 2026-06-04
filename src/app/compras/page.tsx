@@ -8,6 +8,7 @@ import { FancySelect } from "@/components/ui/FancySelect";
 import MobileFab from "@/components/ui/MobileFab";
 import PageHeader from "@/components/ui/PageHeader";
 import Button from "@/components/ui/Button";
+import Badge from "@/components/ui/Badge";
 import type { Compra, TipoPago } from "@/lib/compras/types";
 
 const inputFilterClass =
@@ -31,10 +32,6 @@ function formatFecha(iso: string) {
   }
 }
 
-const tipoPagoBadge: Record<TipoPago, string> = {
-  contado: "bg-blue-50 text-blue-700",
-  credito: "bg-orange-50 text-orange-700",
-};
 
 const ivaLabel: Record<string, string> = {
   exenta: "Exenta",
@@ -187,9 +184,9 @@ export default function ComprasPage() {
                       {c.margen_venta != null ? `${c.margen_venta.toFixed(1)}%` : "—"}
                     </td>
                     <td className="py-4 pr-4 hidden md:table-cell">
-                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${c.tipo_pago ? tipoPagoBadge[c.tipo_pago] : "bg-gray-100 text-gray-500"}`}>
+                      <Badge tone={c.tipo_pago === "credito" ? "warning" : "neutral"}>
                         {c.tipo_pago === "contado" ? "Contado" : c.tipo_pago === "credito" ? `Crédito ${c.plazo_dias ?? ""}d` : "—"}
-                      </span>
+                      </Badge>
                     </td>
                     <td className="py-4 text-gray-500 text-xs tabular-nums">
                       {formatFecha(c.fecha)}

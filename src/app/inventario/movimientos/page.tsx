@@ -4,13 +4,9 @@ import { useEffect, useState } from "react";
 import { getMovimientos } from "@/lib/inventario/storage";
 import PageHeader from "@/components/ui/PageHeader";
 import Button from "@/components/ui/Button";
+import Badge from "@/components/ui/Badge";
 import type { MovimientoInventario, TipoMovimiento, OrigenMovimiento } from "@/lib/inventario/types";
 
-const tipoBadge: Record<TipoMovimiento, string> = {
-  ENTRADA: "bg-green-100 text-green-700",
-  SALIDA: "bg-red-100 text-red-700",
-  AJUSTE: "bg-yellow-100 text-yellow-700",
-};
 
 const origenLabel: Record<OrigenMovimiento, string> = {
   compra: "Compra",
@@ -222,9 +218,9 @@ export default function MovimientosPage() {
                       <td className="py-4 pr-4 font-medium text-gray-800">{m.producto_nombre}</td>
                       <td className="py-4 pr-4 text-gray-500 font-mono hidden md:table-cell">{m.producto_sku}</td>
                       <td className="py-4 pr-4">
-                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${tipoBadge[m.tipo]}`}>
+                        <Badge tone={m.tipo === "ENTRADA" ? "success" : m.tipo === "SALIDA" ? "danger" : "warning"}>
                           {m.tipo}
-                        </span>
+                        </Badge>
                       </td>
                       <td className={`py-4 pr-4 text-right font-semibold tabular-nums ${cantidadColor}`}>
                         {signo}{Math.abs(m.cantidad)}
