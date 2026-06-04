@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import MontoInput from "@/components/ui/MontoInput";
+import PageHeader from "@/components/ui/PageHeader";
 import { getProducto, productoExiste, updateProducto } from "@/lib/inventario/storage";
 import type { MetodoValuacion } from "@/lib/inventario/types";
 import ProductImageUploader from "@/components/inventario/ProductImageUploader";
@@ -335,7 +336,12 @@ export default function EditarProductoPage() {
   if (cargando) {
     return (
       <div className="space-y-8">
-        <h1 className="text-3xl font-bold text-gray-800">Editar producto</h1>
+        <PageHeader
+          eyebrow="San Antonio · Stock"
+          title="Editar producto"
+          backHref="/inventario"
+          backLabel="Inventario"
+        />
         <p className="text-gray-500 animate-pulse">Cargando…</p>
       </div>
     );
@@ -347,10 +353,13 @@ export default function EditarProductoPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-800">Editar producto</h1>
-        <p className="text-gray-600">Modifica los datos del producto</p>
-      </div>
+      <PageHeader
+        eyebrow="San Antonio · Stock"
+        title="Editar producto"
+        description="Modifica los datos del producto"
+        backHref="/inventario"
+        backLabel="Inventario"
+      />
 
       <div className="bg-white rounded-xl border border-amber-200 shadow-sm p-5 max-w-5xl">
         <div className="flex items-start gap-4">

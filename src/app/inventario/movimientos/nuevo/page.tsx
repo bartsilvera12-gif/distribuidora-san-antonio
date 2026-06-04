@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import MontoInput from "@/components/ui/MontoInput";
+import PageHeader from "@/components/ui/PageHeader";
 import { getProductos, saveMovimiento } from "@/lib/inventario/storage";
 import type { Producto, TipoMovimiento, OrigenMovimiento } from "@/lib/inventario/types";
 
@@ -83,12 +84,15 @@ export default function NuevoMovimientoPage() {
   return (
     <div className="space-y-8">
 
-      <div>
-        <h1 className="text-3xl font-bold text-gray-800">Nuevo movimiento</h1>
-        <p className="text-gray-600">Registra una entrada, salida o ajuste de stock</p>
-      </div>
+      <PageHeader
+        eyebrow="San Antonio · Stock"
+        title="Nuevo movimiento"
+        description="Registra una entrada, salida o ajuste de stock"
+        backHref="/inventario/movimientos"
+        backLabel="Movimientos"
+      />
 
-      <div className="bg-white rounded-xl shadow p-6 max-w-2xl">
+      <div className="bg-white rounded-xl shadow-sm ring-1 ring-[#4FAEB2]/10 border border-slate-200 p-6 max-w-2xl">
         <form className="space-y-6" onSubmit={handleSubmit}>
 
           {/* Producto */}

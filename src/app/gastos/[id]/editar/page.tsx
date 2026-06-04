@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getGastos } from "@/lib/gastos/actions";
 import GastoForm from "@/components/gastos/GastoForm";
+import PageHeader from "@/components/ui/PageHeader";
 import type { Gasto } from "@/lib/gastos/actions";
 
 export default function EditarGastoPage() {
@@ -57,20 +58,13 @@ export default function EditarGastoPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center gap-2 text-sm text-gray-400">
-        <Link href="/gastos" className="hover:text-gray-700 transition-colors">
-          Gastos
-        </Link>
-        <span>/</span>
-        <span className="text-gray-700 font-medium">Editar</span>
-      </div>
-
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Editar gasto</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          {gasto.categoria || gasto.descripcion || "Gasto"}
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="San Antonio · Egresos"
+        title="Editar gasto"
+        description={gasto.categoria || gasto.descripcion || "Gasto"}
+        backHref="/gastos"
+        backLabel="Gastos"
+      />
 
       <GastoForm gasto={gasto} />
     </div>
