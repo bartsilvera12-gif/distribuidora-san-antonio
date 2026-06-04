@@ -225,7 +225,7 @@ export default function InventarioPage() {
               style={{ boxShadow: "0 0 0 3px rgba(79, 174, 178, 0.18)" }}
             />
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#4FAEB2]">
-              Zentra · Stock
+              San Antonio · Stock
             </p>
           </div>
           <h1 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Inventario</h1>
@@ -510,6 +510,21 @@ export default function InventarioPage() {
                   </tr>
                 );
               })}
+              {!cargandoLista && productos.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="py-12 text-center text-sm text-slate-400">
+                    {todos.length === 0
+                      ? "No hay productos registrados todavía. Creá uno con “Nuevo producto”."
+                      : hayFiltrosActivos
+                        ? "Ningún producto coincide con los filtros."
+                        : tab === "menu"
+                          ? "No hay productos de menú. Creá uno con “Nuevo producto” y elegí el tipo Menú."
+                          : tab === "materia"
+                            ? "No hay materia prima / insumos. Creá uno con “Nuevo producto” y elegí el tipo Materia prima."
+                            : "No hay productos de reventa. Creá uno con “Nuevo producto”."}
+                  </td>
+                </tr>
+              )}
             </tbody>
 
           </table>

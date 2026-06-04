@@ -408,7 +408,7 @@ export default function ClientesPage() {
               style={{ boxShadow: "0 0 0 3px rgba(79, 174, 178, 0.18)" }}
             />
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#4FAEB2]">
-              Zentra · Base
+              San Antonio · Base
             </p>
           </div>
           <h1 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Clientes</h1>

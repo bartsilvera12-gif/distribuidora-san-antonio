@@ -464,25 +464,35 @@ export default function ProyectoDetalleInner({
                     </div>
                   </>
                 ) : (
+                  /* Campos de brief web (marca/dominio/tipo de web): solo se muestran
+                     si tienen valor. En verticales no-web (p. ej. un pedido de
+                     distribución creado desde una venta) están vacíos y antes
+                     ensuciaban el resumen con "Nombre de la marca: —", etc. */
                   <>
-                    <div className="flex justify-between gap-3 border-b border-slate-700/50 pb-2">
-                      <dt className={labelCls}>Nombre de la marca</dt>
-                      <dd className="max-w-[55%] text-right text-slate-100">
-                        {(briefCoerced.marca || "").trim() || "—"}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-3 border-b border-slate-700/50 pb-2">
-                      <dt className={labelCls}>Dominio a usar</dt>
-                      <dd className="max-w-[55%] break-all text-right text-slate-100">
-                        {(briefCoerced.dominio_usar || "").trim() || "—"}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-3 border-b border-slate-700/50 pb-2">
-                      <dt className={labelCls}>Tipo de web</dt>
-                      <dd className="max-w-[55%] text-right text-slate-100">
-                        {(briefCoerced.tipo_web || "").trim() || "—"}
-                      </dd>
-                    </div>
+                    {(briefCoerced.marca || "").trim() ? (
+                      <div className="flex justify-between gap-3 border-b border-slate-700/50 pb-2">
+                        <dt className={labelCls}>Nombre de la marca</dt>
+                        <dd className="max-w-[55%] text-right text-slate-100">
+                          {(briefCoerced.marca || "").trim()}
+                        </dd>
+                      </div>
+                    ) : null}
+                    {(briefCoerced.dominio_usar || "").trim() ? (
+                      <div className="flex justify-between gap-3 border-b border-slate-700/50 pb-2">
+                        <dt className={labelCls}>Dominio a usar</dt>
+                        <dd className="max-w-[55%] break-all text-right text-slate-100">
+                          {(briefCoerced.dominio_usar || "").trim()}
+                        </dd>
+                      </div>
+                    ) : null}
+                    {(briefCoerced.tipo_web || "").trim() ? (
+                      <div className="flex justify-between gap-3 border-b border-slate-700/50 pb-2">
+                        <dt className={labelCls}>Tipo de web</dt>
+                        <dd className="max-w-[55%] text-right text-slate-100">
+                          {(briefCoerced.tipo_web || "").trim()}
+                        </dd>
+                      </div>
+                    ) : null}
                   </>
                 )}
                 <div className="flex justify-between gap-3">

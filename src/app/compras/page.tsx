@@ -79,7 +79,7 @@ export default function ComprasPage() {
             style={{ boxShadow: "0 0 0 3px rgba(79, 174, 178, 0.18)" }}
           />
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#4FAEB2]">
-            Zentra · Adquisiciones
+            San Antonio · Adquisiciones
           </p>
         </div>
         <h1 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Compras</h1>

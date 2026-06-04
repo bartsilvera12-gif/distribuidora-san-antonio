@@ -56,7 +56,7 @@ export default function RecetasListPage() {
               style={{ boxShadow: "0 0 0 3px rgba(79, 174, 178, 0.18)" }}
             />
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#4FAEB2]">
-              Zentra · Cocina
+              San Antonio · Cocina
             </p>
           </div>
           <div className="mt-1 flex items-center gap-3">

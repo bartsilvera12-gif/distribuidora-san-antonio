@@ -424,7 +424,15 @@ export async function getDashboardData(): Promise<DashboardData> {
       fecha: toCalendarDateStr(r.fecha as string),
     }));
 
-    productos = (d.productos ?? []).map((r: Record<string, unknown>) => ({
+    // Excluir productos dados de baja lógica (activo=false). El endpoint
+    // tenant-tables no filtra `activo` (lo necesita crudo para otros usos),
+    // pero un producto inactivo NO debe contar en valuación de inventario,
+    // stock total ni "top productos" del dashboard — si no, un producto
+    // borrado sigue inflando los KPIs. Misma lógica que /api/productos
+    // (`.eq("activo", true)`) y que el filtro de `clientes` (deleted_at) arriba.
+    productos = (d.productos ?? [])
+      .filter((r) => (r as Record<string, unknown>).activo !== false)
+      .map((r: Record<string, unknown>) => ({
       id: r.id as string,
       nombre: (r.nombre as string) ?? "",
       sku: (r.sku as string) ?? "",

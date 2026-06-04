@@ -43,6 +43,7 @@ export default function Header() {
   const router = useRouter();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [usuario, setUsuario] = useState<HeaderUsuario | null>(null);
+  const [cargado, setCargado] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { mobileSidebarOpen, setMobileSidebarOpen } = useBoot();
 
@@ -66,6 +67,8 @@ export default function Header() {
         if (alive) setUsuario(json.usuario ?? null);
       } catch {
         if (alive) setUsuario(null);
+      } finally {
+        if (alive) setCargado(true);
       }
     }
     void loadUsuario();
@@ -133,8 +136,18 @@ export default function Header() {
               />
             </div>
             <div className="hidden text-left sm:block">
-              <p className="max-w-[180px] truncate text-sm font-semibold text-slate-900">{displayName}</p>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#3F8E91]">{displayRole}</p>
+              {cargado ? (
+                <>
+                  <p className="max-w-[180px] truncate text-sm font-semibold text-slate-900">{displayName}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#3F8E91]">{displayRole}</p>
+                </>
+              ) : (
+                /* Placeholder mientras resuelve /api/usuarios/me — evita el flash "Usuario / USUARIO". */
+                <div aria-hidden="true" className="space-y-1.5 py-0.5">
+                  <div className="h-3 w-28 animate-pulse rounded bg-slate-200" />
+                  <div className="h-2 w-16 animate-pulse rounded bg-slate-100" />
+                </div>
+              )}
             </div>
             <ChevronDown
               className={`h-4 w-4 text-slate-400 transition-transform ${userMenuOpen ? "rotate-180" : ""}`}

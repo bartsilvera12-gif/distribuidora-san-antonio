@@ -37,6 +37,7 @@ import {
 } from "@/lib/fechas/calendario";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { etiquetaVisibleTipoServicio } from "@/lib/clientes/tipo-servicio-catalogo";
+import { BRAND } from "@/lib/brand/brand";
 import { useMapNombreTipoServicioCatalogo } from "@/lib/clientes/use-map-nombre-tipo-servicio";
 import { getEtapas, getEtapaClasses, normalizeEtapaCodigo, type EtapaCrm } from "@/lib/crm/etapas";
 import {
@@ -81,7 +82,7 @@ function ZentraMark({ className = "" }: { className?: string }) {
       className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#4FAEB2]/30 bg-white shadow-sm ring-1 ring-[#4FAEB2]/10 ${className}`}
     >
       <span className="text-xl font-extrabold leading-none tracking-tight" style={{ color: Z.accent }}>
-        Z
+        {BRAND.initial}
       </span>
     </div>
   );
@@ -2193,13 +2194,13 @@ export default function DashboardPage() {
           <ZentraMark />
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em]" style={{ color: Z.accent }}>
-              Zentra
+              {BRAND.shortName}
             </p>
             <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl" style={{ color: Z.text }}>
               Dashboard
             </h1>
             <p className="mt-1 max-w-md text-sm leading-relaxed" style={{ color: Z.muted }}>
-              Neura ERP · Vista {nivel === "supervisor" ? "de tu área" : "global"} · período alineado al filtro
+              {BRAND.name} · Vista {nivel === "supervisor" ? "de tu área" : "global"} · período alineado al filtro
             </p>
           </div>
         </div>
