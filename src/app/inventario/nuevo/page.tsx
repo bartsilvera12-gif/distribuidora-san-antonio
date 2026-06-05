@@ -35,8 +35,10 @@ export default function NuevoProductoPage() {
     sku: "",
     codigo_barras: "",
     costo_promedio: "",
-    markup: "",
-    precio_venta: "",
+    precio_minorista: "",
+    markup_minorista: "",
+    precio_mayorista: "",
+    markup_mayorista: "",
     stock_actual: "",
     stock_minimo: "",
     unidad_medida: "",
@@ -183,62 +185,83 @@ export default function NuevoProductoPage() {
   }
 
   /**
-   * Al cambiar costo: NO movemos el precio (es lo que el cliente paga).
-   * Recalculamos markup a partir del gap precio-costo cuando ambos son válidos.
+   * Al cambiar el costo: NO movemos los precios (son lo que cobra el local).
+   * Recalculamos AMBOS markups (minorista y mayorista) según el gap precio-costo.
    */
   function handleCostoChange(costo: number) {
     setErrorDuplicado(null);
-    const precio = parseFloat(form.precio_venta);
-
-    if (!isNaN(costo) && costo > 0 && !isNaN(precio) && precio > 0) {
-      const nuevoMarkup = ((precio - costo) / costo) * 100;
-      setForm((prev) => ({
-        ...prev,
-        costo_promedio: String(costo),
-        markup: nuevoMarkup.toFixed(2),
-      }));
-    } else {
-      setForm((prev) => ({ ...prev, costo_promedio: String(costo) }));
-    }
+    const min = parseFloat(form.precio_minorista);
+    const may = parseFloat(form.precio_mayorista);
+    setForm((prev) => ({
+      ...prev,
+      costo_promedio: String(costo),
+      markup_minorista:
+        !isNaN(costo) && costo > 0 && !isNaN(min) && min > 0
+          ? (((min - costo) / costo) * 100).toFixed(2)
+          : prev.markup_minorista,
+      markup_mayorista:
+        !isNaN(costo) && costo > 0 && !isNaN(may) && may > 0
+          ? (((may - costo) / costo) * 100).toFixed(2)
+          : prev.markup_mayorista,
+    }));
   }
 
-  /**
-   * Al cambiar markup → recalcula precio_venta (permite markup negativo = venta a pérdida)
-   */
-  function handleMarkupChange(e: React.ChangeEvent<HTMLInputElement>) {
+  /** Cambia precio minorista → recalcula markup minorista. */
+  function handleMinoristaChange(precio: number) {
+    setErrorDuplicado(null);
+    const costo = parseFloat(form.costo_promedio);
+    setForm((prev) => ({
+      ...prev,
+      precio_minorista: String(precio),
+      markup_minorista:
+        !isNaN(precio) && !isNaN(costo) && costo > 0
+          ? (((precio - costo) / costo) * 100).toFixed(2)
+          : prev.markup_minorista,
+    }));
+  }
+
+  /** Cambia markup minorista → recalcula precio minorista (admite negativo). */
+  function handleMarkupMinoristaChange(e: React.ChangeEvent<HTMLInputElement>) {
     setErrorDuplicado(null);
     const markup = parseFloat(e.target.value);
     const costo = parseFloat(form.costo_promedio);
-
-    if (!isNaN(markup) && !isNaN(costo) && costo > 0) {
-      const nuevoPrecio = costo * (1 + markup / 100);
-      setForm((prev) => ({
-        ...prev,
-        markup: e.target.value,
-        precio_venta: nuevoPrecio.toFixed(0),
-      }));
-    } else {
-      setForm((prev) => ({ ...prev, markup: e.target.value }));
-    }
+    setForm((prev) => ({
+      ...prev,
+      markup_minorista: e.target.value,
+      precio_minorista:
+        !isNaN(markup) && !isNaN(costo) && costo > 0
+          ? (costo * (1 + markup / 100)).toFixed(0)
+          : prev.precio_minorista,
+    }));
   }
 
-  /**
-   * Al cambiar precio → recalcula markup (puede resultar negativo si precio < costo)
-   */
-  function handlePrecioChange(precio: number) {
+  /** Cambia precio mayorista → recalcula markup mayorista. */
+  function handleMayoristaChange(precio: number) {
     setErrorDuplicado(null);
     const costo = parseFloat(form.costo_promedio);
+    setForm((prev) => ({
+      ...prev,
+      precio_mayorista: String(precio),
+      markup_mayorista:
+        !isNaN(precio) && !isNaN(costo) && costo > 0
+          ? (((precio - costo) / costo) * 100).toFixed(2)
+          : prev.markup_mayorista,
+    }));
+  }
 
-    if (!isNaN(precio) && !isNaN(costo) && costo > 0) {
-      const nuevoMarkup = ((precio - costo) / costo) * 100;
-      setForm((prev) => ({
-        ...prev,
-        precio_venta: String(precio),
-        markup: nuevoMarkup.toFixed(2),
-      }));
-    } else {
-      setForm((prev) => ({ ...prev, precio_venta: String(precio) }));
-    }
+  /** Cambia markup mayorista → recalcula precio mayorista (admite negativo). */
+  function handleMarkupMayoristaChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setErrorDuplicado(null);
+    const markup = parseFloat(e.target.value);
+    const costo = parseFloat(form.costo_promedio);
+    setForm((prev) => ({
+      ...prev,
+      markup_mayorista: e.target.value,
+      precio_mayorista:
+        !isNaN(markup) && !isNaN(costo) && costo > 0
+          ? (costo * (1 + markup / 100)).toFixed(0)
+          : prev.precio_mayorista,
+    }));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -302,12 +325,18 @@ export default function NuevoProductoPage() {
 
       let guardado;
       try {
+        const precioMinorista = parseFloat(form.precio_minorista) || 0;
+        // Mayorista cae a minorista si quedó vacío (nunca 0 accidental).
+        const precioMayorista = parseFloat(form.precio_mayorista) || precioMinorista;
         guardado = await saveProducto({
           nombre: form.nombre.trim().toUpperCase(),
           descripcion: form.descripcion.trim() || null,
           sku: form.sku.trim().toUpperCase(),
           costo_promedio: parseFloat(form.costo_promedio) || 0,
-          precio_venta: parseFloat(form.precio_venta) || 0,
+          precio_minorista: precioMinorista,
+          precio_mayorista: precioMayorista,
+          // Espejo de minorista por compatibilidad (el server también lo fuerza).
+          precio_venta: precioMinorista,
           stock_actual: parseInt(form.stock_actual) || 0,
           stock_minimo: parseInt(form.stock_minimo) || 0,
           unidad_medida: form.unidad_medida.trim().toUpperCase(),
@@ -372,9 +401,9 @@ export default function NuevoProductoPage() {
     }
   }
 
-  // ── Cálculos en tiempo real ──────────────────────────────────────────────────
+  // ── Cálculos en tiempo real (sobre el precio minorista) ──────────────────────
   const costo = parseFloat(form.costo_promedio);
-  const precio = parseFloat(form.precio_venta);
+  const precio = parseFloat(form.precio_minorista);
   const tieneAmbos = !isNaN(costo) && !isNaN(precio) && costo > 0 && precio > 0;
   const markupCalc = tieneAmbos ? ((precio - costo) / costo) * 100 : null;
   const margenVentaCalc = tieneAmbos ? ((precio - costo) / precio) * 100 : null;
@@ -655,57 +684,94 @@ export default function NuevoProductoPage() {
             </div>
           </div>
 
-          {/* Costo + Markup + Precio — bloque reactivo */}
+          {/* Precios — costo + minorista/mayorista con markups reactivos */}
           <div>
             <p className="text-xs text-gray-400 mb-3 uppercase tracking-wide font-semibold">
-              Precios — los tres campos son reactivos entre sí
+              Precios
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
 
-              <div>
-                <label className={labelClass}>Costo promedio (Gs.)</label>
-                <MontoInput
-                  value={form.costo_promedio}
-                  onChange={handleCostoChange}
-                  placeholder="Ej: 52000"
-                  className={inputClass}
-                  decimals={false}
-                  required
-                />
-              </div>
-
-              <div>
-                <label className={labelClass}>Markup s/costo (%)</label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    name="markup"
-                    value={form.markup}
-                    onChange={handleMarkupChange}
-                    placeholder="Ej: 50.00"
-                    className={`${inputClass} pr-8`}
-                    step="0.01"
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">
-                    %
-                  </span>
-                </div>
-                <p className="mt-1.5 text-xs text-gray-400">(precio − costo) / costo</p>
-              </div>
-
-              <div className={showPrecioVenta ? "" : "hidden"}>
-                <label className={labelClass}>Precio de venta (Gs.)</label>
-                <MontoInput
-                  value={form.precio_venta}
-                  onChange={handlePrecioChange}
-                  placeholder="Ej: 78000"
-                  className={inputClass}
-                  decimals={false}
-                  required={showPrecioVenta}
-                />
-              </div>
-
+            {/* Costo promedio */}
+            <div className="sm:max-w-xs">
+              <label className={labelClass}>Costo promedio (Gs.)</label>
+              <MontoInput
+                value={form.costo_promedio}
+                onChange={handleCostoChange}
+                placeholder="Ej: 52000"
+                className={inputClass}
+                decimals={false}
+                required
+              />
             </div>
+
+            {showPrecioVenta && (
+              <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
+                {/* Minorista */}
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <p className="text-xs font-semibold text-slate-700 mb-3">Minorista (público)</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className={labelClass}>Precio (Gs.)</label>
+                      <MontoInput
+                        value={form.precio_minorista}
+                        onChange={handleMinoristaChange}
+                        placeholder="Ej: 78000"
+                        className={inputClass}
+                        decimals={false}
+                        required={showPrecioVenta}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Markup (%)</label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          value={form.markup_minorista}
+                          onChange={handleMarkupMinoristaChange}
+                          placeholder="Ej: 50"
+                          className={`${inputClass} pr-8`}
+                          step="0.01"
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">%</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Mayorista */}
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <p className="text-xs font-semibold text-slate-700 mb-3">
+                    Mayorista <span className="font-normal text-gray-400">(opcional)</span>
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className={labelClass}>Precio (Gs.)</label>
+                      <MontoInput
+                        value={form.precio_mayorista}
+                        onChange={handleMayoristaChange}
+                        placeholder="Ej: 70000"
+                        className={inputClass}
+                        decimals={false}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Markup (%)</label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          value={form.markup_mayorista}
+                          onChange={handleMarkupMayoristaChange}
+                          placeholder="Ej: 35"
+                          className={`${inputClass} pr-8`}
+                          step="0.01"
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">%</span>
+                      </div>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-gray-400">Si lo dejás vacío, se usa el minorista.</p>
+                </div>
+              </div>
+            )}
 
             {/* Indicadores de rentabilidad en tiempo real */}
             {tieneAmbos && markupCalc !== null && margenVentaCalc !== null && (

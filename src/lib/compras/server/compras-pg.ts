@@ -44,6 +44,11 @@ export interface CompraRow {
   updated_at: string;
   created_by: string | null;
   usuario_nombre: string | null;
+  factura_bucket: string | null;
+  factura_path: string | null;
+  factura_nombre_original: string | null;
+  factura_mime_type: string | null;
+  items_count?: number;
 }
 
 const COLS = `
@@ -51,7 +56,8 @@ const COLS = `
   cantidad, moneda, tipo_cambio, costo_unitario_original, costo_unitario,
   iva_tipo, subtotal, monto_iva, total, precio_venta, margen_venta,
   tipo_pago, plazo_dias, nro_timbrado, numero_control, estado, fecha,
-  created_at, updated_at, created_by, usuario_nombre
+  created_at, updated_at, created_by, usuario_nombre,
+  factura_bucket, factura_path, factura_nombre_original, factura_mime_type
 `;
 
 export interface InsertCompraInput {
@@ -83,8 +89,16 @@ export async function listCompras(
 ): Promise<CompraRow[]> {
   const schema = assertAllowedChatDataSchema(schemaRaw);
   const t = quoteSchemaTable(schema, "compras");
+  const tItems = quoteSchemaTable(schema, "compras_items");
+  // items_count permite distinguir compras multiproducto (>1) de las legacy
+  // mono-producto (0, se leen por los campos inline de `compras`).
+  const colsPrefixed = COLS.replace(/\s+/g, " ").trim().split(",").map((c) => `c.${c.trim()}`).join(", ");
   const { rows } = await pool().query<CompraRow>(
-    `SELECT ${COLS} FROM ${t} WHERE empresa_id = $1::uuid ORDER BY fecha DESC LIMIT 500`,
+    `SELECT ${colsPrefixed},
+            (SELECT count(*) FROM ${tItems} ci WHERE ci.compra_id = c.id)::int AS items_count
+       FROM ${t} c
+      WHERE c.empresa_id = $1::uuid
+      ORDER BY c.fecha DESC LIMIT 500`,
     [empresaId]
   );
   return rows;
@@ -116,15 +130,65 @@ export interface CompraResult {
   movimiento_warning: string | null;
 }
 
-export async function insertCompraConImpacto(
+/** Una línea de detalle para insertar en compras_items. */
+export interface CompraItemInput {
+  producto_id: string;
+  producto_nombre: string;
+  sku: string;
+  cantidad: number;
+  costo_unitario: number;            // PYG
+  costo_unitario_original: number;   // moneda elegida
+  iva_tipo: string;                  // 'exenta' | '5' | '10'
+  subtotal: number;
+  monto_iva: number;
+  total_linea: number;
+}
+
+/** Cabecera de compra + N líneas (multiproducto). */
+export interface InsertCompraMultiInput {
+  proveedor_id: string;
+  proveedor_nombre: string;
+  moneda: string;
+  tipo_cambio: number;
+  tipo_pago: string;
+  plazo_dias: number | null;
+  nro_timbrado: string;
+  created_by: string | null;
+  usuario_nombre: string | null;
+  items: CompraItemInput[];
+}
+
+/**
+ * Crea una compra multiproducto en una transacción:
+ *  1) cabecera en `compras`: snapshot del PRIMER ítem en los campos inline
+ *     NOT NULL; totales (subtotal/monto_iva/total) = SUMA de las líneas;
+ *     precio_venta = snapshot del precio actual del primer producto (campo
+ *     NOT NULL, informativo — NO se reescribe al producto).
+ *  2) cada línea → `compras_items`.
+ *  3) por línea → movimiento ENTRADA + stock += cantidad + costo_promedio = costo_unitario.
+ *
+ * Decisión Fase 3: compras NO toca el precio de venta del producto
+ * (se gestiona en Inventario). Solo stock y costo_promedio por línea.
+ */
+export async function insertCompraMultiConImpacto(
   schemaRaw: string,
   empresaId: string,
-  d: InsertCompraInput
+  d: InsertCompraMultiInput
 ): Promise<CompraResult> {
   const schema = assertAllowedChatDataSchema(schemaRaw);
   const tC = quoteSchemaTable(schema, "compras");
+  const tCI = quoteSchemaTable(schema, "compras_items");
   const tM = quoteSchemaTable(schema, "movimientos_inventario");
   const tP = quoteSchemaTable(schema, "productos");
+
+  const items = d.items;
+  if (!items.length) throw new Error("La compra debe tener al menos una línea.");
+
+  // Totales agregados = suma de las líneas
+  const subtotal = items.reduce((s, it) => s + it.subtotal, 0);
+  const montoIva = items.reduce((s, it) => s + it.monto_iva, 0);
+  const total = items.reduce((s, it) => s + it.total_linea, 0);
+  const first = items[0];
 
   const client = await pool().connect();
   let movimientoId: string | null = null;
@@ -133,6 +197,14 @@ export async function insertCompraConImpacto(
     await client.query("BEGIN");
 
     const numero = await nextNumeroControl(client, schema, empresaId);
+
+    // precio_venta de cabecera = snapshot del precio actual del primer producto
+    // (NOT NULL, solo informativo; NO se reescribe al producto).
+    const pvQ = await client.query<{ precio_venta: string | number }>(
+      `SELECT precio_venta FROM ${tP} WHERE id = $1::uuid AND empresa_id = $2::uuid`,
+      [first.producto_id, empresaId]
+    );
+    const precioVentaSnapshot = Number(pvQ.rows[0]?.precio_venta ?? 0) || 0;
 
     const { rows: compraRows } = await client.query<CompraRow>(
       `INSERT INTO ${tC} (
@@ -153,19 +225,19 @@ export async function insertCompraConImpacto(
         empresaId,
         d.proveedor_id,
         d.proveedor_nombre,
-        d.producto_id,
-        d.producto_nombre,
-        d.cantidad,
+        first.producto_id,
+        first.producto_nombre,
+        first.cantidad,
         d.moneda,
         d.tipo_cambio,
-        d.costo_unitario_original,
-        d.costo_unitario,
-        d.iva_tipo,
-        d.subtotal,
-        d.monto_iva,
-        d.total,
-        d.precio_venta,
-        d.margen_venta,
+        first.costo_unitario_original,
+        first.costo_unitario,
+        first.iva_tipo,
+        subtotal,
+        montoIva,
+        total,
+        precioVentaSnapshot,
+        null, // margen_venta: no aplica (compras no gestiona precio de venta)
         d.tipo_pago,
         d.plazo_dias,
         d.nro_timbrado,
@@ -175,54 +247,66 @@ export async function insertCompraConImpacto(
       ]
     );
     const compra = compraRows[0];
+    const compraId = compra.id;
 
-    // Movimiento ENTRADA (origen=compra). Best-effort: si falla, la compra
-    // queda registrada pero anunciamos warning.
-    try {
-      const { rows: movRows } = await client.query<{ id: string }>(
-        `INSERT INTO ${tM} (
-           empresa_id, producto_id, producto_nombre, producto_sku,
-           tipo, cantidad, costo_unitario, origen, referencia, fecha,
-           created_by, usuario_nombre
-         )
-         SELECT $1::uuid, $2::uuid, $3, COALESCE(p.sku, ''),
-                'ENTRADA', $4::numeric, $5::numeric, 'compra', $6, now(),
-                $7::uuid, $8
-         FROM ${tP} p WHERE p.id = $2::uuid
-         RETURNING id`,
+    // 1) Insertar TODAS las líneas en compras_items
+    for (const it of items) {
+      await client.query(
+        `INSERT INTO ${tCI} (
+           empresa_id, compra_id, producto_id, producto_nombre, sku,
+           cantidad, costo_unitario, iva_tipo, subtotal, monto_iva, total_linea
+         ) VALUES (
+           $1::uuid, $2::uuid, $3::uuid, $4, $5,
+           $6::numeric, $7::numeric, $8, $9::numeric, $10::numeric, $11::numeric
+         )`,
         [
-          empresaId,
-          d.producto_id,
-          d.producto_nombre,
-          d.cantidad,
-          d.costo_unitario,
-          numero,
-          d.created_by,
-          d.usuario_nombre,
+          empresaId, compraId, it.producto_id, it.producto_nombre, it.sku,
+          it.cantidad, it.costo_unitario, it.iva_tipo, it.subtotal, it.monto_iva, it.total_linea,
         ]
       );
-      movimientoId = movRows[0]?.id ?? null;
-    } catch (movErr) {
-      const msg = movErr instanceof Error ? movErr.message : String(movErr);
-      console.error("[compras-pg] movimiento ENTRADA fallo", {
-        schema, empresaId, numero, message: msg,
-        code: (movErr as { code?: string })?.code,
-        detail: (movErr as { detail?: string })?.detail,
-      });
-      movimientoWarning =
-        "La compra se guardó pero no se pudo registrar el movimiento de entrada en inventario.";
     }
 
-    // Actualizar producto: stock + costo_promedio + precio_venta
-    await client.query(
-      `UPDATE ${tP}
-          SET stock_actual = stock_actual + $1::numeric,
-              costo_promedio = $2::numeric,
-              precio_venta = $3::numeric,
-              updated_at = now()
-        WHERE id = $4::uuid AND empresa_id = $5::uuid`,
-      [d.cantidad, d.costo_unitario, d.precio_venta, d.producto_id, empresaId]
-    );
+    // 2) Por cada línea: movimiento ENTRADA + stock + costo_promedio (NO precio_venta)
+    for (const it of items) {
+      try {
+        const { rows: movRows } = await client.query<{ id: string }>(
+          `INSERT INTO ${tM} (
+             empresa_id, producto_id, producto_nombre, producto_sku,
+             tipo, cantidad, costo_unitario, origen, referencia, fecha,
+             created_by, usuario_nombre
+           )
+           SELECT $1::uuid, $2::uuid, $3, COALESCE(NULLIF($4, ''), p.sku, ''),
+                  'ENTRADA', $5::numeric, $6::numeric, 'compra', $7, now(),
+                  $8::uuid, $9
+           FROM ${tP} p WHERE p.id = $2::uuid
+           RETURNING id`,
+          [
+            empresaId, it.producto_id, it.producto_nombre, it.sku,
+            it.cantidad, it.costo_unitario, numero, d.created_by, d.usuario_nombre,
+          ]
+        );
+        if (movRows[0]?.id) movimientoId = movRows[0].id;
+      } catch (movErr) {
+        const msg = movErr instanceof Error ? movErr.message : String(movErr);
+        console.error("[compras-pg] movimiento ENTRADA fallo", {
+          schema, empresaId, numero, producto_id: it.producto_id, message: msg,
+          code: (movErr as { code?: string })?.code,
+          detail: (movErr as { detail?: string })?.detail,
+        });
+        movimientoWarning =
+          "La compra se guardó pero uno o más movimientos de entrada en inventario no se registraron.";
+      }
+
+      // stock += cantidad ; costo_promedio = costo_unitario (réplica exacta del comportamiento actual)
+      await client.query(
+        `UPDATE ${tP}
+            SET stock_actual = stock_actual + $1::numeric,
+                costo_promedio = $2::numeric,
+                updated_at = now()
+          WHERE id = $3::uuid AND empresa_id = $4::uuid`,
+        [it.cantidad, it.costo_unitario, it.producto_id, empresaId]
+      );
+    }
 
     await client.query("COMMIT");
     return { compra, movimiento_id: movimientoId, movimiento_warning: movimientoWarning };
@@ -232,4 +316,39 @@ export async function insertCompraConImpacto(
   } finally {
     client.release();
   }
+}
+
+/**
+ * Compat: compra mono-producto. Delega en la multiproducto con una sola línea.
+ * Mantiene la firma original. Nota: ya NO reescribe precio_venta del producto
+ * (decisión Fase 3 — el precio se gestiona en Inventario).
+ */
+export async function insertCompraConImpacto(
+  schemaRaw: string,
+  empresaId: string,
+  d: InsertCompraInput
+): Promise<CompraResult> {
+  return insertCompraMultiConImpacto(schemaRaw, empresaId, {
+    proveedor_id: d.proveedor_id,
+    proveedor_nombre: d.proveedor_nombre,
+    moneda: d.moneda,
+    tipo_cambio: d.tipo_cambio,
+    tipo_pago: d.tipo_pago,
+    plazo_dias: d.plazo_dias,
+    nro_timbrado: d.nro_timbrado,
+    created_by: d.created_by,
+    usuario_nombre: d.usuario_nombre,
+    items: [{
+      producto_id: d.producto_id,
+      producto_nombre: d.producto_nombre,
+      sku: "",
+      cantidad: d.cantidad,
+      costo_unitario: d.costo_unitario,
+      costo_unitario_original: d.costo_unitario_original,
+      iva_tipo: d.iva_tipo,
+      subtotal: d.subtotal,
+      monto_iva: d.monto_iva,
+      total_linea: d.total,
+    }],
+  });
 }

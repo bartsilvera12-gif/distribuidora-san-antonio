@@ -11,7 +11,7 @@ import type { AppSupabaseClient } from "@/lib/supabase/schema";
  */
 
 const PRODUCTO_COLS =
-  "id, empresa_id, nombre, sku, costo_promedio, precio_venta, stock_actual, stock_minimo, " +
+  "id, empresa_id, nombre, sku, costo_promedio, precio_venta, precio_minorista, precio_mayorista, stock_actual, stock_minimo, " +
   "unidad_medida, metodo_valuacion, activo, created_at, updated_at, " +
   "codigo_barras, codigo_barras_interno, imagen_path, imagen_url, " +
   "categoria_principal_id, ubicacion_principal_id, proveedor_principal_id, " +
@@ -26,6 +26,8 @@ function rowToApi(r: Record<string, unknown>): Record<string, unknown> {
     ...r,
     costo_promedio: toNumber(r.costo_promedio),
     precio_venta: toNumber(r.precio_venta),
+    precio_minorista: toNumber(r.precio_minorista),
+    precio_mayorista: toNumber(r.precio_mayorista),
     stock_actual: toNumber(r.stock_actual),
     stock_minimo: toNumber(r.stock_minimo),
     factor_compra_receta: toNumber(r.factor_compra_receta),
@@ -118,7 +120,19 @@ export async function POST(request: NextRequest) {
     const stockActual = Number(body.stock_actual ?? 0) || 0;
     const costoPromedio = Number(body.costo_promedio ?? 0) || 0;
     const stockMinimo = Number(body.stock_minimo ?? 0) || 0;
-    const precioVenta = Number(body.precio_venta ?? 0) || 0;
+    // Precios: minorista es el precio principal. Fallback a precio_venta para
+    // compatibilidad si el cliente no envía minorista. Mayorista cae a minorista.
+    const precioVentaBody = Number(body.precio_venta ?? 0) || 0;
+    const precioMinorista =
+      body.precio_minorista != null && Number(body.precio_minorista) >= 0
+        ? Number(body.precio_minorista) || 0
+        : precioVentaBody;
+    const precioMayorista =
+      body.precio_mayorista != null && Number(body.precio_mayorista) > 0
+        ? Number(body.precio_mayorista)
+        : precioMinorista;
+    // precio_venta SIEMPRE espejo de minorista (compatibilidad legacy).
+    const precioVenta = precioMinorista;
     const unidadMedida = normalizeUpperText(body.unidad_medida) || "UNIDAD";
     const metodoValuacion =
       body.metodo_valuacion === "FIFO" || body.metodo_valuacion === "LIFO"
@@ -171,6 +185,8 @@ export async function POST(request: NextRequest) {
       nombre,
       sku,
       costo_promedio: costoPromedio,
+      precio_minorista: precioMinorista,
+      precio_mayorista: precioMayorista,
       precio_venta: precioVenta,
       stock_actual: stockActual,
       stock_minimo: stockMinimo,

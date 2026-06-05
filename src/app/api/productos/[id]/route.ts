@@ -6,7 +6,7 @@ import { normalizeUpperText, normalizeUpperCodigoBarras } from "@/lib/text/norma
 import type { AppSupabaseClient } from "@/lib/supabase/schema";
 
 const PRODUCTO_COLS =
-  "id, empresa_id, nombre, sku, costo_promedio, precio_venta, stock_actual, stock_minimo, " +
+  "id, empresa_id, nombre, sku, costo_promedio, precio_venta, precio_minorista, precio_mayorista, stock_actual, stock_minimo, " +
   "unidad_medida, metodo_valuacion, activo, created_at, updated_at, " +
   "codigo_barras, codigo_barras_interno, imagen_path, imagen_url, " +
   "categoria_principal_id, ubicacion_principal_id, proveedor_principal_id, " +
@@ -21,6 +21,8 @@ function rowToApi(r: Record<string, unknown>): Record<string, unknown> {
     ...r,
     costo_promedio: toNumber(r.costo_promedio),
     precio_venta: toNumber(r.precio_venta),
+    precio_minorista: toNumber(r.precio_minorista),
+    precio_mayorista: toNumber(r.precio_mayorista),
     stock_actual: toNumber(r.stock_actual),
     stock_minimo: toNumber(r.stock_minimo),
     factor_compra_receta: toNumber(r.factor_compra_receta),
@@ -88,7 +90,17 @@ export async function PATCH(
     if (body.nombre !== undefined) patch.nombre = normalizeUpperText(body.nombre);
     if (body.sku !== undefined) patch.sku = normalizeUpperText(body.sku);
     if (body.costo_promedio !== undefined) patch.costo_promedio = Number(body.costo_promedio) || 0;
-    if (body.precio_venta !== undefined) patch.precio_venta = Number(body.precio_venta) || 0;
+    // Minorista es el precio principal; precio_venta queda SIEMPRE como su espejo.
+    if (body.precio_minorista !== undefined) {
+      const min = Number(body.precio_minorista) || 0;
+      patch.precio_minorista = min;
+      patch.precio_venta = min;
+    }
+    if (body.precio_mayorista !== undefined) patch.precio_mayorista = Number(body.precio_mayorista) || 0;
+    // precio_venta directo solo si no vino minorista (compatibilidad legacy).
+    if (body.precio_venta !== undefined && body.precio_minorista === undefined) {
+      patch.precio_venta = Number(body.precio_venta) || 0;
+    }
     if (body.stock_actual !== undefined) patch.stock_actual = Number(body.stock_actual) || 0;
     if (body.stock_minimo !== undefined) patch.stock_minimo = Number(body.stock_minimo) || 0;
     if (body.unidad_medida !== undefined) patch.unidad_medida = normalizeUpperText(body.unidad_medida) || "UNIDAD";

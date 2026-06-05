@@ -17,6 +17,11 @@ function asItems(body: unknown): CreateVentaItemInput[] | null {
     const r = x as Record<string, unknown>;
     const tipoIva = r.tipo_iva;
     if (tipoIva !== "EXENTA" && tipoIva !== "5%" && tipoIva !== "10%") return null;
+    // tipo_precio: valores exactos del CHECK; default seguro 'minorista'
+    // (ventas viejas / payloads sin el campo quedan como minorista).
+    const tp = r.tipo_precio;
+    const tipoPrecio: "minorista" | "mayorista" | "costo" =
+      tp === "mayorista" || tp === "costo" ? tp : "minorista";
     out.push({
       producto_id: String(r.producto_id ?? ""),
       producto_nombre: String(r.producto_nombre ?? ""),
@@ -25,6 +30,7 @@ function asItems(body: unknown): CreateVentaItemInput[] | null {
       precio_venta_original: Number(r.precio_venta_original),
       precio_venta: Number(r.precio_venta),
       tipo_iva: tipoIva,
+      tipo_precio: tipoPrecio,
       subtotal: Number(r.subtotal),
       monto_iva: Number(r.monto_iva),
       total_linea: Number(r.total_linea),
@@ -58,6 +64,7 @@ function toVentaResponse(
     precio_venta_original: i.precio_venta_original,
     precio_venta: i.precio_venta,
     tipo_iva: i.tipo_iva,
+    tipo_precio: i.tipo_precio,
     subtotal: i.subtotal,
     monto_iva: i.monto_iva,
     total_linea: i.total_linea,

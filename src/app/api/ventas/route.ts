@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
-import type { Venta, LineaVenta, TipoIvaVenta } from "@/lib/ventas/types";
+import type { Venta, LineaVenta, TipoIvaVenta, TipoPrecioVenta } from "@/lib/ventas/types";
 
 interface VentaRow {
   id: string;
@@ -27,6 +27,7 @@ interface VentaItemRow {
   precio_venta_original: number | string;
   precio_venta: number | string;
   tipo_iva: string;
+  tipo_precio?: string | null;
   subtotal: number | string;
   monto_iva: number | string;
   total_linea: number | string;
@@ -45,6 +46,9 @@ function mapItems(rows: VentaItemRow[]): LineaVenta[] {
     precio_venta_original: num(r.precio_venta_original),
     precio_venta: num(r.precio_venta),
     tipo_iva: r.tipo_iva as TipoIvaVenta,
+    tipo_precio: (r.tipo_precio === "mayorista" || r.tipo_precio === "costo"
+      ? r.tipo_precio
+      : "minorista") as TipoPrecioVenta,
     subtotal: num(r.subtotal),
     monto_iva: num(r.monto_iva),
     total_linea: num(r.total_linea),
@@ -71,7 +75,7 @@ export async function GET(request: NextRequest) {
     const itemsQ = await ctx.supabase
       .from("ventas_items")
       .select(
-        "venta_id, producto_id, producto_nombre, sku, cantidad, precio_venta_original, precio_venta, tipo_iva, subtotal, monto_iva, total_linea"
+        "venta_id, producto_id, producto_nombre, sku, cantidad, precio_venta_original, precio_venta, tipo_iva, tipo_precio, subtotal, monto_iva, total_linea"
       )
       .eq("empresa_id", empresaId);
     if (itemsQ.error) throw new Error(itemsQ.error.message);

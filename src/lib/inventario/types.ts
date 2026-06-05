@@ -7,6 +7,12 @@ export interface Producto {
   nombre: string;
   sku: string;
   costo_promedio: number;
+  /** Precio de venta minorista (precio al público). Opcional por compat: en
+   *  productos viejos se deriva de `precio_venta` en el mapeo (rowToProducto). */
+  precio_minorista?: number;
+  /** Precio de venta mayorista (por volumen). Opcional por compat (ver arriba). */
+  precio_mayorista?: number;
+  /** Espejo de `precio_minorista` por compatibilidad con código/reportes legacy. */
   precio_venta: number;
   stock_actual: number;
   stock_minimo: number;

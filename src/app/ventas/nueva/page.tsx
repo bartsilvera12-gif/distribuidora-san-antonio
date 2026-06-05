@@ -7,7 +7,7 @@ import PageHeader from "@/components/ui/PageHeader";
 import ProductPickerModal, { type ProductoPickerItem, type AgregarVentaPayload } from "@/components/inventario/ProductPickerModal";
 import { saveVenta } from "@/lib/ventas/storage";
 import { getProductos } from "@/lib/inventario/storage";
-import type { TipoIvaVenta, TipoVenta, MonedaVenta, LineaVenta, MetodoPago } from "@/lib/ventas/types";
+import type { TipoIvaVenta, TipoVenta, MonedaVenta, LineaVenta, MetodoPago, TipoPrecioVenta } from "@/lib/ventas/types";
 import type { Producto } from "@/lib/inventario/types";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -34,6 +34,25 @@ function calcIva(tipo: TipoIvaVenta, base: number) {
   if (tipo === "EXENTA") return 0;
   if (tipo === "5%")     return base * 0.05;
   return base * 0.10;
+}
+
+/**
+ * Precio unitario según el tipo de precio elegido, con fallbacks seguros:
+ *  - minorista → precio_minorista, fallback precio_venta.
+ *  - mayorista → precio_mayorista, fallback minorista (→ precio_venta). Nunca 0
+ *    por falta de configuración si el producto sí tiene precio minorista.
+ *  - costo     → costo_promedio (puede ser 0; venta al costo = ganancia 0).
+ */
+function precioPorTipo(p: Producto, tipo: TipoPrecioVenta): number {
+  const minorista =
+    p.precio_minorista != null && p.precio_minorista > 0 ? p.precio_minorista : p.precio_venta;
+  if (tipo === "mayorista") {
+    return p.precio_mayorista != null && p.precio_mayorista > 0 ? p.precio_mayorista : minorista;
+  }
+  if (tipo === "costo") {
+    return p.costo_promedio ?? 0;
+  }
+  return minorista;
 }
 
 // ── Estilos ────────────────────────────────────────────────────────────────────
@@ -90,6 +109,12 @@ const ivaLabel: Record<TipoIvaVenta, string> = {
   "10%":  "10%",
 };
 
+const tipoPrecioLabel: Record<TipoPrecioVenta, string> = {
+  minorista: "Minorista",
+  mayorista: "Mayorista",
+  costo:     "Al costo",
+};
+
 // ── Componente principal ───────────────────────────────────────────────────────
 
 export default function NuevaVentaPage() {
@@ -124,6 +149,7 @@ export default function NuevaVentaPage() {
   const [lineaCant,   setLineaCant]   = useState("");
   const [lineaPrecio, setLineaPrecio] = useState("");
   const [lineaIva,    setLineaIva]    = useState<TipoIvaVenta>("10%");
+  const [lineaTipoPrecio, setLineaTipoPrecio] = useState<TipoPrecioVenta>("minorista");
 
   // ── Combobox de producto ───────────────────────────────────────────────────
   const [comboQuery,     setComboQuery]     = useState("");
@@ -143,7 +169,7 @@ export default function NuevaVentaPage() {
       precio_venta: p.precio_venta,
       stock_actual: p.stock_actual,
       unidad_medida: p.unidad_medida,
-      costo_promedio: 0,
+      costo_promedio: p.costo_promedio ?? 0,
       stock_minimo: 0,
       metodo_valuacion: "CPP",
       codigo_barras: p.codigo_barras,
@@ -197,6 +223,8 @@ export default function NuevaVentaPage() {
         precio_venta_original: precio_input,
         precio_venta: precioPyg,
         tipo_iva: iva,
+        // El picker usa precio_venta (espejo de minorista) → tipo 'minorista'.
+        tipo_precio: "minorista",
         subtotal,
         monto_iva: montoIva,
         total_linea: totalLinea,
@@ -285,13 +313,24 @@ export default function NuevaVentaPage() {
   // ── Selección de un producto desde el combobox ────────────────────────────
   function seleccionarProducto(p: Producto) {
     setLineaProdId(String(p.id));
-    setLineaPrecio(String(p.precio_venta));
+    // Por defecto: minorista (precio_minorista, fallback precio_venta).
+    setLineaTipoPrecio("minorista");
+    setLineaPrecio(String(precioPorTipo(p, "minorista")));
     setLineaCant("1");
     setLineaIva("10%");
     setComboQuery(`${p.nombre} — ${p.sku}`);
     setComboOpen(false);
     setComboHighlight(-1);
     setErrorLinea(null);
+  }
+
+  /** Cambia el tipo de precio de la línea en construcción y ajusta el precio unitario. */
+  function handleTipoPrecioChange(tipo: TipoPrecioVenta) {
+    setLineaTipoPrecio(tipo);
+    setErrorLinea(null);
+    if (prodSel) {
+      setLineaPrecio(String(precioPorTipo(prodSel, tipo)));
+    }
   }
 
   // ── Handlers del combobox ─────────────────────────────────────────────────
@@ -352,6 +391,7 @@ export default function NuevaVentaPage() {
         precio_venta_original: precioInput,
         precio_venta:          precioGs,
         tipo_iva:              lineaIva,
+        tipo_precio:           lineaTipoPrecio,
         subtotal:              lineaSubtotal,
         monto_iva:             lineaMontoIva,
         total_linea:           lineaTotalLinea,
@@ -363,6 +403,7 @@ export default function NuevaVentaPage() {
     setLineaCant("");
     setLineaPrecio("");
     setLineaIva("10%");
+    setLineaTipoPrecio("minorista");
     setComboQuery("");
     setComboOpen(false);
     setTimeout(() => comboInputRef.current?.focus(), 0);
@@ -446,8 +487,8 @@ export default function NuevaVentaPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
 
-            {/* ── Combobox con búsqueda — 4 cols ────────────────────────────── */}
-            <div className="md:col-span-4" ref={comboContainerRef}>
+            {/* ── Combobox con búsqueda — 5 cols ────────────────────────────── */}
+            <div className="md:col-span-5" ref={comboContainerRef}>
               <label className={labelClass}>
                 Producto
                 <span className="ml-1 text-gray-400 font-normal normal-case tracking-normal text-xs">
@@ -576,8 +617,8 @@ export default function NuevaVentaPage() {
               />
             </div>
 
-            {/* IVA — 2 cols */}
-            <div className="md:col-span-2">
+            {/* IVA — 3 cols */}
+            <div className="md:col-span-3">
               <label className={labelClass}>IVA</label>
               <SegmentedControl<TipoIvaVenta>
                 value={lineaIva}
@@ -590,9 +631,27 @@ export default function NuevaVentaPage() {
               />
             </div>
 
-            {/* Botón — 2 cols */}
-            <div className="md:col-span-2 flex flex-col">
-              <label className="invisible text-xs mb-1.5">.</label>
+          </div>
+
+          {/* Fila 2: Tipo de precio (estilo botones, como IVA) + Agregar */}
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+            <div className="md:col-span-6">
+              <label className={labelClass}>Tipo de precio</label>
+              <SegmentedControl<TipoPrecioVenta>
+                value={lineaTipoPrecio}
+                options={[
+                  { value: "minorista", label: "Minorista" },
+                  { value: "mayorista", label: "Mayorista" },
+                  { value: "costo",     label: "Al costo"  },
+                ]}
+                onChange={handleTipoPrecioChange}
+                disabled={!prodSel}
+              />
+            </div>
+
+            {/* Botón Agregar */}
+            <div className="md:col-span-6 flex flex-col">
+              <label className="invisible text-xs mb-1.5 hidden md:block">.</label>
               <button
                 type="button"
                 onClick={handleAgregarLinea}
@@ -605,7 +664,6 @@ export default function NuevaVentaPage() {
                 Agregar producto
               </button>
             </div>
-
           </div>
 
           {/* Preview totales de la línea */}
@@ -668,7 +726,16 @@ export default function NuevaVentaPage() {
                           {item.cantidad}
                         </td>
                         <td className="py-3 pr-3 text-right tabular-nums text-gray-600 text-xs">
-                          {formatGs(item.precio_venta)}
+                          <div>{formatGs(item.precio_venta)}</div>
+                          <span className={`inline-block mt-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                            item.tipo_precio === "mayorista"
+                              ? "bg-indigo-100 text-indigo-700"
+                              : item.tipo_precio === "costo"
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-slate-100 text-slate-600"
+                          }`}>
+                            {tipoPrecioLabel[item.tipo_precio]}
+                          </span>
                         </td>
                         <td className="py-3 pr-3 text-center hidden md:table-cell">
                           <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">

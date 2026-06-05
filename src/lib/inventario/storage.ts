@@ -16,6 +16,8 @@ interface ProductoRow {
   sku: string;
   costo_promedio: number;
   precio_venta: number;
+  precio_minorista?: number | string | null;
+  precio_mayorista?: number | string | null;
   stock_actual: number;
   stock_minimo: number;
   unidad_medida: string;
@@ -62,12 +64,25 @@ interface MovimientoRow {
 // ─── Mapeo fila → tipo ────────────────────────────────────────────────────────
 
 function rowToProducto(row: ProductoRow): Producto {
+  // Fallback de compatibilidad: si minorista/mayorista vienen vacíos (productos
+  // viejos), derivar desde precio_venta para no romper la UI.
+  const precioVenta = Number(row.precio_venta) || 0;
+  const precioMinorista =
+    row.precio_minorista != null && Number(row.precio_minorista) > 0
+      ? Number(row.precio_minorista)
+      : precioVenta;
+  const precioMayorista =
+    row.precio_mayorista != null && Number(row.precio_mayorista) > 0
+      ? Number(row.precio_mayorista)
+      : precioMinorista;
   return {
     id: row.id,
     nombre: row.nombre,
     sku: row.sku,
     costo_promedio: Number(row.costo_promedio),
-    precio_venta: Number(row.precio_venta),
+    precio_minorista: precioMinorista,
+    precio_mayorista: precioMayorista,
+    precio_venta: precioVenta,
     stock_actual: Number(row.stock_actual),
     stock_minimo: Number(row.stock_minimo),
     unidad_medida: row.unidad_medida,
@@ -185,6 +200,9 @@ export async function saveProducto(
     nombre: datos.nombre,
     sku: datos.sku,
     costo_promedio: datos.costo_promedio,
+    precio_minorista: datos.precio_minorista,
+    precio_mayorista: datos.precio_mayorista,
+    // precio_venta se mantiene como espejo de minorista (el server lo fuerza igual).
     precio_venta: datos.precio_venta,
     stock_actual: datos.stock_actual ?? 0,
     stock_minimo: datos.stock_minimo ?? 0,
@@ -252,6 +270,8 @@ export async function updateProducto(
   if (datos.nombre !== undefined) body.nombre = datos.nombre;
   if (datos.sku !== undefined) body.sku = datos.sku;
   if (datos.costo_promedio !== undefined) body.costo_promedio = datos.costo_promedio;
+  if (datos.precio_minorista !== undefined) body.precio_minorista = datos.precio_minorista;
+  if (datos.precio_mayorista !== undefined) body.precio_mayorista = datos.precio_mayorista;
   if (datos.precio_venta !== undefined) body.precio_venta = datos.precio_venta;
   if (datos.stock_actual !== undefined) body.stock_actual = datos.stock_actual;
   if (datos.stock_minimo !== undefined) body.stock_minimo = datos.stock_minimo;

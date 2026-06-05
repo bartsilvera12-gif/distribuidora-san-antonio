@@ -2,6 +2,8 @@ export type TipoIvaVenta = "EXENTA" | "5%" | "10%";
 export type TipoVenta   = "CONTADO" | "CREDITO";
 export type MonedaVenta = "GS" | "USD";
 export type MetodoPago  = "efectivo" | "tarjeta" | "transferencia";
+/** Tipo de precio aplicado a la línea (valores exactos del CHECK de ventas_items). */
+export type TipoPrecioVenta = "minorista" | "mayorista" | "costo";
 
 /** Un ítem dentro de una venta (una línea de producto). */
 export interface LineaVenta {
@@ -12,6 +14,8 @@ export interface LineaVenta {
   precio_venta_original: number;  // en la moneda elegida
   precio_venta:          number;  // siempre en GS
   tipo_iva:              TipoIvaVenta;
+  /** Tipo de precio elegido para esta línea. Default 'minorista'. */
+  tipo_precio:           TipoPrecioVenta;
   subtotal:              number;  // precio_venta × cantidad
   monto_iva:             number;
   total_linea:           number;  // subtotal + monto_iva

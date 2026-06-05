@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getCompras } from "@/lib/compras/storage";
+import { getCompras, getFacturaSignedUrl } from "@/lib/compras/storage";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import EdgeScrollArea from "@/components/ui/EdgeScrollArea";
 import { FancySelect } from "@/components/ui/FancySelect";
@@ -65,6 +65,18 @@ export default function ComprasPage() {
   });
 
   const hayFiltros = busqueda || filtroTipoPago;
+
+  const [abriendoFactura, setAbriendoFactura] = useState<string | null>(null);
+  async function verFactura(id: string) {
+    setAbriendoFactura(id);
+    try {
+      const r = await getFacturaSignedUrl(id);
+      if (r?.factura_url) window.open(r.factura_url, "_blank", "noopener");
+      else alert("No se pudo abrir la factura.");
+    } finally {
+      setAbriendoFactura(null);
+    }
+  }
 
   return (
     <div className="space-y-8">
@@ -138,13 +150,14 @@ export default function ComprasPage() {
                 <th className="py-3 pr-4 font-medium text-right">Total</th>
                 <th className="py-3 pr-4 font-medium text-right hidden lg:table-cell">Margen</th>
                 <th className="py-3 pr-4 font-medium hidden md:table-cell">Pago</th>
+                <th className="py-3 pr-4 font-medium">Factura</th>
                 <th className="py-3 font-medium">Fecha</th>
               </tr>
             </thead>
             <tbody>
               {filtradas.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-gray-400">
+                  <td colSpan={11} className="py-12 text-center text-gray-400">
                     {todas.length === 0
                       ? "No hay compras registradas"
                       : "Ninguna compra coincide con los filtros"}
@@ -159,7 +172,14 @@ export default function ComprasPage() {
                     <td className="py-4 pr-4 font-medium text-gray-800">
                       {c.proveedor_nombre}
                     </td>
-                    <td className="py-4 pr-4 text-gray-600">{c.producto_nombre}</td>
+                    <td className="py-4 pr-4 text-gray-600">
+                      {c.producto_nombre}
+                      {(c.items_count ?? 0) > 1 && (
+                        <span className="ml-2 inline-block text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700 align-middle">
+                          +{(c.items_count ?? 0) - 1} más
+                        </span>
+                      )}
+                    </td>
                     <td className="py-4 pr-4 text-right tabular-nums text-gray-700">
                       {c.cantidad}
                     </td>
@@ -187,6 +207,25 @@ export default function ComprasPage() {
                       <Badge tone={c.tipo_pago === "credito" ? "warning" : "neutral"}>
                         {c.tipo_pago === "contado" ? "Contado" : c.tipo_pago === "credito" ? `Crédito ${c.plazo_dias ?? ""}d` : "—"}
                       </Badge>
+                    </td>
+                    <td className="py-4 pr-4">
+                      {c.factura_path ? (
+                        <button
+                          type="button"
+                          onClick={() => verFactura(c.id)}
+                          disabled={abriendoFactura === c.id}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-sky-700 hover:text-sky-900 border border-sky-200 hover:bg-sky-50 px-2.5 py-1 rounded-md transition-colors disabled:opacity-50"
+                          title="Ver factura adjunta"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                            <path d="M10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" />
+                            <path fillRule="evenodd" d="M.664 10.59a1.651 1.651 0 0 1 0-1.186A10.004 10.004 0 0 1 10 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0 1 10 17c-4.257 0-7.893-2.66-9.336-6.41ZM14 10a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" clipRule="evenodd" />
+                          </svg>
+                          {abriendoFactura === c.id ? "Abriendo…" : "Ver"}
+                        </button>
+                      ) : (
+                        <span className="text-gray-300 text-xs">—</span>
+                      )}
                     </td>
                     <td className="py-4 text-gray-500 text-xs tabular-nums">
                       {formatFecha(c.fecha)}

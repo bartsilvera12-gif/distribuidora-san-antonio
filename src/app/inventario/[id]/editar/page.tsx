@@ -42,8 +42,10 @@ export default function EditarProductoPage() {
     codigo_barras: "",
     codigo_barras_interno: false,
     costo_promedio: "",
-    markup: "",
-    precio_venta: "",
+    precio_minorista: "",
+    markup_minorista: "",
+    precio_mayorista: "",
+    markup_mayorista: "",
     stock_actual: "",
     stock_minimo: "",
     unidad_medida: "",
@@ -135,16 +137,22 @@ export default function EditarProductoPage() {
     getProducto(id).then((p) => {
       if (cancelled || !p) return;
       const costo = p.costo_promedio;
-      const precio = p.precio_venta;
-      const markup = costo > 0 ? ((precio - costo) / costo) * 100 : 0;
+      // Fallback de compatibilidad: si el producto viejo no tiene minorista/mayorista,
+      // rowToProducto ya los deriva desde precio_venta. Acá calculamos los markups.
+      const min = p.precio_minorista ?? p.precio_venta;
+      const may = p.precio_mayorista ?? min;
+      const markupMin = costo > 0 && min > 0 ? ((min - costo) / costo) * 100 : 0;
+      const markupMay = costo > 0 && may > 0 ? ((may - costo) / costo) * 100 : 0;
       setForm({
         nombre: p.nombre,
         sku: p.sku,
         codigo_barras: p.codigo_barras ?? "",
         codigo_barras_interno: p.codigo_barras_interno === true,
         costo_promedio: String(p.costo_promedio),
-        markup: markup.toFixed(2),
-        precio_venta: String(p.precio_venta),
+        precio_minorista: String(min),
+        markup_minorista: markupMin.toFixed(2),
+        precio_mayorista: String(may),
+        markup_mayorista: markupMay.toFixed(2),
         stock_actual: String(p.stock_actual),
         stock_minimo: String(p.stock_minimo),
         unidad_medida: p.unidad_medida,
@@ -196,43 +204,86 @@ export default function EditarProductoPage() {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   }
 
+  /** Cambia costo → recalcula AMBOS markups sin mover los precios. */
   function handleCostoChange(costo: number) {
     setErrorDuplicado(null);
     setErrorGeneral(null);
-    const precio = parseFloat(form.precio_venta);
-    // Al cambiar el costo NO movemos el precio (es lo que el cliente cobra).
-    // Recalculamos markup a partir del gap precio-costo cuando ambos son válidos.
-    if (!isNaN(costo) && costo > 0 && !isNaN(precio) && precio > 0) {
-      const nuevoMarkup = ((precio - costo) / costo) * 100;
-      setForm((prev) => ({ ...prev, costo_promedio: String(costo), markup: nuevoMarkup.toFixed(2) }));
-    } else {
-      setForm((prev) => ({ ...prev, costo_promedio: String(costo) }));
-    }
+    const min = parseFloat(form.precio_minorista);
+    const may = parseFloat(form.precio_mayorista);
+    setForm((prev) => ({
+      ...prev,
+      costo_promedio: String(costo),
+      markup_minorista:
+        !isNaN(costo) && costo > 0 && !isNaN(min) && min > 0
+          ? (((min - costo) / costo) * 100).toFixed(2)
+          : prev.markup_minorista,
+      markup_mayorista:
+        !isNaN(costo) && costo > 0 && !isNaN(may) && may > 0
+          ? (((may - costo) / costo) * 100).toFixed(2)
+          : prev.markup_mayorista,
+    }));
   }
 
-  function handleMarkupChange(e: React.ChangeEvent<HTMLInputElement>) {
+  /** Cambia precio minorista → recalcula markup minorista. */
+  function handleMinoristaChange(precio: number) {
+    setErrorDuplicado(null);
+    setErrorGeneral(null);
+    const costo = parseFloat(form.costo_promedio);
+    setForm((prev) => ({
+      ...prev,
+      precio_minorista: String(precio),
+      markup_minorista:
+        !isNaN(precio) && !isNaN(costo) && costo > 0
+          ? (((precio - costo) / costo) * 100).toFixed(2)
+          : prev.markup_minorista,
+    }));
+  }
+
+  /** Cambia markup minorista → recalcula precio minorista. */
+  function handleMarkupMinoristaChange(e: React.ChangeEvent<HTMLInputElement>) {
     setErrorDuplicado(null);
     setErrorGeneral(null);
     const markup = parseFloat(e.target.value);
     const costo = parseFloat(form.costo_promedio);
-    if (!isNaN(markup) && !isNaN(costo) && costo > 0) {
-      const nuevoPrecio = costo * (1 + markup / 100);
-      setForm((prev) => ({ ...prev, markup: e.target.value, precio_venta: nuevoPrecio.toFixed(0) }));
-    } else {
-      setForm((prev) => ({ ...prev, markup: e.target.value }));
-    }
+    setForm((prev) => ({
+      ...prev,
+      markup_minorista: e.target.value,
+      precio_minorista:
+        !isNaN(markup) && !isNaN(costo) && costo > 0
+          ? (costo * (1 + markup / 100)).toFixed(0)
+          : prev.precio_minorista,
+    }));
   }
 
-  function handlePrecioChange(precio: number) {
+  /** Cambia precio mayorista → recalcula markup mayorista. */
+  function handleMayoristaChange(precio: number) {
     setErrorDuplicado(null);
     setErrorGeneral(null);
     const costo = parseFloat(form.costo_promedio);
-    if (!isNaN(precio) && !isNaN(costo) && costo > 0) {
-      const nuevoMarkup = ((precio - costo) / costo) * 100;
-      setForm((prev) => ({ ...prev, precio_venta: String(precio), markup: nuevoMarkup.toFixed(2) }));
-    } else {
-      setForm((prev) => ({ ...prev, precio_venta: String(precio) }));
-    }
+    setForm((prev) => ({
+      ...prev,
+      precio_mayorista: String(precio),
+      markup_mayorista:
+        !isNaN(precio) && !isNaN(costo) && costo > 0
+          ? (((precio - costo) / costo) * 100).toFixed(2)
+          : prev.markup_mayorista,
+    }));
+  }
+
+  /** Cambia markup mayorista → recalcula precio mayorista. */
+  function handleMarkupMayoristaChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setErrorDuplicado(null);
+    setErrorGeneral(null);
+    const markup = parseFloat(e.target.value);
+    const costo = parseFloat(form.costo_promedio);
+    setForm((prev) => ({
+      ...prev,
+      markup_mayorista: e.target.value,
+      precio_mayorista:
+        !isNaN(markup) && !isNaN(costo) && costo > 0
+          ? (costo * (1 + markup / 100)).toFixed(0)
+          : prev.precio_mayorista,
+    }));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -277,11 +328,17 @@ export default function EditarProductoPage() {
       }
 
       const cambioCodigo = codigoIngresado !== (codigoOriginal ?? "");
+      const precioMinorista = parseFloat(form.precio_minorista) || 0;
+      // Mayorista cae a minorista si quedó vacío (nunca 0 accidental).
+      const precioMayorista = parseFloat(form.precio_mayorista) || precioMinorista;
       const updatePayload: Parameters<typeof updateProducto>[1] = {
         nombre: form.nombre.trim().toUpperCase(),
         sku: form.sku.trim().toUpperCase(),
         costo_promedio: parseFloat(form.costo_promedio) || 0,
-        precio_venta: parseFloat(form.precio_venta) || 0,
+        precio_minorista: precioMinorista,
+        precio_mayorista: precioMayorista,
+        // Espejo de minorista por compatibilidad (el server también lo fuerza).
+        precio_venta: precioMinorista,
         stock_actual: parseInt(form.stock_actual) || 0,
         stock_minimo: parseInt(form.stock_minimo) || 0,
         unidad_medida: form.unidad_medida.trim().toUpperCase() || "UNIDAD",
@@ -323,7 +380,7 @@ export default function EditarProductoPage() {
   }
 
   const costo = parseFloat(form.costo_promedio);
-  const precio = parseFloat(form.precio_venta);
+  const precio = parseFloat(form.precio_minorista);
   const tieneAmbos = !isNaN(costo) && !isNaN(precio) && costo > 0 && precio > 0;
   const markupCalc = tieneAmbos ? ((precio - costo) / costo) * 100 : null;
   const margenVentaCalc = tieneAmbos ? ((precio - costo) / precio) * 100 : null;
@@ -680,39 +737,78 @@ export default function EditarProductoPage() {
 
           <div>
             <p className="text-xs text-gray-400 mb-3 uppercase tracking-wide font-semibold">Precios</p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-              <div>
-                <label className={labelClass}>Costo promedio (Gs.)</label>
-                <MontoInput
-                  value={form.costo_promedio}
-                  onChange={handleCostoChange}
-                  className={inputClass}
-                  decimals={false}
-                  required
-                />
-              </div>
-              <div>
-                <label className={labelClass}>Markup s/costo (%)</label>
-                <input
-                  type="number"
-                  name="markup"
-                  value={form.markup}
-                  onChange={handleMarkupChange}
-                  className={inputClass}
-                  step="0.01"
-                />
-              </div>
-              <div className={showPrecioVenta ? "" : "hidden"}>
-                <label className={labelClass}>Precio de venta (Gs.)</label>
-                <MontoInput
-                  value={form.precio_venta}
-                  onChange={handlePrecioChange}
-                  className={inputClass}
-                  decimals={false}
-                  required={showPrecioVenta}
-                />
-              </div>
+
+            {/* Costo promedio */}
+            <div className="sm:max-w-xs">
+              <label className={labelClass}>Costo promedio (Gs.)</label>
+              <MontoInput
+                value={form.costo_promedio}
+                onChange={handleCostoChange}
+                className={inputClass}
+                decimals={false}
+                required
+              />
             </div>
+
+            {showPrecioVenta && (
+              <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
+                {/* Minorista */}
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <p className="text-xs font-semibold text-slate-700 mb-3">Minorista (público)</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className={labelClass}>Precio (Gs.)</label>
+                      <MontoInput
+                        value={form.precio_minorista}
+                        onChange={handleMinoristaChange}
+                        className={inputClass}
+                        decimals={false}
+                        required={showPrecioVenta}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Markup (%)</label>
+                      <input
+                        type="number"
+                        value={form.markup_minorista}
+                        onChange={handleMarkupMinoristaChange}
+                        className={inputClass}
+                        step="0.01"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Mayorista */}
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <p className="text-xs font-semibold text-slate-700 mb-3">
+                    Mayorista <span className="font-normal text-gray-400">(opcional)</span>
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className={labelClass}>Precio (Gs.)</label>
+                      <MontoInput
+                        value={form.precio_mayorista}
+                        onChange={handleMayoristaChange}
+                        className={inputClass}
+                        decimals={false}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Markup (%)</label>
+                      <input
+                        type="number"
+                        value={form.markup_mayorista}
+                        onChange={handleMarkupMayoristaChange}
+                        className={inputClass}
+                        step="0.01"
+                      />
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-gray-400">Si lo dejás vacío, se usa el minorista.</p>
+                </div>
+              </div>
+            )}
             {tieneAmbos && markupCalc !== null && margenVentaCalc !== null && (
               <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className={`border rounded-lg px-4 py-3 ${esPerdida ? "bg-red-50 border-red-200" : "bg-blue-50 border-blue-100"}`}>
