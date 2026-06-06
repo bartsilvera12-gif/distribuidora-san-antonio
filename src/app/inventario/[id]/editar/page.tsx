@@ -41,7 +41,6 @@ export default function EditarProductoPage() {
     nombre: "",
     sku: "",
     codigo_barras: "",
-    codigo_interno: "",
     costo_promedio: "",
     precio_minorista: "",
     markup_minorista: "",
@@ -56,6 +55,7 @@ export default function EditarProductoPage() {
   const [imagenUrl, setImagenUrl] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [generandoCodigo, setGenerandoCodigo] = useState(false);
+  const [codigoGeneradoInterno, setCodigoGeneradoInterno] = useState(false);
 
   // Relaciones
   const [categoriaId, setCategoriaId] = useState<string | null>(null);
@@ -116,8 +116,10 @@ export default function EditarProductoPage() {
       });
       const json = await res.json();
       if (res.ok && json?.success && json.data?.codigo) {
-        // El código interno (INT-…) va al campo Código interno, NO al de barras.
-        setForm((prev) => ({ ...prev, codigo_interno: json.data.codigo as string }));
+        // El código interno (INT-…) cumple la función de SKU interno: se carga
+        // directamente en el campo unificado "Código interno / SKU" (columna sku).
+        setForm((prev) => ({ ...prev, sku: json.data.codigo as string }));
+        setCodigoGeneradoInterno(true);
       } else {
         setErrorGeneral(json?.error ?? "No se pudo generar el código.");
       }
@@ -151,7 +153,6 @@ export default function EditarProductoPage() {
         nombre: p.nombre,
         sku: p.sku,
         codigo_barras: p.codigo_barras ?? "",
-        codigo_interno: p.codigo_interno ?? "",
         costo_promedio: String(p.costo_promedio),
         precio_minorista: String(min),
         markup_minorista: markupMin.toFixed(2),
@@ -194,6 +195,7 @@ export default function EditarProductoPage() {
   ) {
     setErrorDuplicado(null);
     setErrorGeneral(null);
+    if (e.target.name === "sku") setCodigoGeneradoInterno(false);
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   }
 
@@ -294,10 +296,17 @@ export default function EditarProductoPage() {
     };
 
     try {
-      // Código de barras = NUMÉRICO escaneable (EAN-13). El código interno es aparte.
+      // Código interno / SKU obligatorio para reventa (mismo criterio que el alta).
+      if (tipoGastro === "reventa" && !form.sku.trim()) {
+        showErr("El código interno / SKU es obligatorio para productos de reventa.");
+        return;
+      }
+
+      // Código de barras = NUMÉRICO escaneable (EAN-13). El código interno / SKU
+      // va en el campo sku.
       const codigoBarras = form.codigo_barras.trim();
       if (codigoBarras && !/^\d+$/.test(codigoBarras)) {
-        showErr("El código de barras debe ser numérico (escaneable). El código interno (INT-…) va en su propio campo.");
+        showErr("El código de barras debe ser numérico (escaneable). El código interno / SKU va en su propio campo.");
         return;
       }
 
@@ -342,7 +351,8 @@ export default function EditarProductoPage() {
         tiempo_prep_minutos: Math.max(parseInt(tiempoPrepMinutos) || 0, 0),
         descripcion: descripcion.trim() || null,
         codigo_barras: codigoBarras || null,
-        codigo_interno: form.codigo_interno.trim() || null,
+        // codigo_interno se OMITE del payload a propósito: el PATCH no lo toca,
+        // preservando el valor existente en productos ya creados (compatibilidad).
         codigo_barras_interno: false,
       };
 
@@ -458,7 +468,13 @@ export default function EditarProductoPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div>
               <label className={labelClass}>
-                SKU{tipoGastro === "reventa" ? "" : <span className="text-xs font-normal text-gray-400 ml-1">(opcional)</span>}
+                Código interno / SKU
+                {tipoGastro === "reventa" ? "" : <span className="text-xs font-normal text-gray-400 ml-1">(opcional)</span>}
+                {codigoGeneradoInterno && form.sku && (
+                  <span className="ml-2 align-middle text-[10px] uppercase tracking-wider bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded">
+                    Generado
+                  </span>
+                )}
               </label>
               <input
                 type="text"
@@ -467,7 +483,22 @@ export default function EditarProductoPage() {
                 onChange={handleChange}
                 className={`${inputClass} uppercase`}
                 required={tipoGastro === "reventa"}
+                autoComplete="off"
               />
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={handleGenerarCodigoInterno}
+                  disabled={generandoCodigo}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-sky-700 hover:text-sky-900 border border-sky-200 hover:bg-sky-50 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                    <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.989a.75.75 0 0 0-.75.75v4.242a.75.75 0 0 0 1.5 0v-2.43l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm1.23-3.723a.75.75 0 0 0 .219-.53V2.929a.75.75 0 0 0-1.5 0v2.431l-.31-.31A7 7 0 0 0 3.239 8.188a.75.75 0 1 0 1.448.389A5.5 5.5 0 0 1 13.89 6.11l.311.31h-2.432a.75.75 0 0 0 0 1.5h4.243a.75.75 0 0 0 .53-.219Z" clipRule="evenodd" />
+                  </svg>
+                  {generandoCodigo ? "Generando..." : "Generar código interno"}
+                </button>
+                <span className="ml-2 text-xs text-gray-400">Identifica el producto en el ERP</span>
+              </div>
             </div>
             <div className={tipoGastro === "menu" ? "hidden" : ""}>
               <label className={labelClass}>Unidad de medida</label>
@@ -491,36 +522,6 @@ export default function EditarProductoPage() {
                   ));
                 })()}
               </select>
-            </div>
-          </div>
-
-          {/* Código interno / ERP (alfanumérico — NO escaneable) */}
-          <div>
-            <label className={labelClass}>
-              Código interno
-              <span className="text-xs font-normal text-gray-400 ml-1">(opcional · identificación interna del ERP)</span>
-            </label>
-            <input
-              type="text"
-              name="codigo_interno"
-              value={form.codigo_interno}
-              onChange={handleChange}
-              placeholder="Ej: INT-DIS-202606-000010"
-              className={inputClass}
-              autoComplete="off"
-            />
-            <div className="mt-2">
-              <button
-                type="button"
-                onClick={handleGenerarCodigoInterno}
-                disabled={generandoCodigo}
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-sky-700 hover:text-sky-900 border border-sky-200 hover:bg-sky-50 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
-                  <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.989a.75.75 0 0 0-.75.75v4.242a.75.75 0 0 0 1.5 0v-2.43l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm1.23-3.723a.75.75 0 0 0 .219-.53V2.929a.75.75 0 0 0-1.5 0v2.431l-.31-.31A7 7 0 0 0 3.239 8.188a.75.75 0 1 0 1.448.389A5.5 5.5 0 0 1 13.89 6.11l.311.31h-2.432a.75.75 0 0 0 0 1.5h4.243a.75.75 0 0 0 .53-.219Z" clipRule="evenodd" />
-                </svg>
-                {generandoCodigo ? "Generando..." : "Generar código interno"}
-              </button>
             </div>
           </div>
 

@@ -37,7 +37,6 @@ export default function NuevoProductoPage() {
     descripcion: "",
     sku: "",
     codigo_barras: "",
-    codigo_interno: "",
     costo_promedio: "",
     precio_minorista: "",
     markup_minorista: "",
@@ -191,8 +190,9 @@ export default function NuevoProductoPage() {
       });
       const json = await res.json();
       if (res.ok && json?.success && json.data?.codigo) {
-        // El código interno (INT-…) va al campo Código interno, NO al de barras.
-        setForm((prev) => ({ ...prev, codigo_interno: json.data.codigo as string }));
+        // El código interno (INT-…) cumple la función de SKU interno: se carga
+        // directamente en el campo unificado "Código interno / SKU" (columna sku).
+        setForm((prev) => ({ ...prev, sku: json.data.codigo as string }));
         setCodigoGeneradoInterno(true);
       } else {
         setErrorGeneral(json?.error ?? "No se pudo generar el código.");
@@ -217,7 +217,7 @@ export default function NuevoProductoPage() {
   ) {
     setErrorDuplicado(null);
     setErrorGeneral(null);
-    if (e.target.name === "codigo_interno") setCodigoGeneradoInterno(false);
+    if (e.target.name === "sku") setCodigoGeneradoInterno(false);
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   }
 
@@ -319,16 +319,15 @@ export default function NuevoProductoPage() {
       // Validaciones básicas en JS (HTML5 desactivado con noValidate).
       const nombreT = form.nombre.trim();
       if (!nombreT) { showErr("El nombre es obligatorio."); return; }
-      if (tipoGastro === "reventa" && !form.sku.trim()) { showErr("El SKU es obligatorio para productos de reventa."); return; }
+      if (tipoGastro === "reventa" && !form.sku.trim()) { showErr("El código interno / SKU es obligatorio para productos de reventa."); return; }
 
-      // Código de barras = NUMÉRICO escaneable (EAN-13). El código interno
-      // (INT-…) es un campo aparte. No se autogenera nada al guardar.
+      // Código de barras = NUMÉRICO escaneable (EAN-13). El código interno / SKU
+      // va en el campo sku. No se autogenera nada al guardar.
       const codigoBarras = form.codigo_barras.trim();
       if (codigoBarras && !/^\d+$/.test(codigoBarras)) {
-        showErr("El código de barras debe ser numérico (escaneable). El código interno (INT-…) va en su propio campo.");
+        showErr("El código de barras debe ser numérico (escaneable). El código interno / SKU va en su propio campo.");
         return;
       }
-      const codigoInterno = form.codigo_interno.trim();
 
       // Pre-chequeo duplicado tolerante a fallos de red.
       try {
@@ -361,7 +360,9 @@ export default function NuevoProductoPage() {
           unidad_medida: form.unidad_medida.trim().toUpperCase(),
           metodo_valuacion: form.metodo_valuacion,
           codigo_barras: codigoBarras || null,
-          codigo_interno: codigoInterno || null,
+          // Código interno / SKU unificado: el valor vive en `sku`. La columna
+          // codigo_interno queda vacía para productos nuevos (sin redundancia).
+          codigo_interno: null,
           codigo_barras_interno: false,
           categoria_principal_id: categoriaId,
           ubicacion_principal_id: ubicacionId,
@@ -595,17 +596,38 @@ export default function NuevoProductoPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div>
               <label className={labelClass}>
-                SKU{tipoGastro === "reventa" ? "" : <span className="text-xs font-normal text-gray-400 ml-1">(opcional)</span>}
+                Código interno / SKU
+                {tipoGastro === "reventa" ? "" : <span className="text-xs font-normal text-gray-400 ml-1">(opcional)</span>}
+                {codigoGeneradoInterno && form.sku && (
+                  <span className="ml-2 align-middle text-[10px] uppercase tracking-wider bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded">
+                    Generado
+                  </span>
+                )}
               </label>
               <input
                 type="text"
                 name="sku"
                 value={form.sku}
                 onChange={handleChange}
-                placeholder="Ej: OOTD-001"
+                placeholder="Ej: INT-DIS-202606-000010 o tu propio código"
                 className={`${inputClass} uppercase`}
                 required={tipoGastro === "reventa"}
+                autoComplete="off"
               />
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={handleGenerarCodigoInterno}
+                  disabled={generandoCodigo}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-sky-700 hover:text-sky-900 border border-sky-200 hover:bg-sky-50 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                    <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.989a.75.75 0 0 0-.75.75v4.242a.75.75 0 0 0 1.5 0v-2.43l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm1.23-3.723a.75.75 0 0 0 .219-.53V2.929a.75.75 0 0 0-1.5 0v2.431l-.31-.31A7 7 0 0 0 3.239 8.188a.75.75 0 1 0 1.448.389A5.5 5.5 0 0 1 13.89 6.11l.311.31h-2.432a.75.75 0 0 0 0 1.5h4.243a.75.75 0 0 0 .53-.219Z" clipRule="evenodd" />
+                  </svg>
+                  {generandoCodigo ? "Generando..." : "Generar código interno"}
+                </button>
+                <span className="ml-2 text-xs text-gray-400">Identifica el producto en el ERP</span>
+              </div>
             </div>
 
             <div className={tipoGastro === "menu" ? "hidden" : ""}>
@@ -621,41 +643,6 @@ export default function NuevoProductoPage() {
                   <option key={u} value={u}>{u}</option>
                 ))}
               </select>
-            </div>
-          </div>
-
-          {/* Código interno / ERP (alfanumérico — NO escaneable) */}
-          <div>
-            <label className={labelClass}>
-              Código interno
-              <span className="text-xs font-normal text-gray-400 ml-1">(opcional · identificación interna del ERP)</span>
-              {codigoGeneradoInterno && form.codigo_interno && (
-                <span className="ml-2 align-middle text-[10px] uppercase tracking-wider bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded">
-                  Generado
-                </span>
-              )}
-            </label>
-            <input
-              type="text"
-              name="codigo_interno"
-              value={form.codigo_interno}
-              onChange={handleChange}
-              placeholder="Ej: INT-DIS-202606-000010"
-              className={inputClass}
-              autoComplete="off"
-            />
-            <div className="mt-2">
-              <button
-                type="button"
-                onClick={handleGenerarCodigoInterno}
-                disabled={generandoCodigo}
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-sky-700 hover:text-sky-900 border border-sky-200 hover:bg-sky-50 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
-                  <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.989a.75.75 0 0 0-.75.75v4.242a.75.75 0 0 0 1.5 0v-2.43l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm1.23-3.723a.75.75 0 0 0 .219-.53V2.929a.75.75 0 0 0-1.5 0v2.431l-.31-.31A7 7 0 0 0 3.239 8.188a.75.75 0 1 0 1.448.389A5.5 5.5 0 0 1 13.89 6.11l.311.31h-2.432a.75.75 0 0 0 0 1.5h4.243a.75.75 0 0 0 .53-.219Z" clipRule="evenodd" />
-                </svg>
-                {generandoCodigo ? "Generando..." : "Generar código interno"}
-              </button>
             </div>
           </div>
 
