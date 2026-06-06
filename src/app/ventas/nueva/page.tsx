@@ -63,38 +63,6 @@ const labelClass = "block text-sm font-medium text-slate-700 mb-1.5";
 
 // ── Sub-componentes ───────────────────────────────────────────────────────────
 
-function SegmentedControl<T extends string>({
-  value,
-  options,
-  onChange,
-  disabled,
-}: {
-  value: T;
-  options: { value: T; label: string }[];
-  onChange: (v: T) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div className={`flex border border-slate-200 rounded-lg overflow-hidden ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}>
-      {options.map((opt) => (
-        <button
-          key={opt.value}
-          type="button"
-          disabled={disabled}
-          onClick={() => onChange(opt.value)}
-          className={`flex-1 py-2 text-sm font-medium transition-colors ${
-            value === opt.value
-              ? "bg-[#0EA5E9] text-white"
-              : "bg-white text-slate-600 hover:bg-slate-50"
-          }`}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
     <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
@@ -319,15 +287,6 @@ export default function NuevaVentaPage() {
     setErrorLinea(null);
   }
 
-  /** Cambia el tipo de precio de la línea en construcción y ajusta el precio unitario. */
-  function handleTipoPrecioChange(tipo: TipoPrecioVenta) {
-    setLineaTipoPrecio(tipo);
-    setErrorLinea(null);
-    if (prodSel) {
-      setLineaPrecio(String(precioPorTipo(prodSel, tipo)));
-    }
-  }
-
   // ── Handlers del combobox ─────────────────────────────────────────────────
   function handleComboInput(e: React.ChangeEvent<HTMLInputElement>) {
     setComboQuery(e.target.value);
@@ -485,7 +444,7 @@ export default function NuevaVentaPage() {
           <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
 
             {/* ── Combobox con búsqueda — 5 cols ────────────────────────────── */}
-            <div className="md:col-span-5" ref={comboContainerRef}>
+            <div className="md:col-span-6" ref={comboContainerRef}>
               <label className={labelClass}>
                 Producto
                 <span className="ml-1 text-gray-400 font-normal normal-case tracking-normal text-xs">
@@ -587,8 +546,8 @@ export default function NuevaVentaPage() {
               )}
             </div>
 
-            {/* Cantidad — 2 cols */}
-            <div className="md:col-span-2">
+            {/* Cantidad */}
+            <div className="md:col-span-3">
               <label className={labelClass}>Cantidad</label>
               <input
                 type="number"
@@ -601,8 +560,8 @@ export default function NuevaVentaPage() {
               />
             </div>
 
-            {/* Precio — 2 cols */}
-            <div className="md:col-span-2">
+            {/* Precio */}
+            <div className="md:col-span-3">
               <label className={labelClass}>Precio (Gs.)</label>
               <MontoInput
                 value={lineaPrecio}
@@ -614,53 +573,25 @@ export default function NuevaVentaPage() {
               />
             </div>
 
-            {/* IVA — 3 cols */}
-            <div className="md:col-span-3">
-              <label className={labelClass}>IVA</label>
-              <SegmentedControl<TipoIvaVenta>
-                value={lineaIva}
-                options={[
-                  { value: "EXENTA", label: "Ex"  },
-                  { value: "5%",     label: "5%"  },
-                  { value: "10%",    label: "10%" },
-                ]}
-                onChange={setLineaIva}
-              />
-            </div>
+            {/* IVA y Tipo de precio se eligen en el buscador (panel de detalle).
+                Las líneas cargadas desde acá usan minorista + IVA 10% por defecto;
+                el monto es editable y el detalle fino se hace desde el buscador. */}
 
           </div>
 
-          {/* Fila 2: Tipo de precio (estilo botones, como IVA) + Agregar */}
-          <div className="mt-4 grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-            <div className="md:col-span-6">
-              <label className={labelClass}>Tipo de precio</label>
-              <SegmentedControl<TipoPrecioVenta>
-                value={lineaTipoPrecio}
-                options={[
-                  { value: "minorista", label: "Minorista" },
-                  { value: "mayorista", label: "Mayorista" },
-                  { value: "costo",     label: "Al costo"  },
-                ]}
-                onChange={handleTipoPrecioChange}
-                disabled={!prodSel}
-              />
-            </div>
-
-            {/* Botón Agregar */}
-            <div className="md:col-span-6 flex flex-col">
-              <label className="invisible text-xs mb-1.5 hidden md:block">.</label>
-              <button
-                type="button"
-                onClick={handleAgregarLinea}
-                disabled={!lineaValida}
-                className="flex items-center justify-center gap-1.5 w-full bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 shrink-0">
-                  <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
-                </svg>
-                Agregar producto
-              </button>
-            </div>
+          {/* Agregar al carrito */}
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={handleAgregarLinea}
+              disabled={!lineaValida}
+              className="flex items-center justify-center gap-1.5 w-full bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 shrink-0">
+                <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
+              </svg>
+              Agregar producto
+            </button>
           </div>
 
           {/* Preview totales de la línea */}
