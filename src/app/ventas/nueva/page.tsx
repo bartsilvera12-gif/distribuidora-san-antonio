@@ -409,7 +409,10 @@ export default function NuevaVentaPage() {
       },
     ]);
 
-    // Limpiar línea y devolver foco al buscador de producto
+    // Limpiar la línea en construcción. NO devolvemos foco al campo Producto:
+    // es readonly y su onFocus reabre el buscador, lo que provocaba que el modal
+    // se reabriera solo tras agregar. El usuario abre el buscador manualmente
+    // (click en el campo o botón "Buscar") para cargar otro producto.
     setLineaProdId("");
     setLineaCant("");
     setLineaPrecio("");
@@ -417,7 +420,6 @@ export default function NuevaVentaPage() {
     setLineaTipoPrecio("minorista");
     setComboQuery("");
     setComboOpen(false);
-    setTimeout(() => comboInputRef.current?.focus(), 0);
   }
 
   function handleEliminarLinea(index: number) {
