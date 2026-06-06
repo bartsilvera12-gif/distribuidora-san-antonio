@@ -18,7 +18,10 @@ export interface Producto {
   stock_minimo: number;
   unidad_medida: string;
   metodo_valuacion: MetodoValuacion;
+  /** Código de barras NUMÉRICO escaneable (EAN-13). */
   codigo_barras?: string | null;
+  /** Código interno / ERP (alfanumérico, ej. INT-DIS-202606-000010). */
+  codigo_interno?: string | null;
   codigo_barras_interno?: boolean;
   imagen_path?: string | null;
   imagen_url?: string | null;

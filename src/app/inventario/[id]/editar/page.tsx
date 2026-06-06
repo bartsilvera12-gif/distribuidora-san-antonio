@@ -6,6 +6,7 @@ import { useRouter, useParams } from "next/navigation";
 import MontoInput from "@/components/ui/MontoInput";
 import PageHeader from "@/components/ui/PageHeader";
 import { getProducto, productoExiste, updateProducto } from "@/lib/inventario/storage";
+import { generarEan13 } from "@/lib/inventario/ean13";
 import type { MetodoValuacion } from "@/lib/inventario/types";
 import ProductImageUploader from "@/components/inventario/ProductImageUploader";
 import SelectFromList from "@/components/inventario/SelectFromList";
@@ -40,7 +41,7 @@ export default function EditarProductoPage() {
     nombre: "",
     sku: "",
     codigo_barras: "",
-    codigo_barras_interno: false,
+    codigo_interno: "",
     costo_promedio: "",
     precio_minorista: "",
     markup_minorista: "",
@@ -53,7 +54,6 @@ export default function EditarProductoPage() {
   });
   const [imagenPath, setImagenPath] = useState<string | null>(null);
   const [imagenUrl, setImagenUrl] = useState<string | null>(null);
-  const [codigoOriginal, setCodigoOriginal] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [generandoCodigo, setGenerandoCodigo] = useState(false);
 
@@ -116,11 +116,8 @@ export default function EditarProductoPage() {
       });
       const json = await res.json();
       if (res.ok && json?.success && json.data?.codigo) {
-        setForm((prev) => ({
-          ...prev,
-          codigo_barras: json.data.codigo as string,
-          codigo_barras_interno: true,
-        }));
+        // El código interno (INT-…) va al campo Código interno, NO al de barras.
+        setForm((prev) => ({ ...prev, codigo_interno: json.data.codigo as string }));
       } else {
         setErrorGeneral(json?.error ?? "No se pudo generar el código.");
       }
@@ -129,6 +126,13 @@ export default function EditarProductoPage() {
     } finally {
       setGenerandoCodigo(false);
     }
+  }
+
+  /** Genera un código de barras EAN-13 numérico con dígito verificador válido. */
+  function handleGenerarEan13() {
+    setErrorDuplicado(null);
+    setErrorGeneral(null);
+    setForm((prev) => ({ ...prev, codigo_barras: generarEan13() }));
   }
 
   useEffect(() => {
@@ -147,7 +151,7 @@ export default function EditarProductoPage() {
         nombre: p.nombre,
         sku: p.sku,
         codigo_barras: p.codigo_barras ?? "",
-        codigo_barras_interno: p.codigo_barras_interno === true,
+        codigo_interno: p.codigo_interno ?? "",
         costo_promedio: String(p.costo_promedio),
         precio_minorista: String(min),
         markup_minorista: markupMin.toFixed(2),
@@ -158,7 +162,6 @@ export default function EditarProductoPage() {
         unidad_medida: p.unidad_medida,
         metodo_valuacion: p.metodo_valuacion,
       });
-      setCodigoOriginal(p.codigo_barras ?? null);
       setImagenPath(p.imagen_path ?? null);
       setImagenUrl(p.imagen_url ?? null);
       setCategoriaId(p.categoria_principal_id ?? null);
@@ -191,16 +194,6 @@ export default function EditarProductoPage() {
   ) {
     setErrorDuplicado(null);
     setErrorGeneral(null);
-    if (e.target.name === "codigo_barras") {
-      const next = e.target.value;
-      // Si el codigo cambia respecto al original guardado, deja de ser "interno".
-      setForm((prev) => ({
-        ...prev,
-        codigo_barras: next,
-        codigo_barras_interno: next === (codigoOriginal ?? "") ? prev.codigo_barras_interno : false,
-      }));
-      return;
-    }
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   }
 
@@ -301,16 +294,10 @@ export default function EditarProductoPage() {
     };
 
     try {
-      const codigoIngresado = form.codigo_barras.trim();
-      // Validar: si cambio el codigo y empieza con INT- pero NO fue generado por el sistema,
-      // rechazar (prefijo reservado).
-      if (
-        codigoIngresado &&
-        codigoIngresado !== codigoOriginal &&
-        /^INT-/i.test(codigoIngresado) &&
-        !form.codigo_barras_interno
-      ) {
-        showErr('El prefijo "INT-" está reservado para códigos internos generados por el sistema. Usá otro código o dejá el actual.');
+      // Código de barras = NUMÉRICO escaneable (EAN-13). El código interno es aparte.
+      const codigoBarras = form.codigo_barras.trim();
+      if (codigoBarras && !/^\d+$/.test(codigoBarras)) {
+        showErr("El código de barras debe ser numérico (escaneable). El código interno (INT-…) va en su propio campo.");
         return;
       }
 
@@ -327,7 +314,6 @@ export default function EditarProductoPage() {
         console.warn("[inventario/editar] productoExiste failed, ignorando:", err);
       }
 
-      const cambioCodigo = codigoIngresado !== (codigoOriginal ?? "");
       const precioMinorista = parseFloat(form.precio_minorista) || 0;
       // Mayorista cae a minorista si quedó vacío (nunca 0 accidental).
       const precioMayorista = parseFloat(form.precio_mayorista) || precioMinorista;
@@ -355,13 +341,10 @@ export default function EditarProductoPage() {
         factor_compra_receta: Math.max(parseFloat(factorCompraReceta) || 1, 0.0001),
         tiempo_prep_minutos: Math.max(parseInt(tiempoPrepMinutos) || 0, 0),
         descripcion: descripcion.trim() || null,
+        codigo_barras: codigoBarras || null,
+        codigo_interno: form.codigo_interno.trim() || null,
+        codigo_barras_interno: false,
       };
-      if (cambioCodigo) {
-        updatePayload.codigo_barras = codigoIngresado || null;
-        updatePayload.codigo_barras_interno =
-          codigoIngresado.length > 0 &&
-          (form.codigo_barras_interno === true || /^INT-/i.test(codigoIngresado));
-      }
 
       console.log("[inventario/editar] sending PATCH", { id, payloadKeys: Object.keys(updatePayload) });
       const actualizado = await updateProducto(id, updatePayload);
@@ -511,41 +494,65 @@ export default function EditarProductoPage() {
             </div>
           </div>
 
-          {/* Codigo de barras */}
+          {/* Código interno / ERP (alfanumérico — NO escaneable) */}
           <div>
             <label className={labelClass}>
-              Código de barras
-              {form.codigo_barras_interno && form.codigo_barras && form.codigo_barras === codigoOriginal && (
-                <span className="ml-2 align-middle text-[10px] uppercase tracking-wider bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded">
-                  Interno
-                </span>
-              )}
+              Código interno
+              <span className="text-xs font-normal text-gray-400 ml-1">(opcional · identificación interna del ERP)</span>
             </label>
             <input
               type="text"
-              name="codigo_barras"
-              value={form.codigo_barras}
+              name="codigo_interno"
+              value={form.codigo_interno}
               onChange={handleChange}
-              placeholder="Escaneá o escribí — dejá vacío para autogenerar"
+              placeholder="Ej: INT-DIS-202606-000010"
               className={inputClass}
               autoComplete="off"
             />
-            {!form.codigo_barras.trim() && (
-              <div className="mt-2">
-                <button
-                  type="button"
-                  onClick={handleGenerarCodigoInterno}
-                  disabled={generandoCodigo}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-sky-700 hover:text-sky-900 border border-sky-200 hover:bg-sky-50 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
-                    <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.989a.75.75 0 0 0-.75.75v4.242a.75.75 0 0 0 1.5 0v-2.43l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm1.23-3.723a.75.75 0 0 0 .219-.53V2.929a.75.75 0 0 0-1.5 0v2.431l-.31-.31A7 7 0 0 0 3.239 8.188a.75.75 0 1 0 1.448.389A5.5 5.5 0 0 1 13.89 6.11l.311.31h-2.432a.75.75 0 0 0 0 1.5h4.243a.75.75 0 0 0 .53-.219Z" clipRule="evenodd" />
-                  </svg>
-                  {generandoCodigo ? "Generando..." : "Generar código interno"}
-                </button>
-                <span className="ml-2 text-xs text-gray-400">(opcional)</span>
-              </div>
-            )}
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={handleGenerarCodigoInterno}
+                disabled={generandoCodigo}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-sky-700 hover:text-sky-900 border border-sky-200 hover:bg-sky-50 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                  <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.989a.75.75 0 0 0-.75.75v4.242a.75.75 0 0 0 1.5 0v-2.43l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm1.23-3.723a.75.75 0 0 0 .219-.53V2.929a.75.75 0 0 0-1.5 0v2.431l-.31-.31A7 7 0 0 0 3.239 8.188a.75.75 0 1 0 1.448.389A5.5 5.5 0 0 1 13.89 6.11l.311.31h-2.432a.75.75 0 0 0 0 1.5h4.243a.75.75 0 0 0 .53-.219Z" clipRule="evenodd" />
+                </svg>
+                {generandoCodigo ? "Generando..." : "Generar código interno"}
+              </button>
+            </div>
+          </div>
+
+          {/* Código de barras (EAN-13 numérico, escaneable con lector) */}
+          <div>
+            <label className={labelClass}>
+              Código de barras
+              <span className="text-xs font-normal text-gray-400 ml-1">(numérico · escaneable con lector)</span>
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              name="codigo_barras"
+              value={form.codigo_barras}
+              onChange={handleChange}
+              placeholder="Escaneá o escribí el código numérico (EAN-13)"
+              className={inputClass}
+              autoComplete="off"
+            />
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={handleGenerarEan13}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 hover:text-emerald-900 border border-emerald-200 hover:bg-emerald-50 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                  <path d="M3 4.75A.75.75 0 0 1 3.75 4h.5a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1-.75-.75V4.75ZM6 4.75A.75.75 0 0 1 6.75 4h.5a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-.5A.75.75 0 0 1 6 15.25V4.75ZM9.5 4.75A.75.75 0 0 1 10.25 4h1.5a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1-.75-.75V4.75ZM14 4.75a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1-.75-.75V4.75Z" />
+                </svg>
+                Generar código de barras EAN-13
+              </button>
+              <span className="ml-2 text-xs text-gray-400">Solo si no trae uno de fábrica</span>
+            </div>
           </div>
 
           {/* Imagen del producto */}

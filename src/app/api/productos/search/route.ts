@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from("productos")
       .select(
-        "id, nombre, sku, codigo_barras, codigo_barras_interno, " +
+        "id, nombre, sku, codigo_barras, codigo_interno, codigo_barras_interno, " +
           "precio_venta, costo_promedio, stock_actual, stock_minimo, " +
           "unidad_medida, metodo_valuacion, imagen_path, imagen_url, " +
           "categoria_principal_id, proveedor_principal_id, ubicacion_principal_id, " +
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
 
     if (q.length > 0) {
       const pat = `%${escapeIlikePattern(q)}%`;
-      query = query.or(`nombre.ilike.${pat},sku.ilike.${pat},codigo_barras.ilike.${pat}`);
+      query = query.or(`nombre.ilike.${pat},sku.ilike.${pat},codigo_barras.ilike.${pat},codigo_interno.ilike.${pat}`);
     }
 
     query = query.order("nombre").limit(limit);

@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
-import { normalizeUpperText, normalizeUpperCodigoBarras } from "@/lib/text/normalize";
+import { normalizeUpperText } from "@/lib/text/normalize";
 import type { AppSupabaseClient } from "@/lib/supabase/schema";
 
 const PRODUCTO_COLS =
   "id, empresa_id, nombre, sku, costo_promedio, precio_venta, precio_minorista, precio_mayorista, stock_actual, stock_minimo, " +
   "unidad_medida, metodo_valuacion, activo, created_at, updated_at, " +
-  "codigo_barras, codigo_barras_interno, imagen_path, imagen_url, " +
+  "codigo_barras, codigo_interno, codigo_barras_interno, imagen_path, imagen_url, " +
   "categoria_principal_id, ubicacion_principal_id, proveedor_principal_id, " +
   "es_vendible, es_insumo, controla_stock, valorizado, unidad_compra, unidad_receta, " +
   "factor_compra_receta, tiempo_prep_minutos, descripcion";
@@ -108,7 +108,19 @@ export async function PATCH(
       const mv = body.metodo_valuacion;
       patch.metodo_valuacion = mv === "FIFO" || mv === "LIFO" ? mv : "CPP";
     }
-    if (body.codigo_barras !== undefined) patch.codigo_barras = normalizeUpperCodigoBarras(body.codigo_barras);
+    if (body.codigo_barras !== undefined) {
+      const cbRaw = String(body.codigo_barras ?? "").replace(/\s+/g, "");
+      if (cbRaw && !/^\d+$/.test(cbRaw)) {
+        return NextResponse.json(
+          errorResponse("El código de barras debe ser numérico (escaneable). El código interno va en su propio campo."),
+          { status: 400 }
+        );
+      }
+      patch.codigo_barras = cbRaw || null;
+    }
+    if (body.codigo_interno !== undefined) {
+      patch.codigo_interno = String(body.codigo_interno ?? "").trim().toUpperCase() || null;
+    }
     if (body.codigo_barras_interno !== undefined) patch.codigo_barras_interno = body.codigo_barras_interno === true;
     if (body.imagen_path !== undefined) {
       const v = body.imagen_path != null ? String(body.imagen_path) : "";

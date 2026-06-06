@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
-import { normalizeUpperText, normalizeUpperCodigoBarras } from "@/lib/text/normalize";
+import { normalizeUpperText } from "@/lib/text/normalize";
 import { signProductoImagen } from "@/lib/inventario/imagen-storage";
 import type { AppSupabaseClient } from "@/lib/supabase/schema";
 
@@ -13,7 +13,7 @@ import type { AppSupabaseClient } from "@/lib/supabase/schema";
 const PRODUCTO_COLS =
   "id, empresa_id, nombre, sku, costo_promedio, precio_venta, precio_minorista, precio_mayorista, stock_actual, stock_minimo, " +
   "unidad_medida, metodo_valuacion, activo, created_at, updated_at, " +
-  "codigo_barras, codigo_barras_interno, imagen_path, imagen_url, " +
+  "codigo_barras, codigo_interno, codigo_barras_interno, imagen_path, imagen_url, " +
   "categoria_principal_id, ubicacion_principal_id, proveedor_principal_id, " +
   "es_vendible, es_insumo, controla_stock, valorizado, unidad_compra, unidad_receta, " +
   "factor_compra_receta, tiempo_prep_minutos, descripcion";
@@ -115,8 +115,18 @@ export async function POST(request: NextRequest) {
     if (!nombre) return NextResponse.json(errorResponse("El nombre es obligatorio."), { status: 400 });
     if (!sku) return NextResponse.json(errorResponse("El SKU es obligatorio."), { status: 400 });
 
-    const codigoBarras = normalizeUpperCodigoBarras(body.codigo_barras);
-    const codigoBarrasInterno = codigoBarras != null && body.codigo_barras_interno === true;
+    // Código de barras = NUMÉRICO escaneable (EAN-13 recomendado). Se rechaza
+    // cualquier no-dígito para no volver a contaminarlo con códigos internos.
+    const codigoBarrasRaw = String(body.codigo_barras ?? "").replace(/\s+/g, "");
+    if (codigoBarrasRaw && !/^\d+$/.test(codigoBarrasRaw)) {
+      return NextResponse.json(
+        errorResponse("El código de barras debe ser numérico (escaneable). El código interno va en su propio campo."),
+        { status: 400 }
+      );
+    }
+    const codigoBarras = codigoBarrasRaw || null;
+    // Código interno / ERP (alfanumérico, ej. INT-DIS-…). Campo separado.
+    const codigoInterno = String(body.codigo_interno ?? "").trim().toUpperCase() || null;
     const stockActual = Number(body.stock_actual ?? 0) || 0;
     const costoPromedio = Number(body.costo_promedio ?? 0) || 0;
     const stockMinimo = Number(body.stock_minimo ?? 0) || 0;
@@ -193,7 +203,8 @@ export async function POST(request: NextRequest) {
       unidad_medida: unidadMedida,
       metodo_valuacion: metodoValuacion,
       codigo_barras: codigoBarras,
-      codigo_barras_interno: codigoBarras ? codigoBarrasInterno : false,
+      codigo_interno: codigoInterno,
+      codigo_barras_interno: false,
       categoria_principal_id: categoriaPrincipalId,
       ubicacion_principal_id: ubicacionPrincipalId,
       proveedor_principal_id: proveedorPrincipalId,

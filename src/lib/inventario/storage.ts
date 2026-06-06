@@ -26,6 +26,7 @@ interface ProductoRow {
   created_at: string;
   updated_at: string;
   codigo_barras?: string | null;
+  codigo_interno?: string | null;
   codigo_barras_interno?: boolean | null;
   imagen_path?: string | null;
   imagen_url?: string | null;
@@ -88,6 +89,7 @@ function rowToProducto(row: ProductoRow): Producto {
     unidad_medida: row.unidad_medida,
     metodo_valuacion: row.metodo_valuacion as MetodoValuacion,
     codigo_barras: row.codigo_barras ?? null,
+    codigo_interno: row.codigo_interno ?? null,
     codigo_barras_interno: row.codigo_barras_interno ?? false,
     imagen_path: row.imagen_path ?? null,
     imagen_url: row.imagen_url ?? null,
@@ -212,6 +214,10 @@ export async function saveProducto(
       datos.codigo_barras !== undefined && datos.codigo_barras !== null && datos.codigo_barras !== ""
         ? datos.codigo_barras
         : null,
+    codigo_interno:
+      datos.codigo_interno !== undefined && datos.codigo_interno !== null && datos.codigo_interno !== ""
+        ? datos.codigo_interno
+        : null,
     codigo_barras_interno: datos.codigo_barras_interno === true,
     categoria_principal_id: datos.categoria_principal_id ?? null,
     ubicacion_principal_id: datos.ubicacion_principal_id ?? null,
@@ -278,6 +284,7 @@ export async function updateProducto(
   if (datos.unidad_medida !== undefined) body.unidad_medida = datos.unidad_medida;
   if (datos.metodo_valuacion !== undefined) body.metodo_valuacion = datos.metodo_valuacion;
   if (datos.codigo_barras !== undefined) body.codigo_barras = datos.codigo_barras ?? null;
+  if (datos.codigo_interno !== undefined) body.codigo_interno = datos.codigo_interno ?? null;
   if (datos.codigo_barras_interno !== undefined) body.codigo_barras_interno = datos.codigo_barras_interno;
   if (datos.imagen_path !== undefined) body.imagen_path = datos.imagen_path ?? null;
   if (datos.imagen_url !== undefined) body.imagen_url = datos.imagen_url ?? null;

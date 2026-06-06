@@ -7,6 +7,7 @@ import MontoInput from "@/components/ui/MontoInput";
 import PageHeader from "@/components/ui/PageHeader";
 import SelectFromList from "@/components/inventario/SelectFromList";
 import { productoExiste, saveProducto } from "@/lib/inventario/storage";
+import { generarEan13 } from "@/lib/inventario/ean13";
 import type { MetodoValuacion } from "@/lib/inventario/types";
 
 // Opciones estándar de unidad de medida para gastro
@@ -34,6 +35,7 @@ export default function NuevoProductoPage() {
     descripcion: "",
     sku: "",
     codigo_barras: "",
+    codigo_interno: "",
     costo_promedio: "",
     precio_minorista: "",
     markup_minorista: "",
@@ -162,7 +164,8 @@ export default function NuevoProductoPage() {
       });
       const json = await res.json();
       if (res.ok && json?.success && json.data?.codigo) {
-        setForm((prev) => ({ ...prev, codigo_barras: json.data.codigo as string }));
+        // El código interno (INT-…) va al campo Código interno, NO al de barras.
+        setForm((prev) => ({ ...prev, codigo_interno: json.data.codigo as string }));
         setCodigoGeneradoInterno(true);
       } else {
         setErrorGeneral(json?.error ?? "No se pudo generar el código.");
@@ -174,13 +177,20 @@ export default function NuevoProductoPage() {
     }
   }
 
+  /** Genera un código de barras EAN-13 numérico con dígito verificador válido. */
+  function handleGenerarEan13() {
+    setErrorDuplicado(null);
+    setErrorGeneral(null);
+    setForm((prev) => ({ ...prev, codigo_barras: generarEan13() }));
+  }
+
   // Campos sin lógica reactiva
   function handleChange(
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) {
     setErrorDuplicado(null);
     setErrorGeneral(null);
-    if (e.target.name === "codigo_barras") setCodigoGeneradoInterno(false);
+    if (e.target.name === "codigo_interno") setCodigoGeneradoInterno(false);
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   }
 
@@ -284,12 +294,14 @@ export default function NuevoProductoPage() {
       if (!nombreT) { showErr("El nombre es obligatorio."); return; }
       if (tipoGastro === "reventa" && !form.sku.trim()) { showErr("El SKU es obligatorio para productos de reventa."); return; }
 
-      const codigoEnInput = form.codigo_barras.trim();
-      const esIntManual = !!codigoEnInput && /^INT-/i.test(codigoEnInput) && !codigoGeneradoInterno;
-      if (esIntManual) {
-        showErr('El prefijo "INT-" está reservado para códigos internos generados por el sistema. Dejá el campo vacío y guardá, o usá el botón "Generar código interno".');
+      // Código de barras = NUMÉRICO escaneable (EAN-13). El código interno
+      // (INT-…) es un campo aparte. No se autogenera nada al guardar.
+      const codigoBarras = form.codigo_barras.trim();
+      if (codigoBarras && !/^\d+$/.test(codigoBarras)) {
+        showErr("El código de barras debe ser numérico (escaneable). El código interno (INT-…) va en su propio campo.");
         return;
       }
+      const codigoInterno = form.codigo_interno.trim();
 
       // Pre-chequeo duplicado tolerante a fallos de red.
       try {
@@ -301,26 +313,6 @@ export default function NuevoProductoPage() {
         }
       } catch (err) {
         console.warn("[inventario/nuevo] productoExiste failed, ignorando:", err);
-      }
-      // Resolver codigo: si vino del botón → ya está en el input con interno=true.
-      // Si el usuario escribió uno → manual (interno=false).
-      // Si está vacío → pedir uno interno al backend.
-      let codigo: string | null = codigoEnInput || null;
-      let interno = codigoGeneradoInterno && !!codigoEnInput;
-      if (!codigo) {
-        try {
-          const res = await fetch("/api/productos/codigo-interno", {
-            method: "POST",
-            credentials: "include",
-          });
-          const json = await res.json();
-          if (res.ok && json?.success && json.data?.codigo) {
-            codigo = json.data.codigo as string;
-            interno = true;
-          }
-        } catch {
-          codigo = null;
-        }
       }
 
       let guardado;
@@ -341,8 +333,9 @@ export default function NuevoProductoPage() {
           stock_minimo: parseInt(form.stock_minimo) || 0,
           unidad_medida: form.unidad_medida.trim().toUpperCase(),
           metodo_valuacion: form.metodo_valuacion,
-          codigo_barras: codigo,
-          codigo_barras_interno: interno,
+          codigo_barras: codigoBarras || null,
+          codigo_interno: codigoInterno || null,
+          codigo_barras_interno: false,
           categoria_principal_id: categoriaId,
           ubicacion_principal_id: ubicacionId,
           proveedor_principal_id: proveedorId,
@@ -604,22 +597,23 @@ export default function NuevoProductoPage() {
             </div>
           </div>
 
-          {/* Código de barras */}
+          {/* Código interno / ERP (alfanumérico — NO escaneable) */}
           <div>
             <label className={labelClass}>
-              Código de barras
-              {codigoGeneradoInterno && form.codigo_barras && (
+              Código interno
+              <span className="text-xs font-normal text-gray-400 ml-1">(opcional · identificación interna del ERP)</span>
+              {codigoGeneradoInterno && form.codigo_interno && (
                 <span className="ml-2 align-middle text-[10px] uppercase tracking-wider bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded">
-                  Interno
+                  Generado
                 </span>
               )}
             </label>
             <input
               type="text"
-              name="codigo_barras"
-              value={form.codigo_barras}
+              name="codigo_interno"
+              value={form.codigo_interno}
               onChange={handleChange}
-              placeholder="Escaneá o escribí — dejá vacío para autogenerar"
+              placeholder="Ej: INT-DIS-202606-000010"
               className={inputClass}
               autoComplete="off"
             />
@@ -635,7 +629,37 @@ export default function NuevoProductoPage() {
                 </svg>
                 {generandoCodigo ? "Generando..." : "Generar código interno"}
               </button>
-              <span className="ml-2 text-xs text-gray-400">(opcional)</span>
+            </div>
+          </div>
+
+          {/* Código de barras (EAN-13 numérico, escaneable con lector) */}
+          <div>
+            <label className={labelClass}>
+              Código de barras
+              <span className="text-xs font-normal text-gray-400 ml-1">(numérico · escaneable con lector)</span>
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              name="codigo_barras"
+              value={form.codigo_barras}
+              onChange={handleChange}
+              placeholder="Escaneá o escribí el código numérico (EAN-13)"
+              className={inputClass}
+              autoComplete="off"
+            />
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={handleGenerarEan13}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 hover:text-emerald-900 border border-emerald-200 hover:bg-emerald-50 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                  <path d="M3 4.75A.75.75 0 0 1 3.75 4h.5a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1-.75-.75V4.75ZM6 4.75A.75.75 0 0 1 6.75 4h.5a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-.5A.75.75 0 0 1 6 15.25V4.75ZM9.5 4.75A.75.75 0 0 1 10.25 4h1.5a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1-.75-.75V4.75ZM14 4.75a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1-.75-.75V4.75Z" />
+                </svg>
+                Generar código de barras EAN-13
+              </button>
+              <span className="ml-2 text-xs text-gray-400">Solo si no trae uno de fábrica</span>
             </div>
           </div>
 
