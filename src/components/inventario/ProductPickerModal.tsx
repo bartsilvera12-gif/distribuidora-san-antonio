@@ -9,6 +9,8 @@ export interface ProductoPickerItem {
   codigo_barras: string | null;
   codigo_barras_interno: boolean;
   precio_venta: number;
+  precio_minorista: number;
+  precio_mayorista: number;
   costo_promedio: number;
   stock_actual: number;
   stock_minimo: number;
@@ -35,6 +37,8 @@ export interface AgregarVentaPayload {
   cantidad: number;
   precio_input: number;
   iva: "EXENTA" | "5%" | "10%";
+  /** Tipo de precio elegido en el panel de detalle (minorista/mayorista/al costo). */
+  tipo_precio: "minorista" | "mayorista" | "costo";
 }
 
 interface Props {
@@ -44,13 +48,6 @@ interface Props {
    *  conserva la seleccion (ej. error de stock); si retorna `true`, limpia
    *  la cantidad para seguir cargando. */
   onAgregar: (p: AgregarVentaPayload) => boolean | void;
-  /**
-   * Modo selección (Opción A): si se provee, al hacer click en un producto de
-   * la lista se invoca este callback (en vez de mostrar el panel de detalle y
-   * agregar directo). El caller carga el producto en su builder de línea para
-   * que el usuario elija tipo de precio/IVA/cantidad antes de agregarlo.
-   */
-  onSelect?: (p: ProductoPickerItem) => void;
   excludeIds?: string[];
   /** Moneda actual de la venta. */
   moneda?: "GS" | "USD";
@@ -64,8 +61,24 @@ function formatGs(v: number): string {
   return `Gs. ${Math.round(v).toLocaleString("es-PY")}`;
 }
 
+/**
+ * Precio unitario (en PYG) según el tipo de precio elegido, con fallbacks:
+ *  minorista → precio_minorista (fallback precio_venta);
+ *  mayorista → precio_mayorista (fallback minorista);
+ *  costo     → costo_promedio.
+ */
+function precioPorTipoPicker(
+  p: ProductoPickerItem,
+  tipo: "minorista" | "mayorista" | "costo"
+): number {
+  const minorista = p.precio_minorista != null && p.precio_minorista > 0 ? p.precio_minorista : p.precio_venta;
+  if (tipo === "mayorista") return p.precio_mayorista != null && p.precio_mayorista > 0 ? p.precio_mayorista : minorista;
+  if (tipo === "costo") return p.costo_promedio ?? 0;
+  return minorista;
+}
+
 export default function ProductPickerModal({
-  open, onClose, onAgregar, onSelect, excludeIds = [], moneda = "GS", tipoCambio = 1, ivaDefault = "10%",
+  open, onClose, onAgregar, excludeIds = [], moneda = "GS", tipoCambio = 1, ivaDefault = "10%",
 }: Props) {
   const [q, setQ] = useState("");
   const [items, setItems] = useState<ProductoPickerItem[]>([]);
@@ -79,6 +92,7 @@ export default function ProductPickerModal({
   const [cantidad, setCantidad] = useState("1");
   const [precio, setPrecio] = useState("");
   const [iva, setIva] = useState<"EXENTA" | "5%" | "10%">(ivaDefault);
+  const [tipoPrecio, setTipoPrecio] = useState<"minorista" | "mayorista" | "costo">("minorista");
   const [feedback, setFeedback] = useState<string | null>(null);
 
   useEffect(() => { if (open) { setQ(""); setError(null); setSel(null); setTimeout(() => inputRef.current?.focus(), 50); } }, [open]);
@@ -115,17 +129,28 @@ export default function ProductPickerModal({
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [q, open]);
 
+  /** Convierte un precio en PYG a la moneda activa de la venta (string para el input). */
+  function precioEnMonedaStr(precioGs: number): string {
+    if (moneda === "USD" && tipoCambio > 0) {
+      return String(Math.round((precioGs / tipoCambio) * 100) / 100);
+    }
+    return String(Math.round(precioGs));
+  }
+
   function selectProducto(p: ProductoPickerItem) {
     setSel(p);
     setCantidad("1");
-    // Precio inicial: en la moneda de la venta
-    const precioGs = p.precio_venta;
-    if (moneda === "USD" && tipoCambio > 0) {
-      setPrecio(String(Math.round((precioGs / tipoCambio) * 100) / 100));
-    } else {
-      setPrecio(String(Math.round(precioGs)));
-    }
+    // Precio inicial: minorista (en la moneda de la venta).
+    setTipoPrecio("minorista");
+    setPrecio(precioEnMonedaStr(precioPorTipoPicker(p, "minorista")));
     setIva(ivaDefault);
+    setFeedback(null);
+  }
+
+  /** Cambia el tipo de precio del producto seleccionado y ajusta el precio unitario. */
+  function handleTipoPrecio(tipo: "minorista" | "mayorista" | "costo") {
+    setTipoPrecio(tipo);
+    if (sel) setPrecio(precioEnMonedaStr(precioPorTipoPicker(sel, tipo)));
     setFeedback(null);
   }
 
@@ -147,7 +172,7 @@ export default function ProductPickerModal({
         return;
       }
     }
-    const ok = onAgregar({ producto: sel, cantidad: cantNum, precio_input: precioNum, iva });
+    const ok = onAgregar({ producto: sel, cantidad: cantNum, precio_input: precioNum, iva, tipo_precio: tipoPrecio });
     if (ok !== false) {
       setFeedback("Producto agregado ✓");
       setCantidad("1");
@@ -229,11 +254,7 @@ export default function ProductPickerModal({
                   return (
                     <li
                       key={p.id}
-                      onClick={() => {
-                        if (sinStock) return;
-                        if (onSelect) { onSelect(p); onClose(); }
-                        else selectProducto(p);
-                      }}
+                      onClick={() => { if (!sinStock) selectProducto(p); }}
                       className={`flex items-center gap-3 px-4 py-3 transition-colors ${
                         sinStock ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
                       } ${isSel ? "bg-sky-50" : "hover:bg-slate-50"}`}
@@ -342,6 +363,24 @@ export default function ProductPickerModal({
                 )}
 
                 <div className="space-y-2 bg-white p-3 rounded-xl border border-slate-200">
+                  {/* Tipo de precio: al tocar, carga el precio correspondiente y recalcula. */}
+                  <div>
+                    <label className="block text-[11px] uppercase text-slate-400 mb-1">Tipo de precio</label>
+                    <div className="flex border border-slate-200 rounded-lg overflow-hidden">
+                      {(["minorista", "mayorista", "costo"] as const).map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => handleTipoPrecio(t)}
+                          className={`flex-1 py-1.5 text-xs font-medium transition-colors ${
+                            tipoPrecio === t ? "bg-[#0EA5E9] text-white" : "bg-white text-slate-600 hover:bg-slate-50"
+                          }`}
+                        >
+                          {t === "minorista" ? "Minorista" : t === "mayorista" ? "Mayorista" : "Al costo"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="block text-[11px] uppercase text-slate-400 mb-1">Cantidad</label>

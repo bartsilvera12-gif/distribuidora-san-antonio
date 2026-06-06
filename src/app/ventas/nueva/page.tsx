@@ -167,6 +167,8 @@ export default function NuevaVentaPage() {
       nombre: p.nombre,
       sku: p.sku,
       precio_venta: p.precio_venta,
+      precio_minorista: p.precio_minorista,
+      precio_mayorista: p.precio_mayorista,
       stock_actual: p.stock_actual,
       unidad_medida: p.unidad_medida,
       costo_promedio: p.costo_promedio ?? 0,
@@ -180,30 +182,12 @@ export default function NuevaVentaPage() {
   }
 
   /**
-   * Selección desde el buscador (Opción A): NO agrega al carrito directo.
-   * Carga el producto en el builder de línea para que el usuario elija
-   * tipo de precio (minorista/mayorista/al costo), IVA y cantidad, y recién
-   * ahí toque "Agregar producto".
-   *
-   * Prioriza el producto del catálogo local (`productos`, cargado al montar via
-   * getProductos) porque trae precio_minorista/mayorista/costo completos; el
-   * item del buscador (ProductoPickerItem) no los incluye. Fallback al item del
-   * picker si el producto aún no estuviera en el catálogo local.
-   */
-  function handleSelectFromPicker(p: ProductoPickerItem) {
-    const prod = productos.find((x) => x.id === p.id) ?? pickerToProducto(p);
-    setProductos((prev) => (prev.find((x) => x.id === prod.id) ? prev : [...prev, prod]));
-    seleccionarProducto(prod);
-    setPickerOpen(false);
-  }
-
-  /**
-   * Agregado directo desde el modal: arma la LineaVenta usando la misma
-   * logica que handleAgregarLinea pero con datos del modal, sin pasar
-   * por el form inline. Mantiene el modal abierto si todo OK.
+   * Agregado desde el panel de detalle del buscador: arma la LineaVenta con
+   * la misma lógica que handleAgregarLinea pero con datos del modal (incluido
+   * el tipo de precio elegido ahí). Mantiene el modal abierto si todo OK.
    */
   function handleAgregarDesdePicker(payload: AgregarVentaPayload): boolean {
-    const { producto: p, cantidad, precio_input, iva } = payload;
+    const { producto: p, cantidad, precio_input, iva, tipo_precio } = payload;
     const precioPyg = precio_input;
     // Verificar stock vs lo ya cargado SOLO si el producto controla stock.
     // Productos del Menú (controla_stock=false) no validan stock.
@@ -234,8 +218,8 @@ export default function NuevaVentaPage() {
         precio_venta_original: precio_input,
         precio_venta: precioPyg,
         tipo_iva: iva,
-        // El picker usa precio_venta (espejo de minorista) → tipo 'minorista'.
-        tipo_precio: "minorista",
+        // Tipo de precio elegido por el cajero en el panel de detalle del buscador.
+        tipo_precio,
         subtotal,
         monto_iva: montoIva,
         total_linea: totalLinea,
@@ -1051,7 +1035,6 @@ export default function NuevaVentaPage() {
       <ProductPickerModal
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
-        onSelect={handleSelectFromPicker}
         onAgregar={handleAgregarDesdePicker}
         excludeIds={items.map((i) => i.producto_id)}
         moneda={moneda}
