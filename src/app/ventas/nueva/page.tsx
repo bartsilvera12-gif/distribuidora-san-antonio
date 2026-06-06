@@ -1,14 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import MontoInput from "@/components/ui/MontoInput";
 import PageHeader from "@/components/ui/PageHeader";
-import ProductPickerModal, { type ProductoPickerItem, type AgregarVentaPayload } from "@/components/inventario/ProductPickerModal";
+import ProductPickerModal, { type AgregarVentaPayload } from "@/components/inventario/ProductPickerModal";
 import { saveVenta } from "@/lib/ventas/storage";
-import { getProductos } from "@/lib/inventario/storage";
 import type { TipoIvaVenta, TipoVenta, MonedaVenta, LineaVenta, MetodoPago, TipoPrecioVenta } from "@/lib/ventas/types";
-import type { Producto } from "@/lib/inventario/types";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -36,40 +34,13 @@ function calcIva(tipo: TipoIvaVenta, base: number) {
   return base * 0.10;
 }
 
-/**
- * Precio unitario según el tipo de precio elegido, con fallbacks seguros:
- *  - minorista → precio_minorista, fallback precio_venta.
- *  - mayorista → precio_mayorista, fallback minorista (→ precio_venta). Nunca 0
- *    por falta de configuración si el producto sí tiene precio minorista.
- *  - costo     → costo_promedio (puede ser 0; venta al costo = ganancia 0).
- */
-function precioPorTipo(p: Producto, tipo: TipoPrecioVenta): number {
-  const minorista =
-    p.precio_minorista != null && p.precio_minorista > 0 ? p.precio_minorista : p.precio_venta;
-  if (tipo === "mayorista") {
-    return p.precio_mayorista != null && p.precio_mayorista > 0 ? p.precio_mayorista : minorista;
-  }
-  if (tipo === "costo") {
-    return p.costo_promedio ?? 0;
-  }
-  return minorista;
-}
-
 // ── Estilos ────────────────────────────────────────────────────────────────────
 
 const inputClass =
   "w-full border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none bg-white text-sm";
 const labelClass = "block text-sm font-medium text-slate-700 mb-1.5";
 
-// ── Sub-componentes ───────────────────────────────────────────────────────────
-
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
-      {children}
-    </p>
-  );
-}
+// ── Labels ──────────────────────────────────────────────────────────────────
 
 const ivaLabel: Record<TipoIvaVenta, string> = {
   EXENTA: "Exenta",
@@ -89,9 +60,7 @@ export default function NuevaVentaPage() {
   const router = useRouter();
 
   // ── Estado global ──────────────────────────────────────────────────────────
-  const [productos, setProductos]   = useState<Producto[]>([]);
   const [items, setItems]           = useState<LineaVenta[]>([]);
-  const [errorLinea, setErrorLinea] = useState<string | null>(null);
   const [errorVenta, setErrorVenta] = useState<string | null>(null);
 
   // ── Condiciones de la venta (fijas para En lo de Mari) ────────────────────
@@ -112,47 +81,13 @@ export default function NuevaVentaPage() {
   const [montoRecibido, setMontoRecibido] = useState("");
   const [metodoPago, setMetodoPago] = useState<MetodoPago>("efectivo");
 
-  // ── Línea en construcción ─────────────────────────────────────────────────
-  const [lineaProdId, setLineaProdId] = useState("");
-  const [lineaCant,   setLineaCant]   = useState("");
-  const [lineaPrecio, setLineaPrecio] = useState("");
-  const [lineaIva,    setLineaIva]    = useState<TipoIvaVenta>("10%");
-  const [lineaTipoPrecio, setLineaTipoPrecio] = useState<TipoPrecioVenta>("minorista");
-
-  // ── Combobox de producto ───────────────────────────────────────────────────
-  const [comboQuery,     setComboQuery]     = useState("");
-  const [comboOpen,      setComboOpen]      = useState(false);
-  const [comboHighlight, setComboHighlight] = useState(-1);
-  const comboInputRef    = useRef<HTMLInputElement>(null);
-  const comboContainerRef = useRef<HTMLDivElement>(null);
-
-  // ── Modal buscador (F3) ────────────────────────────────────────────────────
+  // ── Modal buscador ─────────────────────────────────────────────────────────
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  function pickerToProducto(p: ProductoPickerItem): Producto {
-    return {
-      id: p.id,
-      nombre: p.nombre,
-      sku: p.sku,
-      precio_venta: p.precio_venta,
-      precio_minorista: p.precio_minorista,
-      precio_mayorista: p.precio_mayorista,
-      stock_actual: p.stock_actual,
-      unidad_medida: p.unidad_medida,
-      costo_promedio: p.costo_promedio ?? 0,
-      stock_minimo: 0,
-      metodo_valuacion: "CPP",
-      codigo_barras: p.codigo_barras,
-      codigo_barras_interno: p.codigo_barras_interno,
-      imagen_path: null,
-      imagen_url: p.imagen_url,
-    };
-  }
-
   /**
-   * Agregado desde el panel de detalle del buscador: arma la LineaVenta con
-   * la misma lógica que handleAgregarLinea pero con datos del modal (incluido
-   * el tipo de precio elegido ahí). Mantiene el modal abierto si todo OK.
+   * Agregado desde el panel de detalle del buscador: arma la LineaVenta con los
+   * datos del modal (producto, cantidad, precio, IVA y tipo de precio elegido
+   * ahí). Mantiene el modal abierto si todo OK para seguir cargando.
    */
   function handleAgregarDesdePicker(payload: AgregarVentaPayload): boolean {
     const { producto: p, cantidad, precio_input, iva, tipo_precio } = payload;
@@ -170,11 +105,6 @@ export default function NuevaVentaPage() {
     const subtotal = cantidad * precioPyg;
     const montoIva = calcIva(iva, subtotal);
     const totalLinea = subtotal + montoIva;
-
-    // Asegurar que el producto este en el array local (para que stock_actual
-    // se conozca en validaciones posteriores del form inline).
-    const prodLocal = pickerToProducto(p);
-    setProductos((prev) => (prev.find((x) => x.id === prodLocal.id) ? prev : [...prev, prodLocal]));
 
     setItems((prev) => [
       ...prev,
@@ -197,55 +127,8 @@ export default function NuevaVentaPage() {
     return true;
   }
 
-  useEffect(() => {
-    let cancelled = false;
-    getProductos().then((data) => {
-      if (!cancelled) setProductos(data);
-    });
-    return () => { cancelled = true; };
-  }, []);
-
-  // Cerrar dropdown al hacer clic fuera
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (comboContainerRef.current && !comboContainerRef.current.contains(e.target as Node)) {
-        setComboOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  // Scroll a la opción destacada en el dropdown
-  useEffect(() => {
-    if (comboHighlight >= 0) {
-      document.getElementById(`combo-opt-${comboHighlight}`)?.scrollIntoView({ block: "nearest" });
-    }
-  }, [comboHighlight]);
-
   // ── Cálculos ───────────────────────────────────────────────────────────────
   const tipoCambioNum = 1;
-
-  const prodSel     = productos.find((p) => p.id === lineaProdId);
-  const cantNum     = parseInt(lineaCant) || 0;
-  const precioInput = parseFloat(lineaPrecio) || 0;
-  const precioGs    = precioInput;
-
-  const enCarrito = items
-    .filter((i) => i.producto_id === lineaProdId)
-    .reduce((s, i) => s + i.cantidad, 0);
-  const prodSelControlaStock = prodSel ? prodSel.controla_stock !== false : true;
-  const stockDisp = (prodSel?.stock_actual ?? 0) - enCarrito;
-
-  const lineaSubtotal   = cantNum > 0 && precioGs > 0 ? cantNum * precioGs : 0;
-  const lineaMontoIva   = calcIva(lineaIva, lineaSubtotal);
-  const lineaTotalLinea = lineaSubtotal + lineaMontoIva;
-
-  // Solo validar stock para productos que lo controlan (Reventa).
-  // Productos del Menú (controla_stock=false) se venden sin restricción de stock.
-  const stockInsuf  = prodSel !== undefined && prodSelControlaStock && cantNum > 0 && cantNum > stockDisp;
-  const lineaValida =
-    !!prodSel && cantNum > 0 && precioGs > 0 && !stockInsuf;
 
   const totalSubtotal = items.reduce((s, i) => s + i.subtotal, 0);
   const totalIva      = items.reduce((s, i) => s + i.monto_iva, 0);
@@ -262,108 +145,6 @@ export default function NuevaVentaPage() {
   // Vuelto (solo informativo, no se persiste)
   const montoRecibidoNum = parseFloat(montoRecibido) || 0;
   const vuelto           = montoRecibidoNum - totalGeneral;
-
-  // ── Productos filtrados para el combobox ──────────────────────────────────
-  // Solo vendibles (Reventa + Menú). Excluye materia prima / insumos.
-  const productosVendibles = productos.filter((p) => p.es_vendible !== false);
-  const comboFiltrados = comboQuery.trim() === ""
-    ? productosVendibles
-    : productosVendibles.filter((p) => {
-        const q = comboQuery.toLowerCase();
-        return p.nombre.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q);
-      });
-
-  // ── Selección de un producto desde el combobox ────────────────────────────
-  function seleccionarProducto(p: Producto) {
-    setLineaProdId(String(p.id));
-    // Por defecto: minorista (precio_minorista, fallback precio_venta).
-    setLineaTipoPrecio("minorista");
-    setLineaPrecio(String(precioPorTipo(p, "minorista")));
-    setLineaCant("1");
-    setLineaIva("10%");
-    setComboQuery(`${p.nombre} — ${p.sku}`);
-    setComboOpen(false);
-    setComboHighlight(-1);
-    setErrorLinea(null);
-  }
-
-  // ── Handlers del combobox ─────────────────────────────────────────────────
-  function handleComboInput(e: React.ChangeEvent<HTMLInputElement>) {
-    setComboQuery(e.target.value);
-    setComboOpen(true);
-    setComboHighlight(-1);
-    // Si el usuario borra el texto, limpiar la selección
-    if (e.target.value === "") {
-      setLineaProdId("");
-      setLineaPrecio("");
-      setLineaCant("");
-    }
-    setErrorLinea(null);
-  }
-
-  function handleComboKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setComboOpen(true);
-      setComboHighlight((h) => Math.min(h + 1, comboFiltrados.length - 1));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setComboHighlight((h) => Math.max(h - 1, 0));
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      if (comboOpen && comboHighlight >= 0 && comboFiltrados[comboHighlight]) {
-        // Seleccionar el ítem destacado del dropdown
-        seleccionarProducto(comboFiltrados[comboHighlight]);
-      } else if (!comboOpen && lineaValida) {
-        // Dropdown cerrado + producto válido → agregar al carrito
-        handleAgregarLinea();
-      }
-    } else if (e.key === "Escape") {
-      setComboOpen(false);
-      setComboHighlight(-1);
-    }
-  }
-
-  // ── Agregar línea al carrito ──────────────────────────────────────────────
-  function handleAgregarLinea() {
-    setErrorLinea(null);
-    if (!prodSel)          return setErrorLinea("Seleccioná un producto.");
-    if (cantNum <= 0)      return setErrorLinea("La cantidad debe ser mayor a 0.");
-    if (precioGs <= 0)     return setErrorLinea("El precio de venta debe ser mayor a 0.");
-    if (stockInsuf)
-      return setErrorLinea(
-        `Stock insuficiente para "${prodSel.nombre}". Disponible: ${stockDisp} u.`
-      );
-
-    setItems((prev) => [
-      ...prev,
-      {
-        producto_id:           prodSel.id,
-        producto_nombre:       prodSel.nombre,
-        sku:                   prodSel.sku,
-        cantidad:              cantNum,
-        precio_venta_original: precioInput,
-        precio_venta:          precioGs,
-        tipo_iva:              lineaIva,
-        tipo_precio:           lineaTipoPrecio,
-        subtotal:              lineaSubtotal,
-        monto_iva:             lineaMontoIva,
-        total_linea:           lineaTotalLinea,
-      },
-    ]);
-
-    // Limpiar la línea en construcción. NO devolvemos foco al campo Producto:
-    // es readonly y su onFocus reabre el buscador, lo que provocaba que el modal
-    // se reabriera solo tras agregar. El usuario abre el buscador manualmente
-    // (click en el campo o botón "Buscar") para cargar otro producto.
-    setLineaProdId("");
-    setLineaCant("");
-    setLineaPrecio("");
-    setLineaIva("10%");
-    setLineaTipoPrecio("minorista");
-    setComboQuery("");
-    setComboOpen(false);
-  }
 
   function handleEliminarLinea(index: number) {
     setItems((prev) => prev.filter((_, i) => i !== index));
@@ -430,162 +211,34 @@ export default function NuevaVentaPage() {
       <PageHeader
         eyebrow="San Antonio · Operaciones"
         title="Nueva venta"
-        description="Agregá productos del menú o reventa. Al confirmar se registra la venta y se genera el pedido."
         backHref="/ventas"
         backLabel="Ventas"
+        actions={
+          <button
+            type="button"
+            onClick={() => setPickerOpen(true)}
+            className="inline-flex items-center justify-center gap-1.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-sm active:scale-95"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 shrink-0">
+              <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
+            </svg>
+            Agregar producto
+          </button>
+        }
       />
 
       <form onSubmit={handleSubmit} className="space-y-6 max-w-7xl">
 
-        {/* ── SECCIÓN 1: Agregar producto ───────────────────────────────────── */}
+        {/* ── SECCIÓN 3: Carrito + totales + confirmar ─────────────────────── */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 sm:p-6">
-          <SectionTitle>Agregar producto</SectionTitle>
-
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-
-            {/* ── Combobox con búsqueda — 5 cols ────────────────────────────── */}
-            <div className="md:col-span-6" ref={comboContainerRef}>
-              <label className={labelClass}>
-                Producto
-                <span className="ml-1 text-gray-400 font-normal normal-case tracking-normal text-xs">
-                  — escribí o usá el buscador
-                </span>
-              </label>
-
-              {/* Input de búsqueda + botón modal */}
-              <div className="flex gap-2">
-               <div className="relative flex-1">
-                <input
-                  ref={comboInputRef}
-                  type="text"
-                  value={comboQuery}
-                  readOnly
-                  onFocus={() => setPickerOpen(true)}
-                  onClick={() => setPickerOpen(true)}
-                  placeholder="Click para abrir buscador — nombre, SKU, código, categoría, ubicación..."
-                  autoComplete="off"
-                  className={`${inputClass} pr-8 cursor-pointer bg-white`}
-                />
-                {/* Icono chevron */}
-                <svg
-                  xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"
-                  className="w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-                >
-                  <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
-                </svg>
-
-                {/* Dropdown */}
-                {comboOpen && comboFiltrados.length > 0 && (
-                  <ul className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg py-1">
-                    {comboFiltrados.map((p, idx) => {
-                      const enCarro    = items.filter(i => i.producto_id === p.id).reduce((s, i) => s + i.cantidad, 0);
-                      const ctrl       = p.controla_stock !== false;
-                      const disponible = p.stock_actual - enCarro;
-                      const sinStock   = ctrl && disponible <= 0;
-                      const isMenuItem = !ctrl;
-                      const isActive   = idx === comboHighlight;
-                      return (
-                        <li
-                          key={p.id}
-                          id={`combo-opt-${idx}`}
-                          onMouseDown={(e) => { e.preventDefault(); if (!sinStock) seleccionarProducto(p); }}
-                          onMouseEnter={() => !sinStock && setComboHighlight(idx)}
-                          className={`px-3 py-2.5 text-sm cursor-pointer
-                            ${sinStock ? "opacity-40 cursor-not-allowed" : ""}
-                            ${isActive && !sinStock ? "bg-[#0EA5E9] text-white" : "hover:bg-slate-50"}
-                          `}
-                        >
-                          <span className="font-medium">{p.nombre}</span>
-                          <span className={`ml-2 text-xs ${isActive ? "text-gray-300" : "text-gray-400"}`}>
-                            — {p.sku}
-                          </span>
-                          {sinStock && (
-                            <span className="ml-2 text-xs text-red-400 font-medium">SIN STOCK</span>
-                          )}
-                          {isMenuItem && (
-                            <span className={`ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${isActive ? "bg-white/20 text-white" : "bg-amber-100 text-amber-800"}`}>Menú</span>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-
-                {/* Sin resultados */}
-                {comboOpen && comboQuery.trim() !== "" && comboFiltrados.length === 0 && (
-                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-3 text-sm text-gray-400">
-                    Sin resultados para &ldquo;{comboQuery}&rdquo;
-                  </div>
-                )}
-               </div>
-                <button
-                  type="button"
-                  onClick={() => setPickerOpen(true)}
-                  title="Abrir buscador avanzado (catálogo completo, con imagen)"
-                  className="shrink-0 inline-flex items-center justify-center gap-1.5 border border-slate-200 hover:bg-slate-50 text-slate-700 px-3 rounded-lg text-sm font-medium transition-colors"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                    <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clipRule="evenodd" />
-                  </svg>
-                  Buscar
-                </button>
-              </div>
-
-              {/* Info del producto seleccionado */}
-              {prodSel && (
-                <div className="mt-1.5 flex gap-3 text-xs text-gray-500">
-                  <span>Precio: <strong>{formatGs(prodSel.precio_venta)}</strong></span>
-                  {prodSelControlaStock ? (
-                    <span>Disp: <strong className={stockDisp <= 0 ? "text-red-600" : "text-gray-700"}>
-                      {stockDisp} u.
-                    </strong></span>
-                  ) : (
-                    <span><span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 font-medium px-2 py-0.5">Menú</span></span>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Cantidad */}
-            <div className="md:col-span-3">
-              <label className={labelClass}>Cantidad</label>
-              <input
-                type="number"
-                value={lineaCant}
-                onChange={(e) => { setErrorLinea(null); setLineaCant(e.target.value); }}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAgregarLinea(); }}}
-                placeholder="Cant."
-                className={`${inputClass} ${stockInsuf ? "border-red-400 bg-red-50" : ""}`}
-                min={1} step={1}
-              />
-            </div>
-
-            {/* Precio */}
-            <div className="md:col-span-3">
-              <label className={labelClass}>Precio (Gs.)</label>
-              <MontoInput
-                value={lineaPrecio}
-                onChange={(n) => { setErrorLinea(null); setLineaPrecio(String(n)); }}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAgregarLinea(); }}}
-                placeholder="Precio"
-                className={inputClass}
-                decimals={false}
-              />
-            </div>
-
-            {/* IVA y Tipo de precio se eligen en el buscador (panel de detalle).
-                Las líneas cargadas desde acá usan minorista + IVA 10% por defecto;
-                el monto es editable y el detalle fino se hace desde el buscador. */}
-
-          </div>
-
-          {/* Agregar al carrito */}
-          <div className="mt-4">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
+              Productos en esta venta
+            </p>
             <button
               type="button"
-              onClick={handleAgregarLinea}
-              disabled={!lineaValida}
-              className="flex items-center justify-center gap-1.5 w-full bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
+              onClick={() => setPickerOpen(true)}
+              className="shrink-0 inline-flex items-center gap-1.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm active:scale-95"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 shrink-0">
                 <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
@@ -593,29 +246,6 @@ export default function NuevaVentaPage() {
               Agregar producto
             </button>
           </div>
-
-          {/* Preview totales de la línea */}
-          {lineaSubtotal > 0 && (
-            <div className="mt-3 flex gap-4 text-xs text-gray-500">
-              <span>Subtotal: <strong className="text-gray-800">{formatGs(lineaSubtotal)}</strong></span>
-              <span>IVA: <strong className="text-gray-800">
-                {lineaIva === "EXENTA" ? "—" : formatGs(lineaMontoIva)}
-              </strong></span>
-              <span>Total línea: <strong className="text-gray-900">{formatGs(lineaTotalLinea)}</strong></span>
-            </div>
-          )}
-
-          {/* Error agregar */}
-          {errorLinea && (
-            <div className="mt-3 flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700">
-              <span>⚠</span><span className="font-medium">{errorLinea}</span>
-            </div>
-          )}
-        </div>
-
-        {/* ── SECCIÓN 3: Carrito + totales + confirmar ─────────────────────── */}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 sm:p-6">
-          <SectionTitle>Productos en esta venta</SectionTitle>
 
           {items.length === 0 ? (
             <div className="py-10 text-center text-gray-400 text-sm border-2 border-dashed border-gray-200 rounded-lg">
@@ -970,7 +600,7 @@ export default function NuevaVentaPage() {
         excludeIds={items.map((i) => i.producto_id)}
         moneda={moneda}
         tipoCambio={tipoCambioNum}
-        ivaDefault={lineaIva}
+        ivaDefault="10%"
       />
     </div>
   );
