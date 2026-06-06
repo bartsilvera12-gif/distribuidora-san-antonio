@@ -179,8 +179,19 @@ export default function NuevaVentaPage() {
     };
   }
 
+  /**
+   * Selección desde el buscador (Opción A): NO agrega al carrito directo.
+   * Carga el producto en el builder de línea para que el usuario elija
+   * tipo de precio (minorista/mayorista/al costo), IVA y cantidad, y recién
+   * ahí toque "Agregar producto".
+   *
+   * Prioriza el producto del catálogo local (`productos`, cargado al montar via
+   * getProductos) porque trae precio_minorista/mayorista/costo completos; el
+   * item del buscador (ProductoPickerItem) no los incluye. Fallback al item del
+   * picker si el producto aún no estuviera en el catálogo local.
+   */
   function handleSelectFromPicker(p: ProductoPickerItem) {
-    const prod = pickerToProducto(p);
+    const prod = productos.find((x) => x.id === p.id) ?? pickerToProducto(p);
     setProductos((prev) => (prev.find((x) => x.id === prod.id) ? prev : [...prev, prod]));
     seleccionarProducto(prod);
     setPickerOpen(false);
@@ -1038,6 +1049,7 @@ export default function NuevaVentaPage() {
       <ProductPickerModal
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
+        onSelect={handleSelectFromPicker}
         onAgregar={handleAgregarDesdePicker}
         excludeIds={items.map((i) => i.producto_id)}
         moneda={moneda}

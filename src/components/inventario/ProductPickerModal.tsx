@@ -44,6 +44,13 @@ interface Props {
    *  conserva la seleccion (ej. error de stock); si retorna `true`, limpia
    *  la cantidad para seguir cargando. */
   onAgregar: (p: AgregarVentaPayload) => boolean | void;
+  /**
+   * Modo selección (Opción A): si se provee, al hacer click en un producto de
+   * la lista se invoca este callback (en vez de mostrar el panel de detalle y
+   * agregar directo). El caller carga el producto en su builder de línea para
+   * que el usuario elija tipo de precio/IVA/cantidad antes de agregarlo.
+   */
+  onSelect?: (p: ProductoPickerItem) => void;
   excludeIds?: string[];
   /** Moneda actual de la venta. */
   moneda?: "GS" | "USD";
@@ -58,7 +65,7 @@ function formatGs(v: number): string {
 }
 
 export default function ProductPickerModal({
-  open, onClose, onAgregar, excludeIds = [], moneda = "GS", tipoCambio = 1, ivaDefault = "10%",
+  open, onClose, onAgregar, onSelect, excludeIds = [], moneda = "GS", tipoCambio = 1, ivaDefault = "10%",
 }: Props) {
   const [q, setQ] = useState("");
   const [items, setItems] = useState<ProductoPickerItem[]>([]);
@@ -222,7 +229,11 @@ export default function ProductPickerModal({
                   return (
                     <li
                       key={p.id}
-                      onClick={() => !sinStock && selectProducto(p)}
+                      onClick={() => {
+                        if (sinStock) return;
+                        if (onSelect) { onSelect(p); onClose(); }
+                        else selectProducto(p);
+                      }}
                       className={`flex items-center gap-3 px-4 py-3 transition-colors ${
                         sinStock ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
                       } ${isSel ? "bg-sky-50" : "hover:bg-slate-50"}`}
