@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import MontoInput from "@/components/ui/MontoInput";
 import PageHeader from "@/components/ui/PageHeader";
 import SelectFromList from "@/components/inventario/SelectFromList";
+import CrearCategoriaModal, { type CategoriaCreada } from "@/components/inventario/CrearCategoriaModal";
+import CrearProveedorModal, { type ProveedorCreado } from "@/components/inventario/CrearProveedorModal";
 import { productoExiste, saveProducto } from "@/lib/inventario/storage";
 import { generarEan13 } from "@/lib/inventario/ean13";
 import type { MetodoValuacion } from "@/lib/inventario/types";
@@ -92,6 +94,31 @@ export default function NuevoProductoPage() {
   const [categorias, setCategorias] = useState<CatRow[]>([]);
   const [ubicaciones, setUbicaciones] = useState<UbiRow[]>([]);
   const [proveedores, setProveedores] = useState<ProvRow[]>([]);
+
+  // Modales de alta rápida: crear categoría/proveedor sin salir de "Nuevo producto"
+  // (no navega → el formulario del producto conserva todo lo cargado).
+  const [showCrearCategoria, setShowCrearCategoria] = useState(false);
+  const [showCrearProveedor, setShowCrearProveedor] = useState(false);
+
+  function handleCategoriaCreada(cat: CategoriaCreada) {
+    setCategorias((prev) => {
+      const sinDup = prev.filter((c) => c.id !== cat.id);
+      return [...sinDup, { id: cat.id, nombre: cat.nombre }].sort((a, b) =>
+        a.nombre.localeCompare(b.nombre, "es")
+      );
+    });
+    setCategoriaId(cat.id);
+  }
+
+  function handleProveedorCreado(prov: ProveedorCreado) {
+    setProveedores((prev) => {
+      const sinDup = prev.filter((p) => p.id !== prov.id);
+      return [...sinDup, { id: prov.id, nombre: prov.nombre }].sort((a, b) =>
+        a.nombre.localeCompare(b.nombre, "es")
+      );
+    });
+    setProveedorId(prov.id);
+  }
 
   useEffect(() => {
     let cancel = false;
@@ -869,12 +896,13 @@ export default function NuevoProductoPage() {
                   <span className="text-xs text-gray-400 truncate">
                     {categorias.length === 0 ? "Todavía no cargaste categorías." : `${categorias.length} disponibles`}
                   </span>
-                  <Link
-                    href="/inventario/categorias"
+                  <button
+                    type="button"
+                    onClick={() => setShowCrearCategoria(true)}
                     className="shrink-0 inline-flex items-center gap-1 text-xs font-medium text-sky-700 hover:text-sky-900 border border-sky-200 hover:bg-sky-50 px-2.5 py-1 rounded-md transition-colors"
                   >
                     + Crear
-                  </Link>
+                  </button>
                 </div>
               </div>
 
@@ -891,12 +919,13 @@ export default function NuevoProductoPage() {
                   <span className="text-xs text-gray-400 truncate">
                     {proveedores.length === 0 ? "Todavía no cargaste proveedores." : `${proveedores.length} disponibles`}
                   </span>
-                  <Link
-                    href="/proveedores/nuevo"
+                  <button
+                    type="button"
+                    onClick={() => setShowCrearProveedor(true)}
                     className="shrink-0 inline-flex items-center gap-1 text-xs font-medium text-sky-700 hover:text-sky-900 border border-sky-200 hover:bg-sky-50 px-2.5 py-1 rounded-md transition-colors"
                   >
                     + Crear
-                  </Link>
+                  </button>
                 </div>
               </div>
 
@@ -1100,6 +1129,19 @@ export default function NuevoProductoPage() {
 
         </form>
       </div>
+
+      {/* Modales de alta rápida — fuera del <form> del producto (no anidar forms).
+          Como son overlays fixed, su ubicación en el DOM no afecta el layout. */}
+      <CrearCategoriaModal
+        open={showCrearCategoria}
+        onClose={() => setShowCrearCategoria(false)}
+        onCreated={handleCategoriaCreada}
+      />
+      <CrearProveedorModal
+        open={showCrearProveedor}
+        onClose={() => setShowCrearProveedor(false)}
+        onCreated={handleProveedorCreado}
+      />
 
     </div>
   );
