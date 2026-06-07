@@ -171,10 +171,14 @@ export async function updateCategoriaProveedor(
 
 // ── Reportería ────────────────────────────────────────────────────────────────
 
-/** Resumen operativo de proveedores (cards). */
-export async function getResumenProveedores(): Promise<ResumenProveedores | null> {
+/** Resumen operativo de proveedores (cards). Rango opcional (YYYY-MM-DD). */
+export async function getResumenProveedores(desde?: string, hasta?: string): Promise<ResumenProveedores | null> {
   try {
-    const res = await fetchWithSupabaseSession("/api/proveedores/resumen", { cache: "no-store" });
+    const qs = new URLSearchParams();
+    if (desde) qs.set("desde", desde);
+    if (hasta) qs.set("hasta", hasta);
+    const q = qs.toString();
+    const res = await fetchWithSupabaseSession(`/api/proveedores/resumen${q ? `?${q}` : ""}`, { cache: "no-store" });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json?.success) return null;
     return json.data as ResumenProveedores;
@@ -184,10 +188,14 @@ export async function getResumenProveedores(): Promise<ResumenProveedores | null
   }
 }
 
-/** Stats de compras por proveedor (mapa proveedor_id → stat) para el listado. */
-export async function getComprasStatsProveedores(): Promise<Record<string, ProveedorComprasStat>> {
+/** Stats de compras por proveedor (mapa proveedor_id → stat) para el listado. Rango opcional. */
+export async function getComprasStatsProveedores(desde?: string, hasta?: string): Promise<Record<string, ProveedorComprasStat>> {
   try {
-    const res = await fetchWithSupabaseSession("/api/proveedores/compras-stats", { cache: "no-store" });
+    const qs = new URLSearchParams();
+    if (desde) qs.set("desde", desde);
+    if (hasta) qs.set("hasta", hasta);
+    const q = qs.toString();
+    const res = await fetchWithSupabaseSession(`/api/proveedores/compras-stats${q ? `?${q}` : ""}`, { cache: "no-store" });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json?.success) return {};
     const stats = ((json.data as { stats?: ProveedorComprasStat[] })?.stats ?? []) as ProveedorComprasStat[];

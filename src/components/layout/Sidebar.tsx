@@ -34,6 +34,7 @@ import {
   Percent,
   ChefHat,
   Utensils,
+  BarChart3,
 } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
@@ -143,6 +144,7 @@ const MENU_STRUCTURE: MenuItem[] = [
     ],
   },
   { key: "gastos", slug: "gastos", label: "Gastos", href: "/gastos", icon: Receipt },
+  { key: "reportes", slug: "reportes", label: "Reportes", href: "/reportes", icon: BarChart3 },
   // Pagos oculto en instancia En lo de Mari (no usa este módulo).
   { key: "comisiones", slug: "comisiones", label: "Comisiones", href: "/comisiones", icon: Percent },
   {

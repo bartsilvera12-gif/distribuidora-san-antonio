@@ -34,6 +34,21 @@ export function asuncionDayBoundsUtc(now: Date = new Date()): { start: string; e
   return { start: start.toISOString(), end: end.toISOString() };
 }
 
+/**
+ * Rango [desde, hasta] (YYYY-MM-DD, en Asunción) como ISO UTC inclusivo.
+ * Si falta `desde` u `hasta`, cae al inicio/fin del mes actual respectivamente.
+ */
+export function asuncionRangeBoundsUtc(
+  desde?: string | null,
+  hasta?: string | null,
+  now: Date = new Date()
+): { start: string; end: string } {
+  const month = asuncionMonthBoundsUtc(now);
+  const start = desde ? new Date(`${desde}T00:00:00.000-04:00`).toISOString() : month.start;
+  const end = hasta ? new Date(`${hasta}T23:59:59.999-04:00`).toISOString() : month.end;
+  return { start, end };
+}
+
 /** Inicio y fin (inclusive) del mes actual en Asunción, como ISO UTC. */
 export function asuncionMonthBoundsUtc(now: Date = new Date()): { start: string; end: string } {
   const { year, month } = asuncionYearMonth(now);

@@ -14,25 +14,24 @@ function pool() {
   return p;
 }
 
-export interface MonthBounds {
-  monthStart: string;
-  monthEnd: string;
+export interface RangeBounds {
+  rangeStart: string;
+  rangeEnd: string;
 }
 
 // ── Resumen operativo (cards arriba del listado) ─────────────────────────────
 
 export interface ResumenProveedores {
   totalProveedores: number;
-  conComprasMes: number;
-  totalCompradoMes: number;
-  proveedorTopMes: { proveedor_id: string; proveedor_nombre: string; total: number } | null;
+  conComprasRango: number;
+  totalCompradoRango: number;
   ultimaCompra: { numero_control: string; proveedor_nombre: string; total: number; fecha: string } | null;
 }
 
 export async function getResumenProveedores(
   schemaRaw: string,
   empresaId: string,
-  b: MonthBounds
+  b: RangeBounds
 ): Promise<ResumenProveedores> {
   const schema = assertAllowedChatDataSchema(schemaRaw);
   const tProv = quoteSchemaTable(schema, "proveedores");
@@ -43,19 +42,11 @@ export async function getResumenProveedores(
     `SELECT count(*)::int AS n FROM ${tProv} WHERE empresa_id = $1::uuid`,
     [empresaId]
   );
-  const mesQ = p.query<{ proveedores: number; total: number }>(
+  const rangoQ = p.query<{ proveedores: number; total: number }>(
     `SELECT count(DISTINCT proveedor_id)::int AS proveedores, COALESCE(SUM(total), 0)::float8 AS total
        FROM ${tComp}
       WHERE empresa_id = $1::uuid AND fecha >= $2::timestamptz AND fecha <= $3::timestamptz`,
-    [empresaId, b.monthStart, b.monthEnd]
-  );
-  const topQ = p.query<{ proveedor_id: string; proveedor_nombre: string; total: number }>(
-    `SELECT proveedor_id, proveedor_nombre, SUM(total)::float8 AS total
-       FROM ${tComp}
-      WHERE empresa_id = $1::uuid AND fecha >= $2::timestamptz AND fecha <= $3::timestamptz
-      GROUP BY proveedor_id, proveedor_nombre
-      ORDER BY total DESC LIMIT 1`,
-    [empresaId, b.monthStart, b.monthEnd]
+    [empresaId, b.rangeStart, b.rangeEnd]
   );
   const ultimaQ = p.query<{ numero_control: string; proveedor_nombre: string; total: number; fecha: string }>(
     `SELECT numero_control, proveedor_nombre, total::float8 AS total, fecha
@@ -65,12 +56,11 @@ export async function getResumenProveedores(
     [empresaId]
   );
 
-  const [total, mes, top, ultima] = await Promise.all([totalQ, mesQ, topQ, ultimaQ]);
+  const [total, rango, ultima] = await Promise.all([totalQ, rangoQ, ultimaQ]);
   return {
     totalProveedores: total.rows[0]?.n ?? 0,
-    conComprasMes: mes.rows[0]?.proveedores ?? 0,
-    totalCompradoMes: mes.rows[0]?.total ?? 0,
-    proveedorTopMes: top.rows[0] ?? null,
+    conComprasRango: rango.rows[0]?.proveedores ?? 0,
+    totalCompradoRango: rango.rows[0]?.total ?? 0,
     ultimaCompra: ultima.rows[0] ?? null,
   };
 }
@@ -80,26 +70,26 @@ export async function getResumenProveedores(
 export interface ProveedorComprasStat {
   proveedor_id: string;
   cantidad: number;
-  total_mes: number;
+  total_rango: number;
   ultima_compra: string | null;
 }
 
 export async function getComprasStatsPorProveedor(
   schemaRaw: string,
   empresaId: string,
-  b: MonthBounds
+  b: RangeBounds
 ): Promise<ProveedorComprasStat[]> {
   const schema = assertAllowedChatDataSchema(schemaRaw);
   const tComp = quoteSchemaTable(schema, "compras");
   const { rows } = await pool().query<ProveedorComprasStat>(
     `SELECT proveedor_id,
             count(*)::int AS cantidad,
-            COALESCE(SUM(total) FILTER (WHERE fecha >= $2::timestamptz AND fecha <= $3::timestamptz), 0)::float8 AS total_mes,
+            COALESCE(SUM(total) FILTER (WHERE fecha >= $2::timestamptz AND fecha <= $3::timestamptz), 0)::float8 AS total_rango,
             MAX(fecha) AS ultima_compra
        FROM ${tComp}
       WHERE empresa_id = $1::uuid
       GROUP BY proveedor_id`,
-    [empresaId, b.monthStart, b.monthEnd]
+    [empresaId, b.rangeStart, b.rangeEnd]
   );
   return rows;
 }

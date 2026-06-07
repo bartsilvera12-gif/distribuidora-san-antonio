@@ -4,7 +4,7 @@ import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema"
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import { getResumenCompras } from "@/lib/compras/server/compras-pg";
-import { asuncionDayBoundsUtc, asuncionMonthBoundsUtc } from "@/lib/fechas/asuncion-bounds";
+import { asuncionDayBoundsUtc, asuncionRangeBoundsUtc } from "@/lib/fechas/asuncion-bounds";
 
 /**
  * GET /api/compras/resumen — mini-dashboard de compras (agregados SQL
@@ -17,13 +17,16 @@ export async function GET(request: NextRequest) {
     if (!ctx) return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
 
     const schema = await fetchDataSchemaForEmpresaId(ctx.auth.empresa_id);
+    const url = new URL(request.url);
+    const desde = url.searchParams.get("desde");
+    const hasta = url.searchParams.get("hasta");
     const day = asuncionDayBoundsUtc();
-    const month = asuncionMonthBoundsUtc();
+    const range = asuncionRangeBoundsUtc(desde, hasta);
     const resumen = await getResumenCompras(schema, ctx.auth.empresa_id, {
       dayStart: day.start,
       dayEnd: day.end,
-      monthStart: month.start,
-      monthEnd: month.end,
+      rangeStart: range.start,
+      rangeEnd: range.end,
     });
 
     return NextResponse.json(successResponse(resumen));

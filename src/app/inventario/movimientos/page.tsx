@@ -95,27 +95,21 @@ export default function MovimientosPage() {
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm ring-1 ring-[#4FAEB2]/10 p-6">
 
         {/* Header */}
-        <div className="flex flex-wrap justify-between items-center gap-2 mb-5">
-          <div className="flex items-center gap-3">
-            <h2 className="text-base font-semibold text-slate-800">Historial</h2>
-            <span className="text-sm text-gray-400">
-              {filtrados.length} de {todos.length} registros
-            </span>
-          </div>
-          <p className="text-xs text-gray-400">
-            Los movimientos se generan automáticamente desde <span className="font-medium text-gray-500">Compras</span>
-          </p>
+        <div className="flex items-center gap-3 mb-5">
+          <h2 className="text-base font-semibold text-slate-800">Historial</h2>
+          <span className="text-sm text-gray-400">
+            {filtrados.length} de {todos.length} registros
+          </span>
         </div>
 
-        {/* Filtros */}
-        <div className="flex flex-wrap gap-3 mb-5 pb-5 border-b border-gray-100">
-          {/* Fila 1: búsqueda + tipo + origen */}
+        {/* Filtros — una sola línea en desktop; apilan en mobile */}
+        <div className="flex flex-col md:flex-row md:flex-wrap md:items-end gap-3 mb-5 pb-5 border-b border-gray-100">
           <input
             type="text"
             placeholder="Buscar por producto o SKU..."
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
-            className={`${inputFilterClass} min-w-56`}
+            className={`${inputFilterClass} md:flex-1 md:min-w-48`}
           />
           <select
             value={filtroTipo}
@@ -137,44 +131,40 @@ export default function MovimientosPage() {
             <option value="venta">Venta</option>
             <option value="ajuste_manual">Ajuste manual</option>
           </select>
-
-          {/* Separador visual entre grupos */}
-          <div className="w-full flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-400 whitespace-nowrap">Desde</label>
-              <input
-                type="date"
-                value={fechaDesde}
-                onChange={(e) => setFechaDesde(e.target.value)}
-                max={fechaHasta || undefined}
-                className={inputFilterClass}
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-400 whitespace-nowrap">Hasta</label>
-              <input
-                type="date"
-                value={fechaHasta}
-                onChange={(e) => setFechaHasta(e.target.value)}
-                min={fechaDesde || undefined}
-                className={inputFilterClass}
-              />
-            </div>
-            {(busqueda || filtroTipo || filtroOrigen || fechaDesde || fechaHasta) && (
-              <button
-                onClick={() => {
-                  setBusqueda("");
-                  setFiltroTipo("");
-                  setFiltroOrigen("");
-                  setFechaDesde("");
-                  setFechaHasta("");
-                }}
-                className="text-sm text-gray-400 hover:text-gray-600 transition-colors px-2"
-              >
-                Limpiar filtros
-              </button>
-            )}
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-400 whitespace-nowrap">Desde</label>
+            <input
+              type="date"
+              value={fechaDesde}
+              onChange={(e) => setFechaDesde(e.target.value)}
+              max={fechaHasta || undefined}
+              className={`${inputFilterClass} w-full`}
+            />
           </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-400 whitespace-nowrap">Hasta</label>
+            <input
+              type="date"
+              value={fechaHasta}
+              onChange={(e) => setFechaHasta(e.target.value)}
+              min={fechaDesde || undefined}
+              className={`${inputFilterClass} w-full`}
+            />
+          </div>
+          {(busqueda || filtroTipo || filtroOrigen || fechaDesde || fechaHasta) && (
+            <button
+              onClick={() => {
+                setBusqueda("");
+                setFiltroTipo("");
+                setFiltroOrigen("");
+                setFechaDesde("");
+                setFechaHasta("");
+              }}
+              className="text-sm text-gray-400 hover:text-gray-600 transition-colors px-2 self-start md:self-auto"
+            >
+              Limpiar filtros
+            </button>
+          )}
         </div>
 
         {/* Tabla — min-w activa el scroll horizontal en mobile;

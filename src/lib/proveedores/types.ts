@@ -58,16 +58,18 @@ export type NuevoProveedorInput = {
 
 export interface ResumenProveedores {
   totalProveedores: number;
-  conComprasMes: number;
-  totalCompradoMes: number;
-  proveedorTopMes: { proveedor_id: string; proveedor_nombre: string; total: number } | null;
+  /** Proveedores con compras en el rango seleccionado (default mes actual). */
+  conComprasRango: number;
+  /** Total comprado en el rango seleccionado. */
+  totalCompradoRango: number;
   ultimaCompra: { numero_control: string; proveedor_nombre: string; total: number; fecha: string } | null;
 }
 
 export interface ProveedorComprasStat {
   proveedor_id: string;
   cantidad: number;
-  total_mes: number;
+  /** Total comprado al proveedor en el rango seleccionado. */
+  total_rango: number;
   ultima_compra: string | null;
 }
 

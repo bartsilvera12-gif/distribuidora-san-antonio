@@ -100,8 +100,8 @@ export interface CompraDetalle {
 
 export interface ResumenCompras {
   hoy: { cantidad: number; total: number };
-  mes: { cantidad: number; total: number };
+  /** Métricas del rango seleccionado (default mes actual). */
+  rango: { cantidad: number; total: number };
   compraMasAlta: { numero_control: string; proveedor_nombre: string; total: number } | null;
   proveedorPrincipal: { proveedor_id: string; proveedor_nombre: string; total: number } | null;
-  productoMasGasto: { producto_id: string; producto_nombre: string; gasto: number } | null;
 }

@@ -249,10 +249,15 @@ export async function getCompraDetalle(id: string): Promise<CompraDetalle | null
   }
 }
 
-/** Resumen/mini-dashboard de compras (agregados server-side). */
-export async function getResumenCompras(): Promise<ResumenCompras | null> {
+/** Resumen/mini-dashboard de compras (agregados server-side). Rango opcional
+ *  (YYYY-MM-DD); si se omite, el server usa el mes actual. */
+export async function getResumenCompras(desde?: string, hasta?: string): Promise<ResumenCompras | null> {
   try {
-    const r = await fetch("/api/compras/resumen", { credentials: "include", cache: "no-store" });
+    const qs = new URLSearchParams();
+    if (desde) qs.set("desde", desde);
+    if (hasta) qs.set("hasta", hasta);
+    const q = qs.toString();
+    const r = await fetch(`/api/compras/resumen${q ? `?${q}` : ""}`, { credentials: "include", cache: "no-store" });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j?.success) return null;
     return j.data as ResumenCompras;

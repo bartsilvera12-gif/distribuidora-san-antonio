@@ -49,13 +49,16 @@ export default function ProveedoresClient({
   const [refreshKey, setRefreshKey] = useState(0);
   const [resumen, setResumen] = useState<ResumenProveedores | null>(null);
   const [stats, setStats] = useState<Record<string, ProveedorComprasStat>>({});
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
 
+  // Cards + totales por proveedor se recalculan server-side según el rango.
   useEffect(() => {
     let cancel = false;
-    getResumenProveedores().then((r) => { if (!cancel) setResumen(r); });
-    getComprasStatsProveedores().then((m) => { if (!cancel) setStats(m); });
+    getResumenProveedores(desde || undefined, hasta || undefined).then((r) => { if (!cancel) setResumen(r); });
+    getComprasStatsProveedores(desde || undefined, hasta || undefined).then((m) => { if (!cancel) setStats(m); });
     return () => { cancel = true; };
-  }, [refreshKey]);
+  }, [refreshKey, desde, hasta]);
 
   useEffect(() => {
     // Si el servidor ya trajo los datos y no hubo refresh manual, usamos esos
@@ -123,16 +126,12 @@ export default function ProveedoresClient({
           <p className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-3">
             Resumen operativo
           </p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            <StatCard label="Total proveedores" value={String(resumen.totalProveedores)} accent />
-            <StatCard label="Con compras (mes)" value={String(resumen.conComprasMes)} />
-            <StatCard label="Total comprado (mes)" value={formatGs(resumen.totalCompradoMes)} />
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <StatCard compact label="Total proveedores" value={String(resumen.totalProveedores)} accent />
+            <StatCard compact label="Con compras (período)" value={String(resumen.conComprasRango)} />
+            <StatCard compact label="Total comprado (período)" value={formatGs(resumen.totalCompradoRango)} />
             <StatCard
-              label="Proveedor top (mes)"
-              value={resumen.proveedorTopMes ? resumen.proveedorTopMes.proveedor_nombre : "—"}
-              hint={resumen.proveedorTopMes ? formatGs(resumen.proveedorTopMes.total) : "Sin compras este mes"}
-            />
-            <StatCard
+              compact
               label="Última compra"
               value={resumen.ultimaCompra ? formatGs(resumen.ultimaCompra.total) : "—"}
               hint={
@@ -152,8 +151,28 @@ export default function ProveedoresClient({
             placeholder="Buscar por nombre, RUC, email o categoría…"
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
-            className="min-w-[240px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-[#0EA5E9]"
+            className="min-w-[200px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-[#0EA5E9]"
           />
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-slate-400 whitespace-nowrap">Desde</label>
+            <input
+              type="date"
+              value={desde}
+              onChange={(e) => setDesde(e.target.value)}
+              max={hasta || undefined}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-[#0EA5E9]"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-slate-400 whitespace-nowrap">Hasta</label>
+            <input
+              type="date"
+              value={hasta}
+              onChange={(e) => setHasta(e.target.value)}
+              min={desde || undefined}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-[#0EA5E9]"
+            />
+          </div>
           <span className="text-sm text-slate-400">
             {filtradas.length} de {lista.length}
           </span>
@@ -169,7 +188,7 @@ export default function ProveedoresClient({
                 <th className="py-3 pr-4 font-semibold">Categorías</th>
                 <th className="py-3 pr-4 font-semibold">Estado</th>
                 <th className="py-3 pr-4 font-semibold text-right">Compras</th>
-                <th className="py-3 pr-4 font-semibold text-right">Total mes</th>
+                <th className="py-3 pr-4 font-semibold text-right">Total período</th>
                 <th className="py-3 pr-4 font-semibold">Última compra</th>
                 <th className="py-3 font-semibold w-28" />
               </tr>
@@ -220,7 +239,7 @@ export default function ProveedoresClient({
                       </Badge>
                     </td>
                     <td className="py-3 pr-4 text-right tabular-nums text-slate-700">{st?.cantidad ?? 0}</td>
-                    <td className="py-3 pr-4 text-right tabular-nums text-slate-700">{formatGs(st?.total_mes ?? 0)}</td>
+                    <td className="py-3 pr-4 text-right tabular-nums text-slate-700">{formatGs(st?.total_rango ?? 0)}</td>
                     <td className="py-3 pr-4 text-slate-600 text-xs tabular-nums">{formatFechaCorta(st?.ultima_compra ?? null)}</td>
                     <td className="py-3">
                       <div className="flex items-center gap-3">

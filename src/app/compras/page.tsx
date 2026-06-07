@@ -46,6 +46,8 @@ export default function ComprasPage() {
   const [resumen, setResumen] = useState<ResumenCompras | null>(null);
   const [busqueda, setBusqueda] = useState("");
   const [filtroTipoPago, setFiltroTipoPago] = useState<TipoPago | "">("");
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
 
   useEffect(() => {
     let cancel = false;
@@ -53,9 +55,15 @@ export default function ComprasPage() {
       if (cancel) return;
       setTodas([...data].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()));
     });
-    getResumenCompras().then((r) => { if (!cancel) setResumen(r); });
     return () => { cancel = true; };
   }, []);
+
+  // El mini-dashboard se recalcula server-side según el rango (default mes actual).
+  useEffect(() => {
+    let cancel = false;
+    getResumenCompras(desde || undefined, hasta || undefined).then((r) => { if (!cancel) setResumen(r); });
+    return () => { cancel = true; };
+  }, [desde, hasta]);
 
   const filtradas = todas.filter((c) => {
     const texto = busqueda.toLowerCase();
@@ -65,10 +73,13 @@ export default function ComprasPage() {
       c.producto_nombre.toLowerCase().includes(texto) ||
       c.numero_control.toLowerCase().includes(texto);
     const coincideTipoPago = filtroTipoPago === "" || c.tipo_pago === filtroTipoPago;
-    return coincideTexto && coincideTipoPago;
+    const fechaCompra = c.fecha.slice(0, 10); // YYYY-MM-DD
+    const coincideDesde = desde === "" || fechaCompra >= desde;
+    const coincideHasta = hasta === "" || fechaCompra <= hasta;
+    return coincideTexto && coincideTipoPago && coincideDesde && coincideHasta;
   });
 
-  const hayFiltros = busqueda || filtroTipoPago;
+  const hayFiltros = busqueda || filtroTipoPago || desde || hasta;
 
   const [abriendoFactura, setAbriendoFactura] = useState<string | null>(null);
   async function verFactura(id: string) {
@@ -104,43 +115,37 @@ export default function ComprasPage() {
           <p className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-3">
             Resumen de compras
           </p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <StatCard
+              compact
               label="Compras hoy"
               value={formatGs(resumen.hoy.total)}
               hint={`${resumen.hoy.cantidad} ${resumen.hoy.cantidad === 1 ? "compra" : "compras"}`}
               accent
             />
             <StatCard
-              label="Compras del mes"
-              value={formatGs(resumen.mes.total)}
-              hint={`${resumen.mes.cantidad} ${resumen.mes.cantidad === 1 ? "compra" : "compras"}`}
+              compact
+              label="Compras del período"
+              value={formatGs(resumen.rango.total)}
+              hint={`${resumen.rango.cantidad} ${resumen.rango.cantidad === 1 ? "compra" : "compras"}`}
             />
             <StatCard
-              label="Compra más alta (mes)"
+              compact
+              label="Compra más alta"
               value={resumen.compraMasAlta ? formatGs(resumen.compraMasAlta.total) : "—"}
               hint={
                 resumen.compraMasAlta
                   ? `${resumen.compraMasAlta.numero_control} · ${resumen.compraMasAlta.proveedor_nombre}`
-                  : "Sin compras este mes"
+                  : "Sin compras en el período"
               }
             />
             <StatCard
-              label="Proveedor principal (mes)"
+              compact
+              label="Proveedor principal"
               value={resumen.proveedorPrincipal ? resumen.proveedorPrincipal.proveedor_nombre : "—"}
-              hint={resumen.proveedorPrincipal ? formatGs(resumen.proveedorPrincipal.total) : "Sin compras este mes"}
+              hint={resumen.proveedorPrincipal ? formatGs(resumen.proveedorPrincipal.total) : "Sin compras en el período"}
             />
           </div>
-          {resumen.productoMasGasto && (
-            <div className="mt-4">
-              <StatCard
-                label="Producto con más gasto (mes)"
-                value={resumen.productoMasGasto.producto_nombre}
-                hint={formatGs(resumen.productoMasGasto.gasto)}
-                className="sm:max-w-md"
-              />
-            </div>
-          )}
         </div>
       )}
 
@@ -171,9 +176,29 @@ export default function ComprasPage() {
               { value: "credito", label: "Crédito" },
             ]}
           />
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-400 whitespace-nowrap">Desde</label>
+            <input
+              type="date"
+              value={desde}
+              onChange={(e) => setDesde(e.target.value)}
+              max={hasta || undefined}
+              className={inputFilterClass}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-400 whitespace-nowrap">Hasta</label>
+            <input
+              type="date"
+              value={hasta}
+              onChange={(e) => setHasta(e.target.value)}
+              min={desde || undefined}
+              className={inputFilterClass}
+            />
+          </div>
           {hayFiltros && (
             <button
-              onClick={() => { setBusqueda(""); setFiltroTipoPago(""); }}
+              onClick={() => { setBusqueda(""); setFiltroTipoPago(""); setDesde(""); setHasta(""); }}
               className="text-sm text-gray-400 hover:text-gray-600 transition-colors px-2"
             >
               Limpiar filtros

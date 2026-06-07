@@ -200,19 +200,19 @@ export async function listMovimientosDeCompra(
 export interface ResumenComprasBounds {
   dayStart: string;
   dayEnd: string;
-  monthStart: string;
-  monthEnd: string;
+  rangeStart: string;
+  rangeEnd: string;
 }
 
 export interface ResumenCompras {
   hoy: { cantidad: number; total: number };
-  mes: { cantidad: number; total: number };
+  rango: { cantidad: number; total: number };
   compraMasAlta: { numero_control: string; proveedor_nombre: string; total: number } | null;
   proveedorPrincipal: { proveedor_id: string; proveedor_nombre: string; total: number } | null;
-  productoMasGasto: { producto_id: string; producto_nombre: string; gasto: number } | null;
 }
 
-/** Agregados SQL para el mini-dashboard de compras (todo server-side). */
+/** Agregados SQL para el mini-dashboard de compras (server-side). El "rango"
+ *  es configurable (default mes actual); "hoy" siempre es el día actual. */
 export async function getResumenCompras(
   schemaRaw: string,
   empresaId: string,
@@ -220,9 +220,8 @@ export async function getResumenCompras(
 ): Promise<ResumenCompras> {
   const schema = assertAllowedChatDataSchema(schemaRaw);
   const t = quoteSchemaTable(schema, "compras");
-  const tItems = quoteSchemaTable(schema, "compras_items");
   const p = pool();
-  const { dayStart, dayEnd, monthStart, monthEnd } = bounds;
+  const { dayStart, dayEnd, rangeStart, rangeEnd } = bounds;
 
   const totalsQ = (start: string, end: string) =>
     p.query<{ cantidad: number; total: number }>(
@@ -237,7 +236,7 @@ export async function getResumenCompras(
        FROM ${t}
       WHERE empresa_id = $1::uuid AND fecha >= $2::timestamptz AND fecha <= $3::timestamptz
       ORDER BY total DESC LIMIT 1`,
-    [empresaId, monthStart, monthEnd]
+    [empresaId, rangeStart, rangeEnd]
   );
 
   const provQ = p.query<{ proveedor_id: string; proveedor_nombre: string; total: number }>(
@@ -246,40 +245,21 @@ export async function getResumenCompras(
       WHERE empresa_id = $1::uuid AND fecha >= $2::timestamptz AND fecha <= $3::timestamptz
       GROUP BY proveedor_id, proveedor_nombre
       ORDER BY total DESC LIMIT 1`,
-    [empresaId, monthStart, monthEnd]
+    [empresaId, rangeStart, rangeEnd]
   );
 
-  // Producto con más gasto del mes: líneas (multiproducto) + cabecera (legacy sin items).
-  const prodQ = p.query<{ producto_id: string; producto_nombre: string; gasto: number }>(
-    `SELECT producto_id, producto_nombre, SUM(gasto)::float8 AS gasto FROM (
-        SELECT ci.producto_id, ci.producto_nombre, ci.total_linea AS gasto
-          FROM ${tItems} ci JOIN ${t} c ON c.id = ci.compra_id
-         WHERE c.empresa_id = $1::uuid AND c.fecha >= $2::timestamptz AND c.fecha <= $3::timestamptz
-        UNION ALL
-        SELECT c.producto_id, c.producto_nombre, c.total AS gasto
-          FROM ${t} c
-         WHERE c.empresa_id = $1::uuid AND c.fecha >= $2::timestamptz AND c.fecha <= $3::timestamptz
-           AND NOT EXISTS (SELECT 1 FROM ${tItems} ci WHERE ci.compra_id = c.id)
-      ) g
-      GROUP BY producto_id, producto_nombre
-      ORDER BY gasto DESC LIMIT 1`,
-    [empresaId, monthStart, monthEnd]
-  );
-
-  const [hoy, mes, masAlta, prov, prod] = await Promise.all([
+  const [hoy, rango, masAlta, prov] = await Promise.all([
     totalsQ(dayStart, dayEnd),
-    totalsQ(monthStart, monthEnd),
+    totalsQ(rangeStart, rangeEnd),
     masAltaQ,
     provQ,
-    prodQ,
   ]);
 
   return {
     hoy: { cantidad: hoy.rows[0]?.cantidad ?? 0, total: hoy.rows[0]?.total ?? 0 },
-    mes: { cantidad: mes.rows[0]?.cantidad ?? 0, total: mes.rows[0]?.total ?? 0 },
+    rango: { cantidad: rango.rows[0]?.cantidad ?? 0, total: rango.rows[0]?.total ?? 0 },
     compraMasAlta: masAlta.rows[0] ?? null,
     proveedorPrincipal: prov.rows[0] ?? null,
-    productoMasGasto: prod.rows[0] ?? null,
   };
 }
 

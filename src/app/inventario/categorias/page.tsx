@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import ImportExcelButton from "@/components/ui/ImportExcelButton";
@@ -110,12 +109,6 @@ export default function CategoriasProductosPage() {
           </>
         }
       />
-
-      <div className="max-w-2xl rounded-lg border border-[#4FAEB2]/20 bg-[#E5F4F4] px-3 py-2 text-xs text-[#2F6F72]">
-        Estas categorías aparecen en el selector <strong>Categoría principal</strong> de Nuevo producto.
-        Los <Link href="/proveedores/categorias" className="underline font-medium text-[#3F8E91]">rubros de proveedor</Link>{" "}
-        también se importan automáticamente acá, así no tenés que cargarlos dos veces.
-      </div>
 
       {/* Alta */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 max-w-3xl">
