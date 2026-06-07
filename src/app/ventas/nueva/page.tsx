@@ -82,7 +82,9 @@ export default function NuevaVentaPage() {
   const [metodoPago, setMetodoPago] = useState<MetodoPago>("efectivo");
 
   // ── Modal buscador ─────────────────────────────────────────────────────────
-  const [pickerOpen, setPickerOpen] = useState(false);
+  // Arranca abierto: al entrar a "Nueva venta" el buscador ya aparece desplegado
+  // (un solo paso desde Ventas → Nueva venta → cargar productos).
+  const [pickerOpen, setPickerOpen] = useState(true);
 
   /**
    * Agregado desde el panel de detalle del buscador: arma la LineaVenta con los
@@ -213,18 +215,6 @@ export default function NuevaVentaPage() {
         title="Nueva venta"
         backHref="/ventas"
         backLabel="Ventas"
-        actions={
-          <button
-            type="button"
-            onClick={() => setPickerOpen(true)}
-            className="inline-flex items-center justify-center gap-1.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-sm active:scale-95"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 shrink-0">
-              <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
-            </svg>
-            Agregar producto
-          </button>
-        }
       />
 
       <form onSubmit={handleSubmit} className="space-y-6 max-w-7xl">
