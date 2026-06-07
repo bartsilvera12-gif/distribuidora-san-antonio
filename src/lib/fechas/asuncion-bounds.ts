@@ -61,3 +61,38 @@ export function asuncionMonthBoundsUtc(now: Date = new Date()): { start: string;
   end.setMilliseconds(end.getMilliseconds() - 1);
   return { start: start.toISOString(), end: end.toISOString() };
 }
+
+/** Límites (inclusive) de un mes `YYYY-MM` en Asunción, como ISO UTC. */
+export function asuncionMesBoundsUtc(mes: string): { start: string; end: string } {
+  const [y, m] = mes.split("-").map(Number);
+  const mm = String(m).padStart(2, "0");
+  const start = new Date(`${y}-${mm}-01T00:00:00.000-04:00`);
+  const nextY = m === 12 ? y + 1 : y;
+  const nextM = m === 12 ? 1 : m + 1;
+  const end = new Date(`${nextY}-${String(nextM).padStart(2, "0")}-01T00:00:00.000-04:00`);
+  end.setMilliseconds(end.getMilliseconds() - 1);
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
+/** Mes actual en Asunción como `YYYY-MM`. */
+export function mesActualAsuncion(now: Date = new Date()): string {
+  return now.toLocaleDateString("en-CA", { timeZone: TZ }).slice(0, 7);
+}
+
+/** Últimos `n` meses (incluye el actual) en Asunción, como `YYYY-MM` desc. */
+export function mesesRecientesAsuncion(n: number, now: Date = new Date()): string[] {
+  const actual = mesActualAsuncion(now);
+  let [y, m] = actual.split("-").map(Number);
+  const out: string[] = [];
+  for (let i = 0; i < n; i++) {
+    out.push(`${y}-${String(m).padStart(2, "0")}`);
+    m -= 1;
+    if (m === 0) { m = 12; y -= 1; }
+  }
+  return out;
+}
+
+/** Valida formato `YYYY-MM`; si no, devuelve el mes actual. */
+export function normalizarMes(mes?: string | null): string {
+  return mes && /^\d{4}-\d{2}$/.test(mes) ? mes : mesActualAsuncion();
+}

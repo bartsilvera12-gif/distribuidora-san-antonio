@@ -1,11 +1,10 @@
 import PageHeader from "@/components/ui/PageHeader";
+import { SettingsModuleCard } from "@/components/config/SettingsModuleCard";
+import { Wallet, ShoppingCart, Package, Truck } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-/**
- * Pantalla inicial de Reportes (fase 1). Solo presenta el módulo; la reportería
- * operativa (ventas, compras, inventario) se construye en fases siguientes.
- */
+/** Hub de reportería operativa: cards estilo Configuración Global. */
 export default function ReportesPage() {
   return (
     <div className="space-y-8">
@@ -15,20 +14,48 @@ export default function ReportesPage() {
         description="Panel de análisis y reportería operativa"
       />
 
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm ring-1 ring-[#4FAEB2]/10 p-10 text-center">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#E5F4F4] text-[#3F8E91]">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
-            <path d="M3 3v18h18" />
-            <rect x="7" y="10" width="3" height="7" />
-            <rect x="12" y="6" width="3" height="11" />
-            <rect x="17" y="13" width="3" height="4" />
-          </svg>
-        </div>
-        <h2 className="text-base font-semibold text-slate-800">Estamos preparando los reportes</h2>
-        <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
-          Estamos preparando los reportes principales de ventas, compras e inventario.
-        </p>
-      </div>
+      <ul className="m-0 grid list-none gap-4 p-0 sm:grid-cols-2 xl:grid-cols-3">
+        <li>
+          <SettingsModuleCard
+            title="Estado de cuenta"
+            subtitle="Saldos, movimientos y situación financiera"
+            icon={Wallet}
+            description="Resumen de cuentas, ventas, compras, pagos y saldos del período."
+            href="/reportes/estado-cuenta"
+            actionLabel="Ver reporte"
+          />
+        </li>
+        <li>
+          <SettingsModuleCard
+            title="Ventas"
+            subtitle="Facturación y operaciones comerciales"
+            icon={ShoppingCart}
+            description="Ventas del mes, tipos de precio, productos vendidos y totales."
+            href="/reportes/ventas"
+            actionLabel="Ver reporte"
+          />
+        </li>
+        <li>
+          <SettingsModuleCard
+            title="Compras"
+            subtitle="Adquisiciones y costos"
+            icon={Package}
+            description="Compras del mes, proveedores, productos adquiridos y montos."
+            href="/reportes/compras"
+            actionLabel="Ver reporte"
+          />
+        </li>
+        <li>
+          <SettingsModuleCard
+            title="Proveedores"
+            subtitle="Abastecimiento y relación comercial"
+            icon={Truck}
+            description="Resumen de proveedores, compras por proveedor y actividad del mes."
+            href="/reportes/proveedores"
+            actionLabel="Ver reporte"
+          />
+        </li>
+      </ul>
     </div>
   );
 }
