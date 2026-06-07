@@ -1,8 +1,8 @@
+"use client";
+
 import PageHeader from "@/components/ui/PageHeader";
 import { SettingsModuleCard } from "@/components/config/SettingsModuleCard";
 import { Wallet, ShoppingCart, Package, Truck } from "lucide-react";
-
-export const dynamic = "force-dynamic";
 
 /** Hub de reportería operativa: cards estilo Configuración Global. */
 export default function ReportesPage() {
