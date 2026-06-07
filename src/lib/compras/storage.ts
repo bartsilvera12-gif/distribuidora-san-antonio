@@ -1,4 +1,4 @@
-import type { Compra, CompraItem, Moneda, TipoPago } from "./types";
+import type { Compra, CompraItem, CompraDetalle, ResumenCompras, Moneda, TipoPago } from "./types";
 
 interface CompraApiRow {
   id: string; numero_control: string; proveedor_id: string; proveedor_nombre: string;
@@ -38,6 +38,7 @@ function mapRow(r: CompraApiRow): Compra {
     plazo_dias: r.plazo_dias ?? undefined,
     nro_timbrado: r.nro_timbrado,
     fecha: r.fecha,
+    estado: r.estado,
     items_count: r.items_count != null ? Number(r.items_count) : undefined,
     factura_path: r.factura_path ?? null,
     factura_nombre_original: r.factura_nombre_original ?? null,
@@ -193,6 +194,70 @@ export async function getFacturaSignedUrl(compraId: string): Promise<FacturaResu
     if (!r.ok || !j?.success) return null;
     return j.data as FacturaResult;
   } catch {
+    return null;
+  }
+}
+
+// ─── Detalle y resumen ────────────────────────────────────────────────────────
+
+interface CompraItemApiRow {
+  id: string; producto_id: string; producto_nombre: string; sku: string;
+  cantidad: string | number; costo_unitario: string | number; iva_tipo: string;
+  subtotal: string | number; monto_iva: string | number; total_linea: string | number;
+}
+interface MovimientoApiRow {
+  id: string; producto_nombre: string; producto_sku: string | null; tipo: string;
+  cantidad: string | number; costo_unitario: string | number;
+  referencia: string | null; fecha: string;
+}
+
+/** Detalle de una compra: cabecera + líneas + movimientos. */
+export async function getCompraDetalle(id: string): Promise<CompraDetalle | null> {
+  try {
+    const r = await fetch(`/api/compras/${encodeURIComponent(id)}`, { credentials: "include", cache: "no-store" });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j?.success) return null;
+    const d = j.data as { compra: CompraApiRow; items: CompraItemApiRow[]; movimientos: MovimientoApiRow[] };
+    return {
+      compra: mapRow(d.compra),
+      items: (d.items ?? []).map((i) => ({
+        id: i.id,
+        producto_id: i.producto_id,
+        producto_nombre: i.producto_nombre,
+        sku: i.sku,
+        cantidad: Number(i.cantidad),
+        costo_unitario: Number(i.costo_unitario),
+        iva_tipo: i.iva_tipo,
+        subtotal: Number(i.subtotal),
+        monto_iva: Number(i.monto_iva),
+        total_linea: Number(i.total_linea),
+      })),
+      movimientos: (d.movimientos ?? []).map((m) => ({
+        id: m.id,
+        producto_nombre: m.producto_nombre,
+        producto_sku: m.producto_sku,
+        tipo: m.tipo,
+        cantidad: Number(m.cantidad),
+        costo_unitario: Number(m.costo_unitario),
+        referencia: m.referencia,
+        fecha: m.fecha,
+      })),
+    };
+  } catch (e) {
+    console.error("[compras] getCompraDetalle:", e);
+    return null;
+  }
+}
+
+/** Resumen/mini-dashboard de compras (agregados server-side). */
+export async function getResumenCompras(): Promise<ResumenCompras | null> {
+  try {
+    const r = await fetch("/api/compras/resumen", { credentials: "include", cache: "no-store" });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j?.success) return null;
+    return j.data as ResumenCompras;
+  } catch (e) {
+    console.error("[compras] getResumenCompras:", e);
     return null;
   }
 }

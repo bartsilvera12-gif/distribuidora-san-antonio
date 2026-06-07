@@ -48,6 +48,9 @@ export interface Compra {
 
   fecha: string;                 // ISO string, generado automáticamente
 
+  /** Estado de la compra (ej. 'registrada'). Opcional para compat con altas. */
+  estado?: string;
+
   /** Cantidad de líneas de detalle (compras_items). 0/undefined = compra
    *  mono-producto legacy que se lee por los campos inline de `compras`. */
   items_count?: number;
@@ -57,4 +60,48 @@ export interface Compra {
   factura_path?: string | null;
   factura_nombre_original?: string | null;
   factura_mime_type?: string | null;
+}
+
+// ── Detalle de compra (pantalla /compras/[id]) ───────────────────────────────
+
+/** Línea de detalle ya normalizada a number para la UI. */
+export interface CompraItemDetalle {
+  id: string;
+  producto_id: string;
+  producto_nombre: string;
+  sku: string;
+  cantidad: number;
+  costo_unitario: number;
+  iva_tipo: string;
+  subtotal: number;
+  monto_iva: number;
+  total_linea: number;
+}
+
+/** Movimiento de inventario generado por la compra (origen='compra'). */
+export interface MovimientoCompra {
+  id: string;
+  producto_nombre: string;
+  producto_sku: string | null;
+  tipo: string;
+  cantidad: number;
+  costo_unitario: number;
+  referencia: string | null;
+  fecha: string;
+}
+
+export interface CompraDetalle {
+  compra: Compra;
+  items: CompraItemDetalle[];
+  movimientos: MovimientoCompra[];
+}
+
+// ── Resumen / mini-dashboard de compras ──────────────────────────────────────
+
+export interface ResumenCompras {
+  hoy: { cantidad: number; total: number };
+  mes: { cantidad: number; total: number };
+  compraMasAlta: { numero_control: string; proveedor_nombre: string; total: number } | null;
+  proveedorPrincipal: { proveedor_id: string; proveedor_nombre: string; total: number } | null;
+  productoMasGasto: { producto_id: string; producto_nombre: string; gasto: number } | null;
 }

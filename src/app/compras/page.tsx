@@ -1,15 +1,17 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
-import { getCompras, getFacturaSignedUrl } from "@/lib/compras/storage";
+import { getCompras, getResumenCompras, getFacturaSignedUrl } from "@/lib/compras/storage";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import EdgeScrollArea from "@/components/ui/EdgeScrollArea";
 import { FancySelect } from "@/components/ui/FancySelect";
 import MobileFab from "@/components/ui/MobileFab";
 import PageHeader from "@/components/ui/PageHeader";
+import StatCard from "@/components/ui/StatCard";
 import Button from "@/components/ui/Button";
 import Badge from "@/components/ui/Badge";
-import type { Compra, TipoPago } from "@/lib/compras/types";
+import type { Compra, TipoPago, ResumenCompras } from "@/lib/compras/types";
 
 const inputFilterClass =
   "border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none bg-white";
@@ -41,6 +43,7 @@ const ivaLabel: Record<string, string> = {
 
 export default function ComprasPage() {
   const [todas, setTodas] = useState<Compra[]>([]);
+  const [resumen, setResumen] = useState<ResumenCompras | null>(null);
   const [busqueda, setBusqueda] = useState("");
   const [filtroTipoPago, setFiltroTipoPago] = useState<TipoPago | "">("");
 
@@ -50,6 +53,7 @@ export default function ComprasPage() {
       if (cancel) return;
       setTodas([...data].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()));
     });
+    getResumenCompras().then((r) => { if (!cancel) setResumen(r); });
     return () => { cancel = true; };
   }, []);
 
@@ -94,6 +98,51 @@ export default function ComprasPage() {
           </>
         }
       />
+
+      {resumen && (
+        <div>
+          <p className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-3">
+            Resumen de compras
+          </p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard
+              label="Compras hoy"
+              value={formatGs(resumen.hoy.total)}
+              hint={`${resumen.hoy.cantidad} ${resumen.hoy.cantidad === 1 ? "compra" : "compras"}`}
+              accent
+            />
+            <StatCard
+              label="Compras del mes"
+              value={formatGs(resumen.mes.total)}
+              hint={`${resumen.mes.cantidad} ${resumen.mes.cantidad === 1 ? "compra" : "compras"}`}
+            />
+            <StatCard
+              label="Compra más alta (mes)"
+              value={resumen.compraMasAlta ? formatGs(resumen.compraMasAlta.total) : "—"}
+              hint={
+                resumen.compraMasAlta
+                  ? `${resumen.compraMasAlta.numero_control} · ${resumen.compraMasAlta.proveedor_nombre}`
+                  : "Sin compras este mes"
+              }
+            />
+            <StatCard
+              label="Proveedor principal (mes)"
+              value={resumen.proveedorPrincipal ? resumen.proveedorPrincipal.proveedor_nombre : "—"}
+              hint={resumen.proveedorPrincipal ? formatGs(resumen.proveedorPrincipal.total) : "Sin compras este mes"}
+            />
+          </div>
+          {resumen.productoMasGasto && (
+            <div className="mt-4">
+              <StatCard
+                label="Producto con más gasto (mes)"
+                value={resumen.productoMasGasto.producto_nombre}
+                hint={formatGs(resumen.productoMasGasto.gasto)}
+                className="sm:max-w-md"
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm ring-1 ring-[#4FAEB2]/15 p-6">
 
@@ -151,13 +200,14 @@ export default function ComprasPage() {
                 <th className="py-3 pr-4 font-medium text-right hidden lg:table-cell">Margen</th>
                 <th className="py-3 pr-4 font-medium hidden md:table-cell">Pago</th>
                 <th className="py-3 pr-4 font-medium">Factura</th>
-                <th className="py-3 font-medium">Fecha</th>
+                <th className="py-3 pr-4 font-medium">Fecha</th>
+                <th className="py-3 font-medium text-right">Acción</th>
               </tr>
             </thead>
             <tbody>
               {filtradas.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-gray-400">
+                  <td colSpan={12} className="py-12 text-center text-gray-400">
                     {todas.length === 0
                       ? "No hay compras registradas"
                       : "Ninguna compra coincide con los filtros"}
@@ -227,8 +277,16 @@ export default function ComprasPage() {
                         <span className="text-gray-300 text-xs">—</span>
                       )}
                     </td>
-                    <td className="py-4 text-gray-500 text-xs tabular-nums">
+                    <td className="py-4 pr-4 text-gray-500 text-xs tabular-nums">
                       {formatFecha(c.fecha)}
+                    </td>
+                    <td className="py-4 text-right">
+                      <Link
+                        href={`/compras/${c.id}`}
+                        className="text-sm font-medium text-[#3F8E91] hover:text-[#2F6F72] hover:underline"
+                      >
+                        Ver
+                      </Link>
                     </td>
                   </tr>
                 ))

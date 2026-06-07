@@ -53,3 +53,33 @@ export type NuevoProveedorInput = {
   observaciones?: string | null;
   categoria_ids?: string[];
 };
+
+// ── Reportería (resumen, stats por proveedor, detalle) ───────────────────────
+
+export interface ResumenProveedores {
+  totalProveedores: number;
+  conComprasMes: number;
+  totalCompradoMes: number;
+  proveedorTopMes: { proveedor_id: string; proveedor_nombre: string; total: number } | null;
+  ultimaCompra: { numero_control: string; proveedor_nombre: string; total: number; fecha: string } | null;
+}
+
+export interface ProveedorComprasStat {
+  proveedor_id: string;
+  cantidad: number;
+  total_mes: number;
+  ultima_compra: string | null;
+}
+
+export interface ProveedorDetalleCompras {
+  metricas: { cantidad: number; total: number; ultimaCompra: string | null };
+  compras: Array<{
+    id: string;
+    numero_control: string;
+    fecha: string;
+    total: number;
+    tipo_pago: string;
+    items_count: number;
+  }>;
+  topProductos: Array<{ producto_id: string; producto_nombre: string; cantidad: number; gasto: number }>;
+}

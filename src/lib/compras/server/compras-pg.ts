@@ -104,6 +104,185 @@ export async function listCompras(
   return rows;
 }
 
+// ── Detalle de una compra ────────────────────────────────────────────────────
+
+export interface CompraItemRow {
+  id: string;
+  compra_id: string;
+  producto_id: string;
+  producto_nombre: string;
+  sku: string;
+  cantidad: string | number;
+  costo_unitario: string | number;
+  iva_tipo: string;
+  subtotal: string | number;
+  monto_iva: string | number;
+  total_linea: string | number;
+}
+
+export interface MovimientoCompraRow {
+  id: string;
+  producto_id: string;
+  producto_nombre: string;
+  producto_sku: string | null;
+  tipo: string;
+  cantidad: string | number;
+  costo_unitario: string | number;
+  origen: string | null;
+  referencia: string | null;
+  fecha: string;
+}
+
+/** Cabecera de una compra por id (con items_count para distinguir multiproducto). */
+export async function getCompraById(
+  schemaRaw: string,
+  empresaId: string,
+  compraId: string
+): Promise<CompraRow | null> {
+  const schema = assertAllowedChatDataSchema(schemaRaw);
+  const t = quoteSchemaTable(schema, "compras");
+  const tItems = quoteSchemaTable(schema, "compras_items");
+  const colsPrefixed = COLS.replace(/\s+/g, " ").trim().split(",").map((c) => `c.${c.trim()}`).join(", ");
+  const { rows } = await pool().query<CompraRow>(
+    `SELECT ${colsPrefixed},
+            (SELECT count(*) FROM ${tItems} ci WHERE ci.compra_id = c.id)::int AS items_count
+       FROM ${t} c
+      WHERE c.id = $1::uuid AND c.empresa_id = $2::uuid
+      LIMIT 1`,
+    [compraId, empresaId]
+  );
+  return rows[0] ?? null;
+}
+
+/** Líneas (compras_items) de una compra multiproducto. Vacío en compras legacy. */
+export async function listCompraItems(
+  schemaRaw: string,
+  empresaId: string,
+  compraId: string
+): Promise<CompraItemRow[]> {
+  const schema = assertAllowedChatDataSchema(schemaRaw);
+  const t = quoteSchemaTable(schema, "compras_items");
+  const { rows } = await pool().query<CompraItemRow>(
+    `SELECT id, compra_id, producto_id, producto_nombre, sku, cantidad,
+            costo_unitario, iva_tipo, subtotal, monto_iva, total_linea
+       FROM ${t}
+      WHERE compra_id = $1::uuid AND empresa_id = $2::uuid
+      ORDER BY created_at ASC`,
+    [compraId, empresaId]
+  );
+  return rows;
+}
+
+/**
+ * Movimientos de inventario generados por una compra. Se relacionan por
+ * origen='compra' + referencia=numero_control (no hay FK directa).
+ */
+export async function listMovimientosDeCompra(
+  schemaRaw: string,
+  empresaId: string,
+  numeroControl: string
+): Promise<MovimientoCompraRow[]> {
+  const schema = assertAllowedChatDataSchema(schemaRaw);
+  const t = quoteSchemaTable(schema, "movimientos_inventario");
+  const { rows } = await pool().query<MovimientoCompraRow>(
+    `SELECT id, producto_id, producto_nombre, producto_sku, tipo, cantidad,
+            costo_unitario, origen, referencia, fecha
+       FROM ${t}
+      WHERE empresa_id = $1::uuid AND origen = 'compra' AND referencia = $2
+      ORDER BY fecha ASC`,
+    [empresaId, numeroControl]
+  );
+  return rows;
+}
+
+// ── Resumen / mini-dashboard de compras ──────────────────────────────────────
+
+export interface ResumenComprasBounds {
+  dayStart: string;
+  dayEnd: string;
+  monthStart: string;
+  monthEnd: string;
+}
+
+export interface ResumenCompras {
+  hoy: { cantidad: number; total: number };
+  mes: { cantidad: number; total: number };
+  compraMasAlta: { numero_control: string; proveedor_nombre: string; total: number } | null;
+  proveedorPrincipal: { proveedor_id: string; proveedor_nombre: string; total: number } | null;
+  productoMasGasto: { producto_id: string; producto_nombre: string; gasto: number } | null;
+}
+
+/** Agregados SQL para el mini-dashboard de compras (todo server-side). */
+export async function getResumenCompras(
+  schemaRaw: string,
+  empresaId: string,
+  bounds: ResumenComprasBounds
+): Promise<ResumenCompras> {
+  const schema = assertAllowedChatDataSchema(schemaRaw);
+  const t = quoteSchemaTable(schema, "compras");
+  const tItems = quoteSchemaTable(schema, "compras_items");
+  const p = pool();
+  const { dayStart, dayEnd, monthStart, monthEnd } = bounds;
+
+  const totalsQ = (start: string, end: string) =>
+    p.query<{ cantidad: number; total: number }>(
+      `SELECT count(*)::int AS cantidad, COALESCE(SUM(total), 0)::float8 AS total
+         FROM ${t}
+        WHERE empresa_id = $1::uuid AND fecha >= $2::timestamptz AND fecha <= $3::timestamptz`,
+      [empresaId, start, end]
+    );
+
+  const masAltaQ = p.query<{ numero_control: string; proveedor_nombre: string; total: number }>(
+    `SELECT numero_control, proveedor_nombre, total::float8 AS total
+       FROM ${t}
+      WHERE empresa_id = $1::uuid AND fecha >= $2::timestamptz AND fecha <= $3::timestamptz
+      ORDER BY total DESC LIMIT 1`,
+    [empresaId, monthStart, monthEnd]
+  );
+
+  const provQ = p.query<{ proveedor_id: string; proveedor_nombre: string; total: number }>(
+    `SELECT proveedor_id, proveedor_nombre, SUM(total)::float8 AS total
+       FROM ${t}
+      WHERE empresa_id = $1::uuid AND fecha >= $2::timestamptz AND fecha <= $3::timestamptz
+      GROUP BY proveedor_id, proveedor_nombre
+      ORDER BY total DESC LIMIT 1`,
+    [empresaId, monthStart, monthEnd]
+  );
+
+  // Producto con más gasto del mes: líneas (multiproducto) + cabecera (legacy sin items).
+  const prodQ = p.query<{ producto_id: string; producto_nombre: string; gasto: number }>(
+    `SELECT producto_id, producto_nombre, SUM(gasto)::float8 AS gasto FROM (
+        SELECT ci.producto_id, ci.producto_nombre, ci.total_linea AS gasto
+          FROM ${tItems} ci JOIN ${t} c ON c.id = ci.compra_id
+         WHERE c.empresa_id = $1::uuid AND c.fecha >= $2::timestamptz AND c.fecha <= $3::timestamptz
+        UNION ALL
+        SELECT c.producto_id, c.producto_nombre, c.total AS gasto
+          FROM ${t} c
+         WHERE c.empresa_id = $1::uuid AND c.fecha >= $2::timestamptz AND c.fecha <= $3::timestamptz
+           AND NOT EXISTS (SELECT 1 FROM ${tItems} ci WHERE ci.compra_id = c.id)
+      ) g
+      GROUP BY producto_id, producto_nombre
+      ORDER BY gasto DESC LIMIT 1`,
+    [empresaId, monthStart, monthEnd]
+  );
+
+  const [hoy, mes, masAlta, prov, prod] = await Promise.all([
+    totalsQ(dayStart, dayEnd),
+    totalsQ(monthStart, monthEnd),
+    masAltaQ,
+    provQ,
+    prodQ,
+  ]);
+
+  return {
+    hoy: { cantidad: hoy.rows[0]?.cantidad ?? 0, total: hoy.rows[0]?.total ?? 0 },
+    mes: { cantidad: mes.rows[0]?.cantidad ?? 0, total: mes.rows[0]?.total ?? 0 },
+    compraMasAlta: masAlta.rows[0] ?? null,
+    proveedorPrincipal: prov.rows[0] ?? null,
+    productoMasGasto: prod.rows[0] ?? null,
+  };
+}
+
 /** Genera proximo COMP-XXXXXX leyendo el maximo existente. */
 async function nextNumeroControl(
   client: import("pg").PoolClient,

@@ -2,15 +2,29 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { getProveedores } from "@/lib/proveedores/storage";
+import { getProveedores, getResumenProveedores, getComprasStatsProveedores } from "@/lib/proveedores/storage";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import ImportExcelButton from "@/components/ui/ImportExcelButton";
 import PageHeader from "@/components/ui/PageHeader";
+import StatCard from "@/components/ui/StatCard";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
 import { useIsAdmin } from "@/lib/auth/use-is-admin";
-import type { Proveedor } from "@/lib/proveedores/types";
+import type { Proveedor, ResumenProveedores, ProveedorComprasStat } from "@/lib/proveedores/types";
+
+function formatGs(v: number) {
+  return `Gs. ${Math.round(v).toLocaleString("es-PY")}`;
+}
+function formatFechaCorta(iso: string | null): string {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+  } catch {
+    return "—";
+  }
+}
 
 /**
  * Isla cliente de la página de Proveedores: búsqueda, filtros y acciones.
@@ -33,6 +47,15 @@ export default function ProveedoresClient({
   const [busqueda, setBusqueda] = useState("");
   const [cargando, setCargando] = useState(!serverLoaded);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [resumen, setResumen] = useState<ResumenProveedores | null>(null);
+  const [stats, setStats] = useState<Record<string, ProveedorComprasStat>>({});
+
+  useEffect(() => {
+    let cancel = false;
+    getResumenProveedores().then((r) => { if (!cancel) setResumen(r); });
+    getComprasStatsProveedores().then((m) => { if (!cancel) setStats(m); });
+    return () => { cancel = true; };
+  }, [refreshKey]);
 
   useEffect(() => {
     // Si el servidor ya trajo los datos y no hubo refresh manual, usamos esos
@@ -95,6 +118,33 @@ export default function ProveedoresClient({
         }
       />
 
+      {resumen && (
+        <div>
+          <p className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-3">
+            Resumen operativo
+          </p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <StatCard label="Total proveedores" value={String(resumen.totalProveedores)} accent />
+            <StatCard label="Con compras (mes)" value={String(resumen.conComprasMes)} />
+            <StatCard label="Total comprado (mes)" value={formatGs(resumen.totalCompradoMes)} />
+            <StatCard
+              label="Proveedor top (mes)"
+              value={resumen.proveedorTopMes ? resumen.proveedorTopMes.proveedor_nombre : "—"}
+              hint={resumen.proveedorTopMes ? formatGs(resumen.proveedorTopMes.total) : "Sin compras este mes"}
+            />
+            <StatCard
+              label="Última compra"
+              value={resumen.ultimaCompra ? formatGs(resumen.ultimaCompra.total) : "—"}
+              hint={
+                resumen.ultimaCompra
+                  ? `${resumen.ultimaCompra.numero_control} · ${formatFechaCorta(resumen.ultimaCompra.fecha)}`
+                  : "Sin compras registradas"
+              }
+            />
+          </div>
+        </div>
+      )}
+
       <Card className="overflow-hidden">
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <input
@@ -118,24 +168,29 @@ export default function ProveedoresClient({
                 <th className="py-3 pr-4 font-semibold">Contacto</th>
                 <th className="py-3 pr-4 font-semibold">Categorías</th>
                 <th className="py-3 pr-4 font-semibold">Estado</th>
-                <th className="py-3 font-semibold w-24" />
+                <th className="py-3 pr-4 font-semibold text-right">Compras</th>
+                <th className="py-3 pr-4 font-semibold text-right">Total mes</th>
+                <th className="py-3 pr-4 font-semibold">Última compra</th>
+                <th className="py-3 font-semibold w-28" />
               </tr>
             </thead>
             <tbody>
               {cargando ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-400">
+                  <td colSpan={9} className="py-12 text-center text-slate-400">
                     Cargando…
                   </td>
                 </tr>
               ) : filtradas.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-400">
+                  <td colSpan={9} className="py-12 text-center text-slate-400">
                     {lista.length === 0 ? "No hay proveedores cargados." : "Sin resultados."}
                   </td>
                 </tr>
               ) : (
-                filtradas.map((p) => (
+                filtradas.map((p) => {
+                  const st = stats[p.id];
+                  return (
                   <tr key={p.id} className="border-b border-slate-50 last:border-0 hover:bg-[#4FAEB2]/[0.04] transition-colors">
                     <td className="py-3 pr-4">
                       <div className="font-medium text-slate-800">{p.nombre}</div>
@@ -164,16 +219,28 @@ export default function ProveedoresClient({
                         {p.estado === "activo" ? "Activo" : "Inactivo"}
                       </Badge>
                     </td>
+                    <td className="py-3 pr-4 text-right tabular-nums text-slate-700">{st?.cantidad ?? 0}</td>
+                    <td className="py-3 pr-4 text-right tabular-nums text-slate-700">{formatGs(st?.total_mes ?? 0)}</td>
+                    <td className="py-3 pr-4 text-slate-600 text-xs tabular-nums">{formatFechaCorta(st?.ultima_compra ?? null)}</td>
                     <td className="py-3">
-                      <Link
-                        href={`/proveedores/${p.id}/editar`}
-                        className="text-sm font-medium text-[#3F8E91] hover:text-[#2F6F72] hover:underline"
-                      >
-                        Editar
-                      </Link>
+                      <div className="flex items-center gap-3">
+                        <Link
+                          href={`/proveedores/${p.id}`}
+                          className="text-sm font-medium text-[#3F8E91] hover:text-[#2F6F72] hover:underline"
+                        >
+                          Ver
+                        </Link>
+                        <Link
+                          href={`/proveedores/${p.id}/editar`}
+                          className="text-sm font-medium text-slate-500 hover:text-slate-700 hover:underline"
+                        >
+                          Editar
+                        </Link>
+                      </div>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>

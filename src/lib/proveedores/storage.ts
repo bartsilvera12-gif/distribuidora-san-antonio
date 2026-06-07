@@ -1,5 +1,12 @@
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
-import type { Proveedor, NuevoProveedorInput, ProveedorCategoria } from "./types";
+import type {
+  Proveedor,
+  NuevoProveedorInput,
+  ProveedorCategoria,
+  ResumenProveedores,
+  ProveedorComprasStat,
+  ProveedorDetalleCompras,
+} from "./types";
 
 export async function getProveedores(): Promise<Proveedor[]> {
   try {
@@ -159,5 +166,51 @@ export async function updateCategoriaProveedor(
     return { ok: true, categoria: json.data.categoria };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Error de red." };
+  }
+}
+
+// ── Reportería ────────────────────────────────────────────────────────────────
+
+/** Resumen operativo de proveedores (cards). */
+export async function getResumenProveedores(): Promise<ResumenProveedores | null> {
+  try {
+    const res = await fetchWithSupabaseSession("/api/proveedores/resumen", { cache: "no-store" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json?.success) return null;
+    return json.data as ResumenProveedores;
+  } catch (e) {
+    console.error("[proveedores] getResumenProveedores:", e);
+    return null;
+  }
+}
+
+/** Stats de compras por proveedor (mapa proveedor_id → stat) para el listado. */
+export async function getComprasStatsProveedores(): Promise<Record<string, ProveedorComprasStat>> {
+  try {
+    const res = await fetchWithSupabaseSession("/api/proveedores/compras-stats", { cache: "no-store" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json?.success) return {};
+    const stats = ((json.data as { stats?: ProveedorComprasStat[] })?.stats ?? []) as ProveedorComprasStat[];
+    const map: Record<string, ProveedorComprasStat> = {};
+    for (const s of stats) map[s.proveedor_id] = s;
+    return map;
+  } catch (e) {
+    console.error("[proveedores] getComprasStatsProveedores:", e);
+    return {};
+  }
+}
+
+/** Detalle de compras de un proveedor: métricas, historial y top productos. */
+export async function getProveedorDetalleCompras(id: string): Promise<ProveedorDetalleCompras | null> {
+  try {
+    const res = await fetchWithSupabaseSession(`/api/proveedores/${encodeURIComponent(id)}/compras`, {
+      cache: "no-store",
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json?.success) return null;
+    return json.data as ProveedorDetalleCompras;
+  } catch (e) {
+    console.error("[proveedores] getProveedorDetalleCompras:", e);
+    return null;
   }
 }
