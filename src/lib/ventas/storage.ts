@@ -1,4 +1,4 @@
-import type { Venta } from "./types";
+import type { Venta, PagoDetalleVenta } from "./types";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 
 export type ResultadoGuardarVenta =
@@ -47,7 +47,8 @@ export async function getVentas(): Promise<Venta[]> {
  */
 export async function saveVenta(
   datos: Omit<Venta, "id" | "numero_control" | "fecha">,
-  pedidoCocina?: PedidoCocinaInput
+  pedidoCocina?: PedidoCocinaInput,
+  pagoDetalle?: PagoDetalleVenta | null
 ): Promise<ResultadoGuardarVenta> {
   if (!datos.items || datos.items.length === 0) {
     return { success: false, error: "La venta debe tener al menos un producto." };
@@ -70,6 +71,7 @@ export async function saveVenta(
         cliente_id: null,
         observaciones: null,
         pedido_cocina: pedidoCocina ?? null,
+        pago_detalle: pagoDetalle ?? null,
       }),
     });
 

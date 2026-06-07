@@ -43,3 +43,20 @@ export interface Venta {
 
   fecha: string;             // ISO string, generado automáticamente
 }
+
+/**
+ * Detalle de pago capturado al confirmar una venta por transferencia o tarjeta.
+ * Alimenta el reporte de Conciliación entre cuentas (tabla ventas_pagos_detalle).
+ * - transferencia: banco emisor + titular + monto + nro de comprobante.
+ * - tarjeta: banco + monto + nro de comprobante (sin titular).
+ */
+export type PagoDetalleVenta = {
+  metodo_pago: "transferencia" | "tarjeta";
+  /** Id de la entidad del catálogo si se eligió una; null si se tipeó a mano. */
+  entidad_bancaria_id: string | null;
+  banco_codigo: string | null;
+  banco_nombre: string | null;
+  titular: string | null;       // solo transferencia
+  monto: number;
+  nro_comprobante: string | null;
+};

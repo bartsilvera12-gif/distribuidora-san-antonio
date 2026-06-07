@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import MontoInput from "@/components/ui/MontoInput";
 import PageHeader from "@/components/ui/PageHeader";
 import ProductPickerModal, { type AgregarVentaPayload } from "@/components/inventario/ProductPickerModal";
+import PagoDetalleModal from "@/components/ventas/PagoDetalleModal";
 import { saveVenta } from "@/lib/ventas/storage";
-import type { TipoIvaVenta, TipoVenta, MonedaVenta, LineaVenta, MetodoPago, TipoPrecioVenta } from "@/lib/ventas/types";
+import type { TipoIvaVenta, TipoVenta, MonedaVenta, LineaVenta, MetodoPago, TipoPrecioVenta, PagoDetalleVenta } from "@/lib/ventas/types";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -86,6 +87,11 @@ export default function NuevaVentaPage() {
   // (un solo paso desde Ventas → Nueva venta → cargar productos).
   const [pickerOpen, setPickerOpen] = useState(true);
 
+  // ── Popup de detalle de pago (transferencia / tarjeta) ───────────────────────
+  const [pagoDetalleOpen, setPagoDetalleOpen] = useState(false);
+  const [guardandoVenta, setGuardandoVenta] = useState(false);
+  const [pagoError, setPagoError] = useState<string | null>(null);
+
   /**
    * Agregado desde el panel de detalle del buscador: arma la LineaVenta con los
    * datos del modal (producto, cantidad, precio, IVA y tipo de precio elegido
@@ -152,11 +158,41 @@ export default function NuevaVentaPage() {
     setItems((prev) => prev.filter((_, i) => i !== index));
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setErrorVenta(null);
-    if (!ventaValida) return;
+  /**
+   * Arma el pedido para el kanban según vertical:
+   * - Gastronomía con modalidad elegida: info completa (mesa/delivery/etc).
+   * - Gastronomía sin modalidad: undefined (el form bloquea el submit antes).
+   * - No-gastronomía (distribuidora): modalidad=null → el backend igual crea
+   *   el pedido en el kanban con título genérico "Venta {numero}".
+   */
+  function buildPedidoCocina() {
+    return ES_GASTRONOMIA
+      ? (modalidad === ""
+          ? undefined
+          : {
+              modalidad,
+              mesa: modalidad === "local" ? pedidoMesa.trim() || null : null,
+              cliente_nombre: pedidoClienteNombre.trim() || null,
+              cliente_telefono: pedidoClienteTelefono.trim() || null,
+              direccion_entrega: pedidoDireccion.trim() || null,
+              observacion: pedidoObservacion.trim() || null,
+            })
+      : {
+          modalidad: null,
+          mesa: null,
+          cliente_nombre: null,
+          cliente_telefono: null,
+          direccion_entrega: null,
+          observacion: null,
+        };
+  }
 
+  /**
+   * Guardado real (con o sin detalle de pago). Si OK abre el ticket y vuelve al
+   * listado. Devuelve el resultado para que el caller muestre el error donde
+   * corresponda (página para efectivo, popup para transferencia/tarjeta).
+   */
+  async function guardarVenta(pagoDetalle: PagoDetalleVenta | null) {
     const resultado = await saveVenta(
       {
         items,
@@ -168,41 +204,47 @@ export default function NuevaVentaPage() {
         tipo_venta:   tipoVenta,
         metodo_pago:  metodoPago,
       },
-      // Pedido para el kanban:
-      // - Gastronomía con modalidad elegida: mandar la info completa (mesa/delivery/etc).
-      // - Gastronomía sin modalidad elegida: undefined (el form bloquea el submit antes).
-      // - No-gastronomía (distribuidora): mandar siempre con modalidad=null → el backend
-      //   igual crea el pedido en el kanban con título genérico "Venta {numero}".
-      ES_GASTRONOMIA
-        ? (modalidad === ""
-            ? undefined
-            : {
-                modalidad,
-                mesa: modalidad === "local" ? pedidoMesa.trim() || null : null,
-                cliente_nombre: pedidoClienteNombre.trim() || null,
-                cliente_telefono: pedidoClienteTelefono.trim() || null,
-                direccion_entrega: pedidoDireccion.trim() || null,
-                observacion: pedidoObservacion.trim() || null,
-              })
-        : {
-            modalidad: null,
-            mesa: null,
-            cliente_nombre: null,
-            cliente_telefono: null,
-            direccion_entrega: null,
-            observacion: null,
-          }
+      buildPedidoCocina(),
+      pagoDetalle
     );
+    if (resultado.success) {
+      // Abrir comandas + ticket cliente en nueva pestaña con autoprint.
+      try {
+        window.open(`/api/ventas/${resultado.venta.id}/ticket?mode=comandas&auto=1`, "_blank", "noopener");
+      } catch {}
+      router.push("/ventas");
+    }
+    return resultado;
+  }
 
-    if (!resultado.success) {
-      setErrorVenta(resultado.error);
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setErrorVenta(null);
+    if (!ventaValida) return;
+
+    // Transferencia / tarjeta: primero capturamos los datos de conciliación en
+    // el popup; el guardado se dispara al confirmar ahí (obligatorio).
+    if (metodoPago === "transferencia" || metodoPago === "tarjeta") {
+      setPagoError(null);
+      setPagoDetalleOpen(true);
       return;
     }
-    // Abrir comandas + ticket cliente en nueva pestaña con autoprint.
-    try {
-      window.open(`/api/ventas/${resultado.venta.id}/ticket?mode=comandas&auto=1`, "_blank", "noopener");
-    } catch {}
-    router.push("/ventas");
+
+    // Efectivo: guardado directo.
+    const r = await guardarVenta(null);
+    if (!r.success) setErrorVenta(r.error);
+  }
+
+  /** Confirmación desde el popup de transferencia/tarjeta. */
+  async function confirmarConDetalle(detalle: PagoDetalleVenta) {
+    setPagoError(null);
+    setGuardandoVenta(true);
+    const r = await guardarVenta(detalle);
+    if (!r.success) {
+      setPagoError(r.error);
+      setGuardandoVenta(false);
+    }
+    // En éxito se navega a /ventas y el modal se desmonta con la página.
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -591,6 +633,18 @@ export default function NuevaVentaPage() {
         moneda={moneda}
         tipoCambio={tipoCambioNum}
         ivaDefault="10%"
+      />
+
+      <PagoDetalleModal
+        open={pagoDetalleOpen}
+        metodo={metodoPago === "tarjeta" ? "tarjeta" : "transferencia"}
+        totalVenta={totalGeneral}
+        guardando={guardandoVenta}
+        errorExterno={pagoError}
+        onClose={() => {
+          if (!guardandoVenta) setPagoDetalleOpen(false);
+        }}
+        onConfirmar={confirmarConDetalle}
       />
     </div>
   );

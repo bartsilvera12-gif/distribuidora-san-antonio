@@ -6,6 +6,7 @@ import {
   FileText,
   GitBranch,
   Inbox,
+  Landmark,
   LayoutGrid,
   MessageCircle,
   Percent,
@@ -85,6 +86,16 @@ export default function ConfiguracionPage() {
               icon={Receipt}
               badge={editorBadge}
               href="/configuracion/facturacion"
+            />
+          </li>
+          <li>
+            <SettingsModuleCard
+              title="Entidades bancarias"
+              subtitle="GLOBAL · CONCILIACIÓN"
+              description="Registrá bancos, financieras y billeteras con su código de pago. Se autocompletan al cobrar por transferencia o tarjeta."
+              icon={Landmark}
+              badge={editorBadge}
+              href="/configuracion/entidades-bancarias"
             />
           </li>
           <li>

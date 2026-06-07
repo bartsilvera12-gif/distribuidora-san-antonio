@@ -3,6 +3,7 @@ import type {
   VentasReporte,
   ComprasReporte,
   ProveedoresReporte,
+  ConciliacionReporte,
 } from "./types";
 
 async function getReporte<T>(url: string): Promise<T | null> {
@@ -27,3 +28,5 @@ export const getComprasReporte = (mes: string) =>
   getReporte<ComprasReporte>(`/api/reportes/compras?mes=${mq(mes)}`);
 export const getProveedoresReporte = (mes: string) =>
   getReporte<ProveedoresReporte>(`/api/reportes/proveedores?mes=${mq(mes)}`);
+export const getConciliacionReporte = (mes: string) =>
+  getReporte<ConciliacionReporte>(`/api/reportes/conciliacion?mes=${mq(mes)}`);

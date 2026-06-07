@@ -19,6 +19,8 @@ import type {
   CompraReporteRow,
   ItemCompradoRow,
   ProveedorReporteRow,
+  ConciliacionReporte,
+  ConciliacionRow,
 } from "@/lib/reportes/types";
 
 function pool() {
@@ -309,5 +311,69 @@ export async function getReporteProveedores(
     compraPromedio: conCompras > 0 ? totalComprado / conCompras : 0,
     ultimaCompra: ultima.rows[0] ? { ...ultima.rows[0], total: num(ultima.rows[0].total) } : null,
     proveedores: provList.rows.map((r) => ({ ...r, cantidad: num(r.cantidad), total: num(r.total) })),
+  };
+}
+
+// ── Conciliación entre cuentas ────────────────────────────────────────────────
+
+export async function getReporteConciliacion(
+  schemaRaw: string,
+  empresaId: string,
+  b: MesBounds
+): Promise<ConciliacionReporte> {
+  const schema = assertAllowedChatDataSchema(schemaRaw);
+  const tD = quoteSchemaTable(schema, "ventas_pagos_detalle");
+  const tV = quoteSchemaTable(schema, "ventas");
+  const p = pool();
+
+  const q = await p.query<ConciliacionRow>(
+    `SELECT d.id, d.fecha, d.metodo_pago,
+            d.banco_codigo, d.banco_nombre, d.titular,
+            d.monto::float8 AS monto, d.nro_comprobante,
+            v.numero_control, v.estado AS venta_estado
+       FROM ${tD} d
+       LEFT JOIN ${tV} v ON v.id = d.venta_id AND v.empresa_id = d.empresa_id
+      WHERE d.empresa_id=$1::uuid AND d.fecha>=$2::timestamptz AND d.fecha<=$3::timestamptz
+      ORDER BY d.fecha DESC`,
+    [empresaId, b.start, b.end]
+  );
+
+  const movimientos: ConciliacionRow[] = q.rows.map((r) => ({ ...r, monto: num(r.monto) }));
+
+  let totalTransferencias = 0;
+  let cantidadTransferencias = 0;
+  let totalTarjetas = 0;
+  let cantidadTarjetas = 0;
+  const bancoMap = new Map<string, { cantidad: number; total: number }>();
+
+  for (const m of movimientos) {
+    if (m.metodo_pago === "transferencia") {
+      totalTransferencias += m.monto;
+      cantidadTransferencias += 1;
+    } else if (m.metodo_pago === "tarjeta") {
+      totalTarjetas += m.monto;
+      cantidadTarjetas += 1;
+    }
+    const key = m.banco_nombre ?? "—";
+    const cur = bancoMap.get(key) ?? { cantidad: 0, total: 0 };
+    cur.cantidad += 1;
+    cur.total += m.monto;
+    bancoMap.set(key, cur);
+  }
+
+  const porBanco = [...bancoMap.entries()]
+    .map(([banco, v]) => ({ banco, cantidad: v.cantidad, total: v.total }))
+    .sort((a, c) => c.total - a.total);
+
+  return {
+    mes: b.mes,
+    totalTransferencias,
+    cantidadTransferencias,
+    totalTarjetas,
+    cantidadTarjetas,
+    totalGeneral: totalTransferencias + totalTarjetas,
+    cantidadTotal: movimientos.length,
+    porBanco,
+    movimientos,
   };
 }

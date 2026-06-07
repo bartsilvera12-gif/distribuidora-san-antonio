@@ -3,6 +3,7 @@ import { getUserAndEmpresa } from "@/lib/middleware/auth";
 import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
 import { createVentaTransaccionalPg } from "@/lib/ventas/server/create-venta-pg";
 import type { CreateVentaItemInput } from "@/lib/ventas/server/create-venta-pg";
+import { insertVentaPagoDetalle, type PagoDetalleInput } from "@/lib/ventas/server/pago-detalle-pg";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import type { Venta, LineaVenta } from "@/lib/ventas/types";
@@ -117,6 +118,49 @@ export async function POST(request: NextRequest) {
         : null;
     const metodoPago: "efectivo" | "tarjeta" | "transferencia" =
       o.metodo_pago === "tarjeta" || o.metodo_pago === "transferencia" ? o.metodo_pago : "efectivo";
+
+    // Detalle de pago (conciliación entre cuentas). Obligatorio para transferencia/tarjeta.
+    let pagoDetalle: PagoDetalleInput | null = null;
+    if (metodoPago === "transferencia" || metodoPago === "tarjeta") {
+      const pd = (o.pago_detalle ?? null) as Record<string, unknown> | null;
+      if (!pd || typeof pd !== "object") {
+        return NextResponse.json(
+          errorResponse("Faltan los datos de la transferencia/tarjeta para la conciliación."),
+          { status: 400 }
+        );
+      }
+      const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+      const bancoNombre = str(pd.banco_nombre);
+      const titular = str(pd.titular);
+      const nroComprobante = str(pd.nro_comprobante);
+      const bancoCodigo = str(pd.banco_codigo) || null;
+      const monto = Number(pd.monto);
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const entidadRaw = str(pd.entidad_bancaria_id);
+      const entidadBancariaId = UUID_RE.test(entidadRaw) ? entidadRaw : null;
+
+      if (!bancoNombre) {
+        return NextResponse.json(errorResponse("Indicá el banco (por código o nombre)."), { status: 400 });
+      }
+      if (metodoPago === "transferencia" && !titular) {
+        return NextResponse.json(errorResponse("Ingresá el titular que envía la transferencia."), { status: 400 });
+      }
+      if (!(monto > 0)) {
+        return NextResponse.json(errorResponse("El monto del pago debe ser mayor a 0."), { status: 400 });
+      }
+      if (!nroComprobante) {
+        return NextResponse.json(errorResponse("Ingresá el N° de comprobante."), { status: 400 });
+      }
+      pagoDetalle = {
+        metodoPago,
+        entidadBancariaId,
+        bancoCodigo,
+        bancoNombre,
+        titular: metodoPago === "transferencia" ? titular : null,
+        monto: Math.round(monto),
+        nroComprobante,
+      };
+    }
     const clienteRaw = o.cliente_id;
     const clienteId =
       clienteRaw === null || clienteRaw === undefined || clienteRaw === ""
@@ -211,6 +255,20 @@ export async function POST(request: NextRequest) {
       usuarioCatalogId: auth.usuarioCatalogId ?? null,
       usuarioNombre: auth.usuarioNombre ?? auth.user?.email ?? null,
     });
+
+    // Detalle de pago (transferencia/tarjeta) → ventas_pagos_detalle (raw-PG).
+    // Best-effort: la venta ya quedó creada; si esto falla, se loguea pero no se
+    // invalida la venta (los datos se validaron antes de crearla).
+    if (pagoDetalle) {
+      try {
+        await insertVentaPagoDetalle(schema, auth.empresa_id, ventaId, pagoDetalle);
+      } catch (e) {
+        console.error(
+          "[/api/ventas/create] No se pudo guardar el detalle de pago:",
+          e instanceof Error ? e.message : e
+        );
+      }
+    }
 
     let sub = 0;
     let iv = 0;

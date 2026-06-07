@@ -116,3 +116,30 @@ export interface ProveedoresReporte {
   ultimaCompra: { numero_control: string; proveedor_nombre: string; total: number; fecha: string } | null;
   proveedores: ProveedorReporteRow[];
 }
+
+// ── Conciliación entre cuentas (transferencias / tarjetas) ────────────────────
+
+export interface ConciliacionRow {
+  id: string;
+  fecha: string;
+  numero_control: string | null; // venta asociada
+  metodo_pago: string; // transferencia | tarjeta
+  banco_codigo: string | null;
+  banco_nombre: string | null;
+  titular: string | null;
+  monto: number;
+  nro_comprobante: string | null;
+  venta_estado: string | null;
+}
+
+export interface ConciliacionReporte {
+  mes: string;
+  totalTransferencias: number;
+  cantidadTransferencias: number;
+  totalTarjetas: number;
+  cantidadTarjetas: number;
+  totalGeneral: number;
+  cantidadTotal: number;
+  porBanco: { banco: string; cantidad: number; total: number }[];
+  movimientos: ConciliacionRow[];
+}

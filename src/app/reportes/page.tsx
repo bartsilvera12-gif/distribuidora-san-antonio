@@ -2,7 +2,7 @@
 
 import PageHeader from "@/components/ui/PageHeader";
 import { ReportCard } from "@/components/reportes/ReportCard";
-import { Wallet, ShoppingCart, Package, Truck } from "lucide-react";
+import { Wallet, ShoppingCart, Package, Truck, ArrowLeftRight } from "lucide-react";
 
 /** Hub de reportería operativa: cards estilo Configuración Global. */
 export default function ReportesPage() {
@@ -49,6 +49,15 @@ export default function ReportesPage() {
             icon={Truck}
             description="Resumen de proveedores, compras por proveedor y actividad del mes."
             href="/reportes/proveedores"
+          />
+        </li>
+        <li>
+          <ReportCard
+            title="Conciliación entre cuentas"
+            subtitle="Transferencias y tarjetas"
+            icon={ArrowLeftRight}
+            description="Cobros por transferencia y tarjeta: banco, titular, monto y comprobante del período."
+            href="/reportes/conciliacion"
           />
         </li>
       </ul>
