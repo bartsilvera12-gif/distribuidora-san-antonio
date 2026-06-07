@@ -12,6 +12,10 @@ import type { PagoDetalleVenta } from "@/lib/ventas/types";
 const inputClass =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:border-[#0EA5E9] focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/20";
 
+/** Normaliza para búsqueda insensible a acentos/mayúsculas (ej: "itau" matchea "Itaú"). */
+const norm = (s: string) =>
+  s.normalize("NFD").replace(/\p{Diacritic}/gu, "").trim().toLowerCase();
+
 /**
  * Popup que se despliega al confirmar una venta por transferencia/tarjeta.
  * Captura banco (autocompletado por código o nombre), titular (solo transfer),
@@ -59,14 +63,10 @@ export default function PagoDetalleModal({
   }, [open, totalVenta]);
 
   const sugerencias = useMemo(() => {
-    const term = bancoQuery.trim().toLowerCase();
+    const term = norm(bancoQuery);
     if (!term) return entidades.slice(0, 8);
     return entidades
-      .filter(
-        (e) =>
-          e.nombre.toLowerCase().includes(term) ||
-          (e.codigo ?? "").toLowerCase().includes(term)
-      )
+      .filter((e) => norm(e.nombre).includes(term) || norm(e.codigo ?? "").includes(term))
       .slice(0, 8);
   }, [entidades, bancoQuery]);
 
@@ -74,10 +74,10 @@ export default function PagoDetalleModal({
     setBancoQuery(v);
     setSel(null);
     setDropdownOpen(true);
-    // Autocompletar por código exacto.
-    const term = v.trim().toLowerCase();
+    // Autocompletar por código exacto (insensible a acentos/mayúsculas).
+    const term = norm(v);
     if (term) {
-      const exact = entidades.find((e) => (e.codigo ?? "").toLowerCase() === term);
+      const exact = entidades.find((e) => norm(e.codigo ?? "") === term);
       if (exact) elegir(exact);
     }
   }

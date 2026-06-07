@@ -17,6 +17,10 @@ const TIPOS = [
 
 const tipoLabel = (t: string | null) => TIPOS.find((x) => x.v === t)?.label ?? "—";
 
+/** Búsqueda insensible a acentos/mayúsculas (ej: "itau" matchea "Itaú"). */
+const norm = (s: string) =>
+  s.normalize("NFD").replace(/\p{Diacritic}/gu, "").trim().toLowerCase();
+
 const inputClass =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:border-[#4FAEB2] focus:outline-none focus:ring-2 focus:ring-[#4FAEB2]/20";
 
@@ -52,12 +56,10 @@ export default function EntidadesBancariasPage() {
   }, []);
 
   const filtradas = useMemo(() => {
-    const term = q.trim().toLowerCase();
+    const term = norm(q);
     if (!term) return entidades;
     return entidades.filter(
-      (e) =>
-        e.nombre.toLowerCase().includes(term) ||
-        (e.codigo ?? "").toLowerCase().includes(term)
+      (e) => norm(e.nombre).includes(term) || norm(e.codigo ?? "").includes(term)
     );
   }, [entidades, q]);
 
