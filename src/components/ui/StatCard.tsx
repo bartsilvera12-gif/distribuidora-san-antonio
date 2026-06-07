@@ -35,7 +35,7 @@ export default function StatCard({
         {icon ? <span className="text-base leading-none text-[#4FAEB2]">{icon}</span> : null}
       </div>
       <p
-        className={`mt-1 font-bold tracking-tight ${compact ? "text-lg truncate" : "mt-2 text-2xl"} ${accent ? "text-[#3F8E91]" : "text-slate-900"}`}
+        className={`mt-1 font-bold tracking-tight ${compact ? "text-base truncate" : "mt-2 text-2xl"} ${accent ? "text-[#3F8E91]" : "text-slate-900"}`}
         title={compact && typeof value === "string" ? value : undefined}
       >
         {value}
