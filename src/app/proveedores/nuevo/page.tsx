@@ -63,7 +63,13 @@ export default function NuevoProveedorPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-6">
-        <ProveedorForm values={form} onChange={setForm} categorias={categorias} disabled={saving} />
+        <ProveedorForm
+          values={form}
+          onChange={setForm}
+          categorias={categorias}
+          disabled={saving}
+          onCategoriaCreada={(cat) => setCategorias((prev) => [...prev, cat])}
+        />
         {error && (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
         )}
