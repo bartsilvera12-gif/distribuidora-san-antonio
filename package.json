@@ -52,6 +52,8 @@
     "validate:ocr-monto": "tsx scripts/validate-ocr-monto-selection.ts",
     "db:apply-sorteo-coupon-numbering": "node scripts/apply-migration-file-pg.cjs supabase/migrations/20260504120000_sorteos_coupon_numbering.sql",
     "qa:carga-historica": "tsx scripts/qa-carga-historica-unit.ts",
+    "qa:carga-historica-e2e": "tsx scripts/qa-carga-historica-e2e.ts",
+    "db:apply-carga-historica-staging": "node scripts/apply-carga-historica-staging.cjs",
     "qa:sorteo-coupon-numbering": "tsx scripts/qa-sorteo-coupon-numbering-unit.ts",
     "qa:campaign-template-vars": "tsx scripts/qa-campaign-template-variables.ts",
     "qa:chat-flow-node-fks": "node scripts/qa-chat-flow-node-fks-tenants.cjs",

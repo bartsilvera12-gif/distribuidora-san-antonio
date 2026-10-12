@@ -2,10 +2,39 @@
 
 > **No ejecutar en producción.** Primero aplicar en staging y validar.
 
-## 1. Aplicar migraciones (staging)
+## 0. Entorno de staging y credenciales (de forma segura)
 
-> **Requisito:** `SUPABASE_DB_URL` en `.env.local` apuntando a **STAGING** (no producción).
-> El repo no incluye credenciales; sin esa variable el script no conecta.
+> **Estado:** el repositorio **no tiene** un entorno de staging configurado ni
+> credenciales (no hay `.env*`, no hay CI, `vercel.json` es mínimo). Para probar
+> sin riesgo hay que crear/usar un **proyecto de Supabase separado del de
+> producción** y pasar su connection string.
+
+Pasos seguros:
+1. Crear (o usar) un **proyecto Supabase de STAGING distinto** del de producción
+   (otra base, otras keys). Nunca apuntar a la base productiva.
+2. Copiar su connection string (Supabase → Project Settings → Database →
+   Connection string, modo *session*).
+3. Crear un archivo **`.env.local`** en la raíz (ya está en `.gitignore`, **no se
+   commitea**) con:
+   ```
+   SUPABASE_DB_URL=postgresql://postgres:<password>@db.<ref-staging>.supabase.co:5432/postgres
+   ```
+4. No pegar la contraseña en el chat, commits, ni en otros archivos. Rotarla si
+   se expone. En Vercel/Hostinger, cargar la variable como *secret* del entorno
+   de Preview/Staging, nunca en el de Production.
+
+## 1. Aplicar migraciones (SOLO staging)
+
+> **Requisito:** `SUPABASE_DB_URL` de **STAGING** en `.env.local` (ver arriba).
+
+Forma recomendada (con doble guarda anti-producción — exige declarar el host de
+staging y verifica que coincida con la URL):
+
+```bash
+CONFIRM_STAGING_HOST=db.<ref-staging>.supabase.co npm run db:apply-carga-historica-staging
+```
+
+Alternativa manual (una por archivo):
 
 ```bash
 npm run db:apply-sql-file supabase/migrations/20261012120000_carga_historica_saldos_iniciales.sql
