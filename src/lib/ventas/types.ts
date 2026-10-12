@@ -19,6 +19,8 @@ export interface LineaVenta {
   subtotal:              number;  // precio_venta × cantidad
   monto_iva:             number;
   total_linea:           number;  // subtotal + monto_iva
+  /** Costo unitario MANUAL para ventas históricas (no se usa el costo actual). */
+  costo_unitario_historico?: number | null;
 }
 
 /** Cabecera de venta: condiciones comerciales + totales consolidados. */

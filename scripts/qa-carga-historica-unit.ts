@@ -12,6 +12,8 @@ import {
 import {
   validarFechaOperacion,
   esFechaHistorica,
+  impactaSaldosEnVivo,
+  costoMovimientoVenta,
 } from "../src/lib/fechas/carga-historica";
 
 let fallos = 0;
@@ -102,6 +104,17 @@ const HOY = "2026-10-12";
   check("esFechaHistorica junio<corte => true", esFechaHistorica("2026-06-01", CORTE) === true);
   check("esFechaHistorica octubre>=corte => false", esFechaHistorica("2026-10-10", CORTE) === false);
 }
+
+console.log("── Impacto en vivo / costo de venta histórica ──");
+
+// g) Operación histórica NO impacta saldos en vivo; la de hoy sí
+check("histórica no impacta en vivo", impactaSaldosEnVivo(true) === false);
+check("en vivo impacta", impactaSaldosEnVivo(false) === true);
+
+// h) Costo de movimiento de venta: en vivo usa costo actual; histórica usa manual
+check("venta en vivo => costo actual", costoMovimientoVenta(false, 999, 1500) === 1500);
+check("venta histórica => costo manual", costoMovimientoVenta(true, 999, 1500) === 999);
+check("venta histórica sin costo manual => 0", costoMovimientoVenta(true, null, 1500) === 0);
 
 console.log("");
 if (fallos > 0) {

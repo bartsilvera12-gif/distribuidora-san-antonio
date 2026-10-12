@@ -2,6 +2,8 @@ import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session"
 import { getEmpresaId } from "@/lib/db/empresa";
 import { ymdInicioFinMesLocal } from "@/lib/fechas/calendario";
 import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
+import { fetchCargaHistoricaConfig } from "@/lib/carga-historica/client";
+import { validarFechaOperacion } from "@/lib/fechas/carga-historica";
 
 export type Gasto = {
   id: string;
@@ -84,6 +86,15 @@ export async function getGastosMesActual(): Promise<Gasto[]> {
 export async function createGasto(input: GastoInput): Promise<Gasto> {
   if (input.monto <= 0) throw new Error("El monto debe ser mayor a 0");
 
+  // Validación de fecha: backdating sólo si la carga histórica está habilitada.
+  const cfg = await fetchCargaHistoricaConfig();
+  const v = validarFechaOperacion({
+    fecha: input.fecha,
+    fechaCorte: cfg.fechaCorte ?? "",
+    cargaHistoricaHabilitada: cfg.habilitada,
+  });
+  if (!v.ok) throw new Error(v.error ?? "Fecha inválida.");
+
   const supabase = await getBrowserSupabaseForEmpresaData();
   const empresa_id = await getEmpresaId();
 
@@ -97,7 +108,8 @@ export async function createGasto(input: GastoInput): Promise<Gasto> {
       tipo: input.tipo,
       recurrente: input.recurrente,
       frecuencia: input.frecuencia?.trim() || null,
-      fecha: input.fecha,
+      fecha: v.fechaNorm,
+      es_historico: v.esHistorico,
     })
     .select()
     .single();
@@ -117,7 +129,17 @@ export async function updateGasto(id: string, input: Partial<GastoInput>): Promi
   if (input.tipo !== undefined) update.tipo = input.tipo;
   if (input.recurrente !== undefined) update.recurrente = input.recurrente;
   if (input.frecuencia !== undefined) update.frecuencia = input.frecuencia?.trim() || null;
-  if (input.fecha !== undefined) update.fecha = input.fecha;
+  if (input.fecha !== undefined) {
+    const cfg = await fetchCargaHistoricaConfig();
+    const v = validarFechaOperacion({
+      fecha: input.fecha,
+      fechaCorte: cfg.fechaCorte ?? "",
+      cargaHistoricaHabilitada: cfg.habilitada,
+    });
+    if (!v.ok) throw new Error(v.error ?? "Fecha inválida.");
+    update.fecha = v.fechaNorm;
+    update.es_historico = v.esHistorico;
+  }
 
   const { data, error } = await supabase
     .from("gastos")

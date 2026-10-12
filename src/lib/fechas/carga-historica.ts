@@ -86,3 +86,28 @@ export function validarFechaOperacion(p: ValidarFechaParams): ValidarFechaResult
 
   return { ok: true, fechaNorm, esHistorico, error: null };
 }
+
+/**
+ * Decide si una operación impacta los saldos "en vivo" (stock, caja, saldos).
+ * Las operaciones históricas (anteriores al corte) NO impactan: ya están
+ * representadas en el saldo inicial → evita duplicaciones.
+ */
+export function impactaSaldosEnVivo(esHistorico: boolean): boolean {
+  return !esHistorico;
+}
+
+/**
+ * Costo unitario a registrar en el movimiento de una venta.
+ * - Operación en vivo: usa el costo promedio actual del producto.
+ * - Operación histórica: usa el costo MANUAL ingresado (nunca el costo actual),
+ *   para no distorsionar la rentabilidad histórica.
+ */
+export function costoMovimientoVenta(
+  esHistorico: boolean,
+  costoManual: number | null | undefined,
+  costoActual: number
+): number {
+  if (!esHistorico) return costoActual;
+  const m = Number(costoManual);
+  return Number.isFinite(m) && m >= 0 ? m : 0;
+}

@@ -5,6 +5,9 @@ import { API_ERRORS } from "@/lib/api/errors";
 import { emitEvent, EVENT_TYPES } from "@/lib/integrations/events";
 import { toCalendarDateStr } from "@/lib/fechas/calendario";
 import { etiquetaVisibleTipoServicio } from "@/lib/clientes/tipo-servicio-catalogo";
+import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
+import { getCargaHistoricaConfig } from "@/lib/carga-historica/server";
+import { validarFechaOperacion } from "@/lib/fechas/carga-historica";
 
 
 export async function GET(request: NextRequest) {
@@ -138,6 +141,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(errorResponse("fecha_pago inválida"), { status: 400 });
     }
 
+    // Validación de fecha histórica: backdating sólo si la carga histórica está
+    // habilitada; se deriva es_historico contra el corte.
+    let pagoEsHistorico = false;
+    {
+      const schema = await fetchDataSchemaForEmpresaId(auth.empresa_id);
+      const cfg = await getCargaHistoricaConfig(schema, auth.empresa_id);
+      const v = validarFechaOperacion({
+        fecha: fechaPagoNorm,
+        fechaCorte: cfg.fechaCorte ?? "",
+        cargaHistoricaHabilitada: cfg.habilitada,
+      });
+      if (!v.ok) return NextResponse.json(errorResponse(v.error ?? "Fecha inválida."), { status: 400 });
+      pagoEsHistorico = v.esHistorico;
+    }
+
 
     const { data: factura, error: errFactura } = await supabase
       .from("facturas")
@@ -189,6 +207,7 @@ export async function POST(request: NextRequest) {
       referencia: referencia?.trim() || null,
       cliente_id: factura.cliente_id ?? null,
       usuario_id: auth.user?.id ?? null,
+      es_historico: pagoEsHistorico,
     };
 
     const { data, error } = await supabase

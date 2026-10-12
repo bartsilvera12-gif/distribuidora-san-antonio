@@ -1,4 +1,5 @@
 import { createServiceRoleClientWithDbSchema } from "@/lib/supabase/empresa-data-schema";
+import { costoMovimientoVenta } from "@/lib/fechas/carga-historica";
 
 export interface CreateVentaItemInput {
   producto_id: string;
@@ -13,6 +14,8 @@ export interface CreateVentaItemInput {
   subtotal: number;
   monto_iva: number;
   total_linea: number;
+  /** Costo unitario MANUAL para ventas históricas (no se usa el costo actual). */
+  costo_unitario_historico?: number | null;
 }
 
 export interface CreateVentaPedidoCocinaInput {
@@ -47,6 +50,10 @@ export interface CreateVentaPgParams {
   /** Atribución del movimiento de inventario (columna "Usuario"). */
   usuarioCatalogId?: string | null;
   usuarioNombre?: string | null;
+  /** Fecha de la venta (ISO). Si se omite, se usa ahora. */
+  fecha?: string | null;
+  /** Venta histórica (anterior al corte): NO descuenta stock en vivo. */
+  esHistorico?: boolean;
 }
 
 function recalcTotals(items: CreateVentaItemInput[]) {
@@ -143,12 +150,18 @@ export async function createVentaTransaccionalPg(
     });
   }
 
+  const esHistorico = params.esHistorico === true;
+
   // 3) Validar stock SOLO para productos que controlan stock (Reventa).
-  for (const [pid, need] of qtyByProduct) {
-    const p = stockMap.get(pid)!;
-    if (!p.controlaStock) continue;
-    if (p.stock < need) {
-      throw new Error(`Stock insuficiente para "${p.nombre}". Disponible: ${p.stock} u.; requerido: ${need}.`);
+  //    Las ventas históricas (anteriores al corte) NO descuentan stock en vivo
+  //    (ya reflejado en el saldo inicial), por lo que tampoco se valida stock.
+  if (!esHistorico) {
+    for (const [pid, need] of qtyByProduct) {
+      const p = stockMap.get(pid)!;
+      if (!p.controlaStock) continue;
+      if (p.stock < need) {
+        throw new Error(`Stock insuficiente para "${p.nombre}". Disponible: ${p.stock} u.; requerido: ${need}.`);
+      }
     }
   }
 
@@ -168,7 +181,7 @@ export async function createVentaTransaccionalPg(
     if (m) nextNum = parseInt(m[1], 10) + 1;
   }
   const numeroControl = `VTA-${String(nextNum).padStart(6, "0")}`;
-  const fechaIso = new Date().toISOString();
+  const fechaIso = params.fecha && String(params.fecha).trim() ? String(params.fecha) : new Date().toISOString();
 
   // 5) Insertar venta
   const insVenta = await sb
@@ -188,6 +201,7 @@ export async function createVentaTransaccionalPg(
       metodo_pago: params.metodoPago,
       fecha: fechaIso,
       observaciones: params.observaciones,
+      es_historico: esHistorico,
     })
     .select("id")
     .single();
@@ -228,17 +242,24 @@ export async function createVentaTransaccionalPg(
     if (insItems.error) throw new Error(insItems.error.message);
 
     // 7) Descuento de stock + movimientos solo para productos con controla_stock=true.
+    //    Venta histórica: NO descuenta stock en vivo (ya está en el saldo inicial)
+    //    y el movimiento usa el costo MANUAL ingresado (no el costo actual).
     for (const line of items) {
       const p = stockMap.get(line.producto_id)!;
       if (!p.controlaStock) continue;
-      const nuevoStock = p.stock - line.cantidad;
-      const upd = await sb
-        .from("productos")
-        .update({ stock_actual: nuevoStock })
-        .eq("id", line.producto_id)
-        .eq("empresa_id", params.empresaId);
-      if (upd.error) throw new Error(upd.error.message);
-      p.stock = nuevoStock;
+
+      if (!esHistorico) {
+        const nuevoStock = p.stock - line.cantidad;
+        const upd = await sb
+          .from("productos")
+          .update({ stock_actual: nuevoStock })
+          .eq("id", line.producto_id)
+          .eq("empresa_id", params.empresaId);
+        if (upd.error) throw new Error(upd.error.message);
+        p.stock = nuevoStock;
+      }
+
+      const costoMov = costoMovimientoVenta(esHistorico, line.costo_unitario_historico, p.costo);
 
       const mov = await sb.from("movimientos_inventario").insert({
         empresa_id: params.empresaId,
@@ -247,13 +268,14 @@ export async function createVentaTransaccionalPg(
         producto_sku: line.sku,
         tipo: "SALIDA",
         cantidad: line.cantidad,
-        costo_unitario: p.costo,
+        costo_unitario: costoMov,
         origen: "venta",
         referencia: numeroControl,
         fecha: fechaIso,
         venta_id: ventaId,
         created_by: params.usuarioCatalogId ?? null,
         usuario_nombre: params.usuarioNombre ?? null,
+        es_historico: esHistorico,
       });
       if (mov.error) throw new Error(mov.error.message);
     }

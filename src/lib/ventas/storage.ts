@@ -48,7 +48,9 @@ export async function getVentas(): Promise<Venta[]> {
 export async function saveVenta(
   datos: Omit<Venta, "id" | "numero_control" | "fecha">,
   pedidoCocina?: PedidoCocinaInput,
-  pagoDetalle?: PagoDetalleVenta | null
+  pagoDetalle?: PagoDetalleVenta | null,
+  /** Fecha de la venta (YYYY-MM-DD) para carga histórica. Si se omite, es hoy. */
+  fecha?: string
 ): Promise<ResultadoGuardarVenta> {
   if (!datos.items || datos.items.length === 0) {
     return { success: false, error: "La venta debe tener al menos un producto." };
@@ -72,6 +74,7 @@ export async function saveVenta(
         observaciones: null,
         pedido_cocina: pedidoCocina ?? null,
         pago_detalle: pagoDetalle ?? null,
+        ...(fecha ? { fecha } : {}),
       }),
     });
 
