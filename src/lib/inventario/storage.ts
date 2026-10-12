@@ -1,5 +1,7 @@
 import { getCurrentUser } from "@/lib/auth";
 import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
+import { fetchCargaHistoricaConfig } from "@/lib/carga-historica/client";
+import { validarFechaOperacion } from "@/lib/fechas/carga-historica";
 import type {
   Producto,
   MovimientoInventario,
@@ -367,9 +369,23 @@ export async function saveMovimiento(
     return null;
   }
 
+  // Validación de fecha / carga histórica. Un movimiento histórico (anterior al
+  // corte) queda como registro para reportes y NO impacta el stock en vivo
+  // (ya reflejado en el saldo inicial) → evita duplicar stock.
+  const cfg = await fetchCargaHistoricaConfig();
+  const v = validarFechaOperacion({
+    fecha: mov.fecha,
+    fechaCorte: cfg.fechaCorte ?? "",
+    cargaHistoricaHabilitada: cfg.habilitada,
+  });
+  if (!v.ok) throw new Error(v.error ?? "Fecha inválida.");
+  const esHistorico = v.esHistorico;
+
   const delta = calcularDelta(mov.tipo, mov.cantidad);
   const nuevoStock = Math.max(0, producto.stock_actual + delta);
-  const debeActualizarStock = mov.origen !== "inventario_inicial"; // inventario_inicial ya viene del insert
+  // No actualizar stock si: es carga de inventario inicial (ya viene del insert)
+  // o si es un movimiento histórico (anterior al corte).
+  const debeActualizarStock = mov.origen !== "inventario_inicial" && !esHistorico;
 
   // 2. Insertar movimiento
   const insert = {
@@ -383,6 +399,7 @@ export async function saveMovimiento(
     origen: mov.origen,
     referencia: mov.referencia ?? null,
     fecha: mov.fecha,
+    es_historico: esHistorico,
     // Atribución del movimiento (columna "Usuario" en Movimientos).
     created_by: usuario.id ?? null,
     usuario_nombre: usuario.nombre ?? usuario.email ?? null,

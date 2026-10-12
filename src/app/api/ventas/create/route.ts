@@ -7,6 +7,8 @@ import { insertVentaPagoDetalle, type PagoDetalleInput } from "@/lib/ventas/serv
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import type { Venta, LineaVenta } from "@/lib/ventas/types";
+import { getCargaHistoricaConfig } from "@/lib/carga-historica/server";
+import { validarFechaOperacion } from "@/lib/fechas/carga-historica";
 
 function asItems(body: unknown): CreateVentaItemInput[] | null {
   if (!body || typeof body !== "object") return null;
@@ -23,6 +25,7 @@ function asItems(body: unknown): CreateVentaItemInput[] | null {
     const tp = r.tipo_precio;
     const tipoPrecio: "minorista" | "mayorista" | "costo" =
       tp === "mayorista" || tp === "costo" ? tp : "minorista";
+    const costoHist = r.costo_unitario_historico;
     out.push({
       producto_id: String(r.producto_id ?? ""),
       producto_nombre: String(r.producto_nombre ?? ""),
@@ -35,6 +38,8 @@ function asItems(body: unknown): CreateVentaItemInput[] | null {
       subtotal: Number(r.subtotal),
       monto_iva: Number(r.monto_iva),
       total_linea: Number(r.total_linea),
+      costo_unitario_historico:
+        costoHist != null && String(costoHist).trim() !== "" ? Number(costoHist) : null,
     });
   }
   if (out.some((i) => !i.producto_id || !(i.cantidad > 0))) return null;
@@ -237,6 +242,35 @@ export async function POST(request: NextRequest) {
 
     const schema = await fetchDataSchemaForEmpresaId(auth.empresa_id);
 
+    // Fecha opcional: si no viene, se usa ahora. Si viene, se valida contra el
+    // corte / carga histórica habilitada y se deriva es_historico.
+    let fechaVenta: string | null = null;
+    let esHistorico = false;
+    if (o.fecha != null && String(o.fecha).trim() !== "") {
+      const cfg = await getCargaHistoricaConfig(schema, auth.empresa_id);
+      const v = validarFechaOperacion({
+        fecha: String(o.fecha),
+        fechaCorte: cfg.fechaCorte ?? "",
+        cargaHistoricaHabilitada: cfg.habilitada,
+      });
+      if (!v.ok) return NextResponse.json(errorResponse(v.error ?? "Fecha inválida."), { status: 400 });
+      fechaVenta = `${v.fechaNorm}T12:00:00-04:00`;
+      esHistorico = v.esHistorico;
+    }
+
+    // En ventas históricas, cada línea con controla_stock debe traer costo manual.
+    if (esHistorico) {
+      const faltaCosto = items.some(
+        (i) => i.costo_unitario_historico == null || !(Number(i.costo_unitario_historico) >= 0)
+      );
+      if (faltaCosto) {
+        return NextResponse.json(
+          errorResponse("Para ventas históricas, ingresá el costo unitario de cada producto."),
+          { status: 400 }
+        );
+      }
+    }
+
     const { ventaId, numeroControl, fechaIso } = await createVentaTransaccionalPg({
       schema,
       empresaId: auth.empresa_id,
@@ -254,6 +288,8 @@ export async function POST(request: NextRequest) {
       pedidoCocina,
       usuarioCatalogId: auth.usuarioCatalogId ?? null,
       usuarioNombre: auth.usuarioNombre ?? auth.user?.email ?? null,
+      fecha: fechaVenta,
+      esHistorico,
     });
 
     // Detalle de pago (transferencia/tarjeta) → ventas_pagos_detalle (raw-PG).

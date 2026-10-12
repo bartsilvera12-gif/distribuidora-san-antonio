@@ -6,6 +6,7 @@ import MontoInput from "@/components/ui/MontoInput";
 import PageHeader from "@/components/ui/PageHeader";
 import { getProductos, saveMovimiento } from "@/lib/inventario/storage";
 import type { Producto, TipoMovimiento, OrigenMovimiento } from "@/lib/inventario/types";
+import { hoyYmdLocal } from "@/lib/fechas/calendario";
 
 export default function NuevoMovimientoPage() {
   const router = useRouter();
@@ -17,7 +18,9 @@ export default function NuevoMovimientoPage() {
     cantidad: "",
     costo_unitario: "",
     origen: "compra" as OrigenMovimiento,
+    fecha: hoyYmdLocal(),
   });
+  const [errorSubmit, setErrorSubmit] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,6 +55,7 @@ export default function NuevoMovimientoPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setErrorSubmit(null);
 
     const productoSeleccionado = productos.find((p) => p.id === form.producto_id);
     if (!productoSeleccionado) return;
@@ -61,18 +65,25 @@ export default function NuevoMovimientoPage() {
         ? parseFloat(form.cantidad)
         : Math.abs(parseFloat(form.cantidad));
 
-    const guardado = await saveMovimiento({
-      producto_id: productoSeleccionado.id,
-      producto_nombre: productoSeleccionado.nombre,
-      producto_sku: productoSeleccionado.sku,
-      tipo: form.tipo,
-      cantidad: cantidadNum,
-      costo_unitario: parseFloat(form.costo_unitario) || 0,
-      origen: form.origen,
-      fecha: new Date().toISOString(),
-    });
+    // Fecha elegida anclada al mediodía de Asunción (evita corrimientos de día).
+    const fechaIso = form.fecha ? `${form.fecha}T12:00:00-04:00` : new Date().toISOString();
 
-    if (guardado) router.push("/inventario/movimientos");
+    try {
+      const guardado = await saveMovimiento({
+        producto_id: productoSeleccionado.id,
+        producto_nombre: productoSeleccionado.nombre,
+        producto_sku: productoSeleccionado.sku,
+        tipo: form.tipo,
+        cantidad: cantidadNum,
+        costo_unitario: parseFloat(form.costo_unitario) || 0,
+        origen: form.origen,
+        fecha: fechaIso,
+      });
+      if (guardado) router.push("/inventario/movimientos");
+      else setErrorSubmit("No se pudo guardar el movimiento.");
+    } catch (err) {
+      setErrorSubmit(err instanceof Error ? err.message : "No se pudo guardar el movimiento.");
+    }
   }
 
   const productoSeleccionado = productos.find((p) => p.id === form.producto_id);
@@ -181,10 +192,28 @@ export default function NuevoMovimientoPage() {
             </div>
           </div>
 
-          {/* Nota de fecha automática */}
-          <p className="text-xs text-gray-400">
-            La fecha y hora del movimiento se registrarán automáticamente al guardar.
-          </p>
+          {/* Fecha del movimiento */}
+          <div>
+            <label className={labelClass}>Fecha del movimiento</label>
+            <input
+              type="date"
+              name="fecha"
+              value={form.fecha}
+              max={hoyYmdLocal()}
+              onChange={handleChange}
+              className={inputClass}
+            />
+            <p className="mt-1.5 text-xs text-gray-400">
+              Para cargas históricas, elegí la fecha real. Los movimientos anteriores a la fecha de
+              corte quedan como registro y no modifican el stock actual (ya está en el saldo inicial).
+            </p>
+          </div>
+
+          {errorSubmit && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {errorSubmit}
+            </p>
+          )}
 
           {/* Vista previa del impacto en stock */}
           {productoSeleccionado && form.cantidad !== "" && (

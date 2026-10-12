@@ -81,6 +81,8 @@ export interface SaveCompraMultiInput {
   tipo_pago: TipoPago;
   plazo_dias?: number;
   nro_timbrado: string;
+  /** Fecha de la compra (YYYY-MM-DD). Si se omite, el server usa hoy. */
+  fecha?: string;
   items: CompraItem[];
 }
 
@@ -104,6 +106,7 @@ export async function saveCompraMulti(
         tipo_pago: datos.tipo_pago,
         plazo_dias: datos.plazo_dias ?? null,
         nro_timbrado: datos.nro_timbrado,
+        ...(datos.fecha ? { fecha: datos.fecha } : {}),
         items: datos.items,
       }),
     });

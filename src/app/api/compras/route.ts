@@ -5,6 +5,8 @@ import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import { listCompras, insertCompraMultiConImpacto } from "@/lib/compras/server/compras-pg";
 import type { CompraItemInput } from "@/lib/compras/server/compras-pg";
+import { getCargaHistoricaConfig } from "@/lib/carga-historica/server";
+import { validarFechaOperacion } from "@/lib/fechas/carga-historica";
 
 const IVA_OK = ["exenta", "5", "10"];
 function ivaRate(t: string): number {
@@ -89,6 +91,22 @@ export async function POST(request: NextRequest) {
     if (parsed.items.length === 0)
       return NextResponse.json(errorResponse("Agregá al menos una línea de producto."), { status: 400 });
 
+    // Fecha opcional: si no viene, la BD usa now() (comportamiento actual).
+    // Si viene, se valida contra la fecha de corte / carga histórica habilitada.
+    let fechaCompra: string | null = null;
+    let esHistorico = false;
+    if (req("fecha")) {
+      const cfg = await getCargaHistoricaConfig(schema, empresaId);
+      const v = validarFechaOperacion({
+        fecha: String(body.fecha),
+        fechaCorte: cfg.fechaCorte ?? "",
+        cargaHistoricaHabilitada: cfg.habilitada,
+      });
+      if (!v.ok) return NextResponse.json(errorResponse(v.error ?? "Fecha inválida."), { status: 400 });
+      fechaCompra = `${v.fechaNorm}T12:00:00-04:00`; // mediodía Asunción, evita corrimientos de día
+      esHistorico = v.esHistorico;
+    }
+
     try {
       const out = await insertCompraMultiConImpacto(schema, empresaId, {
         proveedor_id: String(body.proveedor_id),
@@ -101,6 +119,8 @@ export async function POST(request: NextRequest) {
         nro_timbrado: String(body.nro_timbrado).trim().toUpperCase(),
         created_by: ctx.auth.usuarioCatalogId ?? null,
         usuario_nombre: ctx.auth.usuarioNombre ?? ctx.auth.user?.email ?? null,
+        fecha: fechaCompra,
+        es_historico: esHistorico,
         items: parsed.items,
       });
 

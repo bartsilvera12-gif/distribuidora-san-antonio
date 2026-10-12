@@ -163,6 +163,7 @@ const MENU_STRUCTURE: MenuItem[] = [
     icon: Settings,
     children: [
       { label: "Facturación", href: "/configuracion/facturacion" },
+      { label: "Carga histórica", href: "/configuracion/carga-historica" },
       { label: "Equipos y supervisión", href: "/configuracion/omnicanal-equipos" },
     ],
   },

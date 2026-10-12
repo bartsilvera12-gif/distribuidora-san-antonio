@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import MontoInput from "@/components/ui/MontoInput";
 import PageHeader from "@/components/ui/PageHeader";
@@ -8,6 +8,9 @@ import ProductPickerModal, { type AgregarVentaPayload } from "@/components/inven
 import PagoDetalleModal from "@/components/ventas/PagoDetalleModal";
 import { saveVenta } from "@/lib/ventas/storage";
 import type { TipoIvaVenta, TipoVenta, MonedaVenta, LineaVenta, MetodoPago, TipoPrecioVenta, PagoDetalleVenta } from "@/lib/ventas/types";
+import { fetchCargaHistoricaConfig } from "@/lib/carga-historica/client";
+import { hoyYmdLocal } from "@/lib/fechas/calendario";
+import { esFechaHistorica } from "@/lib/fechas/carga-historica";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -82,6 +85,19 @@ export default function NuevaVentaPage() {
   const [montoRecibido, setMontoRecibido] = useState("");
   const [metodoPago, setMetodoPago] = useState<MetodoPago>("efectivo");
 
+  // ── Carga histórica: fecha de la venta + costo manual por línea ───────────
+  const [cargaHabilitada, setCargaHabilitada] = useState(false);
+  const [fechaCorte, setFechaCorte] = useState<string | null>(null);
+  const [fechaVenta, setFechaVenta] = useState(hoyYmdLocal());
+  useEffect(() => {
+    fetchCargaHistoricaConfig().then((cfg) => {
+      setCargaHabilitada(cfg.habilitada);
+      setFechaCorte(cfg.fechaCorte);
+    });
+  }, []);
+  // Venta histórica = fecha anterior al corte (requiere costo manual por línea).
+  const ventaEsHistorica = cargaHabilitada && !!fechaCorte && esFechaHistorica(fechaVenta, fechaCorte);
+
   // ── Modal buscador ─────────────────────────────────────────────────────────
   // Arranca abierto: al entrar a "Nueva venta" el buscador ya aparece desplegado
   // (un solo paso desde Ventas → Nueva venta → cargar productos).
@@ -148,7 +164,11 @@ export default function NuevaVentaPage() {
     if (modalidad === "delivery") return pedidoClienteTelefono.trim().length > 0 && pedidoDireccion.trim().length > 0;
     return true; // local + carry_out: todos opcionales
   })();
-  const ventaValida   = items.length > 0 && pedidoValido;
+  // En ventas históricas cada línea debe tener costo unitario manual (>= 0).
+  const costosHistoricosOk =
+    !ventaEsHistorica ||
+    items.every((i) => i.costo_unitario_historico != null && Number(i.costo_unitario_historico) >= 0);
+  const ventaValida   = items.length > 0 && pedidoValido && costosHistoricosOk;
 
   // Vuelto (solo informativo, no se persiste)
   const montoRecibidoNum = parseFloat(montoRecibido) || 0;
@@ -156,6 +176,10 @@ export default function NuevaVentaPage() {
 
   function handleEliminarLinea(index: number) {
     setItems((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function setCostoHistoricoLinea(index: number, n: number) {
+    setItems((prev) => prev.map((it, i) => (i === index ? { ...it, costo_unitario_historico: n } : it)));
   }
 
   /**
@@ -205,7 +229,10 @@ export default function NuevaVentaPage() {
         metodo_pago:  metodoPago,
       },
       buildPedidoCocina(),
-      pagoDetalle
+      pagoDetalle,
+      // Fecha histórica solo cuando la carga está habilitada y se eligió una fecha
+      // anterior a hoy; si no, se omite y el backend usa hoy.
+      cargaHabilitada && fechaVenta && fechaVenta < hoyYmdLocal() ? fechaVenta : undefined
     );
     if (resultado.success) {
       // Abrir comandas + ticket cliente en nueva pestaña con autoprint.
@@ -260,6 +287,49 @@ export default function NuevaVentaPage() {
       />
 
       <form onSubmit={handleSubmit} className="space-y-6 max-w-7xl">
+
+        {/* ── Modo carga histórica (solo si está habilitada) ───────────────── */}
+        {cargaHabilitada && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 sm:p-6">
+            <div className="flex flex-wrap items-end gap-4">
+              <div>
+                <label className="block text-sm font-medium text-amber-900 mb-2">Fecha de la venta</label>
+                <input
+                  type="date"
+                  value={fechaVenta}
+                  max={hoyYmdLocal()}
+                  onChange={(e) => setFechaVenta(e.target.value)}
+                  className="border border-amber-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-amber-400 bg-white text-sm"
+                />
+              </div>
+              <p className="text-xs text-amber-800 max-w-md">
+                {ventaEsHistorica
+                  ? "Venta histórica (anterior al corte): no descuenta stock en vivo y debés ingresar el costo unitario de cada producto."
+                  : "Carga histórica habilitada. Elegí una fecha anterior al corte para registrar ventas históricas."}
+              </p>
+            </div>
+
+            {ventaEsHistorica && items.length > 0 && (
+              <div className="mt-4 space-y-2">
+                <p className="text-sm font-medium text-amber-900">Costo unitario (manual) por producto</p>
+                {items.map((item, idx) => (
+                  <div key={idx} className="flex items-center gap-3">
+                    <span className="flex-1 text-sm text-amber-900 truncate">{item.producto_nombre}</span>
+                    <div className="w-40">
+                      <MontoInput
+                        value={item.costo_unitario_historico != null ? String(item.costo_unitario_historico) : ""}
+                        onChange={(n) => setCostoHistoricoLinea(idx, Number(n) || 0)}
+                        placeholder="Costo Gs."
+                        className="w-full border border-amber-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-amber-400 bg-white text-sm"
+                        decimals={false}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── SECCIÓN 3: Carrito + totales + confirmar ─────────────────────── */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 sm:p-6">

@@ -5,6 +5,7 @@ import {
   CalendarClock,
   FileText,
   GitBranch,
+  History,
   Inbox,
   Landmark,
   LayoutGrid,
@@ -136,6 +137,17 @@ export default function ConfiguracionPage() {
               icon={Percent}
               badge={editorBadge}
               href="/configuracion/comisiones"
+            />
+          </li>
+          <li>
+            <SettingsModuleCard
+              title="Carga histórica"
+              subtitle="EMPRESA · PUESTA EN MARCHA"
+              description="Fecha de corte, saldos iniciales (caja/bancos) y habilitar la carga de operaciones con fechas anteriores. Solo administradores."
+              icon={History}
+              badge={{ label: "Solo admin", tone: "neutral" as const }}
+              href="/configuracion/carga-historica"
+              actionLabel="Configurar"
             />
           </li>
           <li>

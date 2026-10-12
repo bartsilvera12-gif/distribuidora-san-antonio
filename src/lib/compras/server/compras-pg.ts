@@ -9,6 +9,7 @@
  */
 import { getChatPostgresPool, quoteSchemaTable } from "@/lib/supabase/chat-pg-pool";
 import { assertAllowedChatDataSchema } from "@/lib/supabase/chat-data-schema";
+import { calcularCostoPromedioPonderado } from "@/lib/inventario/costo-promedio";
 
 function pool() {
   const p = getChatPostgresPool();
@@ -81,6 +82,8 @@ export interface InsertCompraInput {
   nro_timbrado: string;
   created_by: string | null;
   usuario_nombre: string | null;
+  fecha?: string | null;
+  es_historico?: boolean;
 }
 
 export async function listCompras(
@@ -314,6 +317,10 @@ export interface InsertCompraMultiInput {
   nro_timbrado: string;
   created_by: string | null;
   usuario_nombre: string | null;
+  /** Fecha de la compra (ISO). Si se omite, la BD usa now(). */
+  fecha?: string | null;
+  /** Operación histórica (anterior al corte): NO impacta stock/costo en vivo. */
+  es_historico?: boolean;
   items: CompraItemInput[];
 }
 
@@ -365,19 +372,22 @@ export async function insertCompraMultiConImpacto(
     );
     const precioVentaSnapshot = Number(pvQ.rows[0]?.precio_venta ?? 0) || 0;
 
+    const esHistorico = d.es_historico === true;
+    const fechaParam = d.fecha && String(d.fecha).trim() ? String(d.fecha) : null;
+
     const { rows: compraRows } = await client.query<CompraRow>(
       `INSERT INTO ${tC} (
          empresa_id, proveedor_id, proveedor_nombre, producto_id, producto_nombre,
          cantidad, moneda, tipo_cambio, costo_unitario_original, costo_unitario,
          iva_tipo, subtotal, monto_iva, total, precio_venta, margen_venta,
          tipo_pago, plazo_dias, nro_timbrado, numero_control, estado, fecha,
-         created_by, usuario_nombre
+         created_by, usuario_nombre, es_historico
        ) VALUES (
          $1::uuid, $2::uuid, $3, $4::uuid, $5,
          $6::numeric, $7, $8::numeric, $9::numeric, $10::numeric,
          $11, $12::numeric, $13::numeric, $14::numeric, $15::numeric, $16::numeric,
-         $17, $18::integer, $19, $20, 'registrada', now(),
-         $21::uuid, $22
+         $17, $18::integer, $19, $20, 'registrada', COALESCE($23::timestamptz, now()),
+         $21::uuid, $22, $24::boolean
        )
        RETURNING ${COLS}`,
       [
@@ -403,6 +413,8 @@ export async function insertCompraMultiConImpacto(
         numero,
         d.created_by,
         d.usuario_nombre,
+        fechaParam,
+        esHistorico,
       ]
     );
     const compra = compraRows[0];
@@ -432,16 +444,18 @@ export async function insertCompraMultiConImpacto(
           `INSERT INTO ${tM} (
              empresa_id, producto_id, producto_nombre, producto_sku,
              tipo, cantidad, costo_unitario, origen, referencia, fecha,
-             created_by, usuario_nombre
+             created_by, usuario_nombre, es_historico
            )
            SELECT $1::uuid, $2::uuid, $3, COALESCE(NULLIF($4, ''), p.sku, ''),
-                  'ENTRADA', $5::numeric, $6::numeric, 'compra', $7, now(),
-                  $8::uuid, $9
+                  'ENTRADA', $5::numeric, $6::numeric, 'compra', $7,
+                  COALESCE($10::timestamptz, now()),
+                  $8::uuid, $9, $11::boolean
            FROM ${tP} p WHERE p.id = $2::uuid
            RETURNING id`,
           [
             empresaId, it.producto_id, it.producto_nombre, it.sku,
             it.cantidad, it.costo_unitario, numero, d.created_by, d.usuario_nombre,
+            fechaParam, esHistorico,
           ]
         );
         if (movRows[0]?.id) movimientoId = movRows[0].id;
@@ -456,14 +470,33 @@ export async function insertCompraMultiConImpacto(
           "La compra se guardó pero uno o más movimientos de entrada en inventario no se registraron.";
       }
 
-      // stock += cantidad ; costo_promedio = costo_unitario (réplica exacta del comportamiento actual)
+      // Operación histórica (anterior al corte): NO impacta stock/costo en vivo
+      // (eso ya está representado por el saldo inicial a la fecha de corte).
+      if (esHistorico) continue;
+
+      // Costo Promedio Ponderado móvil: se lee el estado actual del producto
+      // (bloqueado en la transacción) y se recalcula el promedio ponderado por
+      // las unidades existentes + las que ingresan. Reemplaza el "pisado" previo.
+      const { rows: prodRows } = await client.query<{ stock_actual: string | number; costo_promedio: string | number }>(
+        `SELECT stock_actual, costo_promedio
+           FROM ${tP}
+          WHERE id = $1::uuid AND empresa_id = $2::uuid
+          FOR UPDATE`,
+        [it.producto_id, empresaId]
+      );
+      const prevStock = Number(prodRows[0]?.stock_actual ?? 0);
+      const prevCosto = Number(prodRows[0]?.costo_promedio ?? 0);
+      const { nuevoStock, nuevoCosto } = calcularCostoPromedioPonderado(
+        prevStock, prevCosto, it.cantidad, it.costo_unitario
+      );
+
       await client.query(
         `UPDATE ${tP}
-            SET stock_actual = stock_actual + $1::numeric,
+            SET stock_actual = $1::numeric,
                 costo_promedio = $2::numeric,
                 updated_at = now()
           WHERE id = $3::uuid AND empresa_id = $4::uuid`,
-        [it.cantidad, it.costo_unitario, it.producto_id, empresaId]
+        [nuevoStock, nuevoCosto, it.producto_id, empresaId]
       );
     }
 
@@ -497,6 +530,8 @@ export async function insertCompraConImpacto(
     nro_timbrado: d.nro_timbrado,
     created_by: d.created_by,
     usuario_nombre: d.usuario_nombre,
+    fecha: d.fecha ?? null,
+    es_historico: d.es_historico ?? false,
     items: [{
       producto_id: d.producto_id,
       producto_nombre: d.producto_nombre,
