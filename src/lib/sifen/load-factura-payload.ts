@@ -31,7 +31,7 @@ export async function loadValidatedSifenPayload(
 
   const { data: factura, error: errFactura } = await supabase
     .from("facturas")
-    .select("id, cliente_id, numero_factura, fecha, tipo, moneda, monto, saldo")
+    .select("id, cliente_id, numero_factura, fecha, tipo, moneda, monto, saldo, es_historico")
     .eq("id", fid)
     .eq("empresa_id", empresaId)
     .maybeSingle();
@@ -41,6 +41,17 @@ export async function loadValidatedSifenPayload(
   }
   if (!factura) {
     return { ok: false, error: { status: 404, message: "Factura no encontrada" } };
+  }
+  // Blindaje SIFEN: los documentos históricos (carga de datos previos al corte)
+  // son registros internos no fiscales y NUNCA se emiten electrónicamente.
+  if ((factura as { es_historico?: boolean }).es_historico === true) {
+    return {
+      ok: false,
+      error: {
+        status: 400,
+        message: "Documento histórico interno: no puede emitirse electrónicamente a SIFEN.",
+      },
+    };
   }
 
   const clienteId = factura.cliente_id as string;

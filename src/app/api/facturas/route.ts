@@ -7,6 +7,19 @@ import { fechaMasDiasCalendario, fechaVencimientoSuscripcion, toCalendarDateStr 
 import { montosFacturaItemParaInsert, tasaIvaDesdeIvaTipo } from "@/lib/facturacion/factura-item-montos";
 import { descripcionLineaFacturaPorDefecto, parseFacturaPostTipo } from "@/lib/facturacion/factura-post-tipo";
 import { obtenerSiguienteNumeroFacturaEmpresa } from "@/lib/facturacion/factura-suscripcion-servidor";
+import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
+import { getCargaHistoricaConfig } from "@/lib/carga-historica/server";
+import { validarFechaOperacion } from "@/lib/fechas/carga-historica";
+
+/** Numeración interna NO fiscal para documentos históricos (no consume el
+ *  correlativo de facturación electrónica / SIFEN). */
+function generarNumeroInternoHistorico(): string {
+  const d = new Date();
+  const p = (n: number, l = 2) => String(n).padStart(l, "0");
+  const stamp = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  const rand = Math.floor(Math.random() * 9000 + 1000);
+  return `HIST-${stamp}-${rand}`;
+}
 
 
 export async function GET(request: NextRequest) {
@@ -128,6 +141,25 @@ export async function POST(request: NextRequest) {
     }
     const tipoFac = parsedTipo.tipo;
 
+    // Validación de fecha + detección de documento histórico (anterior al corte).
+    // Si la fecha es de hoy, no requiere carga histórica (comportamiento actual).
+    let esHistorico = false;
+    try {
+      const schema = await fetchDataSchemaForEmpresaId(auth.empresa_id);
+      const cfg = await getCargaHistoricaConfig(schema, auth.empresa_id);
+      const v = validarFechaOperacion({
+        fecha: String(fecha),
+        fechaCorte: cfg.fechaCorte ?? "",
+        cargaHistoricaHabilitada: cfg.habilitada,
+      });
+      if (!v.ok) return NextResponse.json(errorResponse(v.error ?? "Fecha inválida."), { status: 400 });
+      esHistorico = v.esHistorico;
+    } catch (e) {
+      // Si no se puede resolver el schema/config, no bloquear la emisión normal
+      // del día; solo seguir sin marca histórica.
+      console.error("[api/facturas POST] carga-historica config:", e instanceof Error ? e.message : e);
+    }
+
     const fechaNorm = toCalendarDateStr(String(fecha)) || String(fecha).slice(0, 10);
     let fechaVenc: string;
     if (fecha_vencimiento != null && String(fecha_vencimiento).trim() !== "") {
@@ -143,12 +175,18 @@ export async function POST(request: NextRequest) {
       const diasCred = Number(process.env.FACTURA_DIAS_CREDITO_DEFAULT ?? 30);
       fechaVenc = fechaMasDiasCalendario(fechaNorm, Number.isFinite(diasCred) ? diasCred : 30);
     }
-    const numeroFactura = await obtenerSiguienteNumeroFacturaEmpresa(supabase, auth.empresa_id);
+    // Documentos históricos: numeración INTERNA no fiscal (no consume el
+    // correlativo de SIFEN). Documentos normales: correlativo fiscal habitual.
+    const numeroInterno = esHistorico ? generarNumeroInternoHistorico() : null;
+    const numeroFactura = esHistorico
+      ? numeroInterno!
+      : await obtenerSiguienteNumeroFacturaEmpresa(supabase, auth.empresa_id);
 
     const insert = {
       empresa_id: auth.empresa_id,
       cliente_id: String(cliente_id).trim(),
       numero_factura: numeroFactura,
+      numero_interno: numeroInterno,
       fecha: fechaNorm,
       fecha_vencimiento: fechaVenc,
       monto: Number(monto),
@@ -156,6 +194,7 @@ export async function POST(request: NextRequest) {
       estado: "Pendiente",
       tipo: tipoFac,
       moneda: moneda === "USD" ? "USD" : "GS",
+      es_historico: esHistorico,
     };
 
     const { data, error } = await supabase

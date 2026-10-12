@@ -10,6 +10,7 @@ import { getProductos, productoExiste, saveProducto } from "@/lib/inventario/sto
 import type { TipoIva, TipoPago, Moneda, CompraItem } from "@/lib/compras/types";
 import type { Proveedor } from "@/lib/proveedores/types";
 import type { MetodoValuacion, Producto } from "@/lib/inventario/types";
+import { hoyYmdLocal } from "@/lib/fechas/calendario";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -73,6 +74,7 @@ export default function NuevaCompraPage() {
   const [header, setHeader] = useState({
     proveedor_id: "",
     nro_timbrado: "",
+    fecha: hoyYmdLocal(),
     moneda: "PYG" as Moneda,
     tipo_cambio: "",
     tipo_pago: "contado" as TipoPago,
@@ -248,6 +250,7 @@ export default function NuevaCompraPage() {
         tipo_pago: header.tipo_pago,
         plazo_dias: header.tipo_pago === "credito" && header.plazo_dias ? parseInt(header.plazo_dias) : undefined,
         nro_timbrado: header.nro_timbrado.trim().toUpperCase(),
+        fecha: header.fecha || undefined,
         items,
       });
       if (!res.success) {
@@ -359,15 +362,30 @@ export default function NuevaCompraPage() {
           {/* ── 1. Comprobante ────────────────────────────────────────────── */}
           <section className="space-y-4">
             <SectionTitle>Comprobante</SectionTitle>
-            <div>
-              <label className={labelClass}>N° de timbrado</label>
-              <input
-                type="text"
-                value={header.nro_timbrado}
-                onChange={(e) => setHeader((p) => ({ ...p, nro_timbrado: e.target.value }))}
-                placeholder="Ej: 001-001-0000001"
-                className={inputClass}
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>N° de timbrado</label>
+                <input
+                  type="text"
+                  value={header.nro_timbrado}
+                  onChange={(e) => setHeader((p) => ({ ...p, nro_timbrado: e.target.value }))}
+                  placeholder="Ej: 001-001-0000001"
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Fecha de la compra</label>
+                <input
+                  type="date"
+                  value={header.fecha}
+                  max={hoyYmdLocal()}
+                  onChange={(e) => setHeader((p) => ({ ...p, fecha: e.target.value }))}
+                  className={inputClass}
+                />
+                <p className="mt-1.5 text-xs text-slate-500">
+                  Para cargas históricas, elegí la fecha real de la compra.
+                </p>
+              </div>
             </div>
           </section>
 
