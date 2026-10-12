@@ -148,3 +148,59 @@ quede saldada.
 - **SIFEN**: un documento `es_historico` **no puede emitirse electrónicamente** ni
   consume numeración fiscal.
 - No se permiten saldos iniciales negativos.
+
+## 6. Plan de rollback
+
+Las migraciones son **aditivas** (tablas/columnas/índices nuevos) y no modifican ni
+borran datos existentes. Por eso hay dos niveles de rollback, de menor a mayor impacto.
+
+### Nivel 1 — Desactivar (reversible, SIN tocar el schema) ✅ recomendado
+Si algo sale mal durante la carga, lo más rápido y seguro es **cerrar el período**:
+no hace falta revertir migraciones ni código.
+
+```sql
+-- Deshabilita la carga histórica: la app vuelve a aceptar sólo la fecha de hoy.
+UPDATE <schema>.empresa_carga_historica
+   SET habilitada = false, cerrada_at = now(), updated_at = now()
+ WHERE empresa_id = '<EMPRESA_ID>'::uuid;
+```
+
+Con esto los formularios dejan de permitir fechas anteriores y los endpoints
+rechazan backdating. Las columnas/tablas quedan en su lugar (sin efecto negativo:
+`es_historico` tiene default `false`). **No se pierde nada.**
+
+### Nivel 2 — Revertir el código (deploy)
+Si el problema es de la app, revertir el deploy a la versión anterior (o
+`git revert` del merge) basta: las columnas nuevas quedan huérfanas pero **no
+rompen** el código viejo (nunca las referenciaba) por ser aditivas y con default.
+No es necesario tocar la base.
+
+### Nivel 3 — Revertir el schema (solo si se exige volver 100% atrás) ⚠️
+Solo si hay que eliminar por completo lo agregado. **Destruye** lo cargado como
+histórico (marcas `es_historico`, saldos iniciales y config de corte). Hacer
+**backup antes**. Ejecutar por cada `<schema>` de tenant afectado:
+
+```sql
+-- 1) Datos de configuración (tablas nuevas)
+DROP TABLE IF EXISTS <schema>.empresa_saldo_inicial;
+DROP TABLE IF EXISTS <schema>.empresa_carga_historica;
+
+-- 2) Columnas agregadas
+ALTER TABLE <schema>.facturas               DROP COLUMN IF EXISTS numero_interno;
+ALTER TABLE <schema>.facturas               DROP COLUMN IF EXISTS es_historico;
+ALTER TABLE <schema>.ventas                 DROP COLUMN IF EXISTS es_historico;
+ALTER TABLE <schema>.compras                DROP COLUMN IF EXISTS es_historico;
+ALTER TABLE <schema>.movimientos_inventario DROP COLUMN IF EXISTS es_historico;
+ALTER TABLE <schema>.gastos                 DROP COLUMN IF EXISTS es_historico;
+ALTER TABLE <schema>.pagos                  DROP COLUMN IF EXISTS es_historico;
+
+-- Los índices se eliminan junto con sus columnas/tablas (no requieren DROP aparte).
+```
+
+> El costo promedio ponderado (CPP) **no** se revierte con un rollback de schema:
+> es una corrección de lógica en el código. Si se revierte el deploy (Nivel 2),
+> vuelve el comportamiento anterior automáticamente.
+
+### Recomendación
+Usar **Nivel 1** salvo que haya una razón fuerte para borrar todo. Los niveles 2
+y 3 requieren tu autorización explícita y backup previo.
