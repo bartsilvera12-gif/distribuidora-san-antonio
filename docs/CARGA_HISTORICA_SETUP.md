@@ -1,6 +1,14 @@
 # Runbook — Configuración de carga histórica (San Antonio)
 
-> **No ejecutar en producción.** Primero aplicar en staging y validar.
+> **Instancia dedicada:** todo el ERP de San Antonio vive en el schema
+> **`sanantonio`** de una BD compartida con otros proyectos. Las migraciones de
+> carga histórica apuntan **exclusivamente** a `sanantonio` y **no tocan ningún
+> otro schema**.
+>
+> **Estado migraciones (2026-10-12):** ✅ **APLICADAS** en el schema `sanantonio`
+> (tablas `empresa_carga_historica` y `empresa_saldo_inicial` + columnas
+> `es_historico` / `numero_interno`). La carga histórica queda **DESHABILITADA**
+> hasta que un admin la active desde Configuración → Carga histórica.
 
 ## 0. Entorno de staging y credenciales (de forma segura)
 
@@ -78,8 +86,8 @@ dinámico (dentro de `format(...)`) se parsearon con el grammar real de PostgreS
 -- Debe listar las columnas/tablas nuevas en el schema del tenant:
 SELECT table_name, column_name
   FROM information_schema.columns
- WHERE table_schema = '<schema>'
-   AND (column_name = 'es_historico'
+ WHERE table_schema = 'sanantonio'
+   AND (column_name IN ('es_historico', 'numero_interno')
         OR table_name IN ('empresa_carga_historica', 'empresa_saldo_inicial'))
  ORDER BY table_name, column_name;
 ```
@@ -96,7 +104,7 @@ PUT /api/carga-historica
 Opción B — SQL directo en staging (reemplazar `<EMPRESA_ID>` y el schema del tenant):
 
 ```sql
-INSERT INTO <schema>.empresa_carga_historica (empresa_id, fecha_corte, habilitada)
+INSERT INTO sanantonio.empresa_carga_historica (empresa_id, fecha_corte, habilitada)
 VALUES ('<EMPRESA_ID>'::uuid, '2026-10-01', true)
 ON CONFLICT (empresa_id) DO UPDATE
   SET fecha_corte = EXCLUDED.fecha_corte, habilitada = true, cerrada_at = NULL, updated_at = now();
@@ -160,7 +168,7 @@ no hace falta revertir migraciones ni código.
 
 ```sql
 -- Deshabilita la carga histórica: la app vuelve a aceptar sólo la fecha de hoy.
-UPDATE <schema>.empresa_carga_historica
+UPDATE sanantonio.empresa_carga_historica
    SET habilitada = false, cerrada_at = now(), updated_at = now()
  WHERE empresa_id = '<EMPRESA_ID>'::uuid;
 ```
@@ -178,21 +186,21 @@ No es necesario tocar la base.
 ### Nivel 3 — Revertir el schema (solo si se exige volver 100% atrás) ⚠️
 Solo si hay que eliminar por completo lo agregado. **Destruye** lo cargado como
 histórico (marcas `es_historico`, saldos iniciales y config de corte). Hacer
-**backup antes**. Ejecutar por cada `<schema>` de tenant afectado:
+**backup antes**. Solo el schema `sanantonio` (no tocar otros proyectos):
 
 ```sql
 -- 1) Datos de configuración (tablas nuevas)
-DROP TABLE IF EXISTS <schema>.empresa_saldo_inicial;
-DROP TABLE IF EXISTS <schema>.empresa_carga_historica;
+DROP TABLE IF EXISTS sanantonio.empresa_saldo_inicial;
+DROP TABLE IF EXISTS sanantonio.empresa_carga_historica;
 
 -- 2) Columnas agregadas
-ALTER TABLE <schema>.facturas               DROP COLUMN IF EXISTS numero_interno;
-ALTER TABLE <schema>.facturas               DROP COLUMN IF EXISTS es_historico;
-ALTER TABLE <schema>.ventas                 DROP COLUMN IF EXISTS es_historico;
-ALTER TABLE <schema>.compras                DROP COLUMN IF EXISTS es_historico;
-ALTER TABLE <schema>.movimientos_inventario DROP COLUMN IF EXISTS es_historico;
-ALTER TABLE <schema>.gastos                 DROP COLUMN IF EXISTS es_historico;
-ALTER TABLE <schema>.pagos                  DROP COLUMN IF EXISTS es_historico;
+ALTER TABLE sanantonio.facturas               DROP COLUMN IF EXISTS numero_interno;
+ALTER TABLE sanantonio.facturas               DROP COLUMN IF EXISTS es_historico;
+ALTER TABLE sanantonio.ventas                 DROP COLUMN IF EXISTS es_historico;
+ALTER TABLE sanantonio.compras                DROP COLUMN IF EXISTS es_historico;
+ALTER TABLE sanantonio.movimientos_inventario DROP COLUMN IF EXISTS es_historico;
+ALTER TABLE sanantonio.gastos                 DROP COLUMN IF EXISTS es_historico;
+ALTER TABLE sanantonio.pagos                  DROP COLUMN IF EXISTS es_historico;
 
 -- Los índices se eliminan junto con sus columnas/tablas (no requieren DROP aparte).
 ```
