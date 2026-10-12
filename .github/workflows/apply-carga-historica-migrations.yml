@@ -1,0 +1,47 @@
+name: Aplicar migraciones (carga histórica)
+
+# Al mergear a main (o manualmente) aplica SOLO las 2 migraciones idempotentes
+# de carga histórica contra la base apuntada por el secret SUPABASE_DB_URL.
+#
+# Seguridad:
+#  - Usa el GitHub Environment "database-migrations". Protegé ese environment con
+#    "Required reviewers" (vos) → la aplicación QUEDA EN ESPERA de tu aprobación
+#    aunque el merge ya haya ocurrido. Esa es la autorización de despliegue.
+#  - El secret SUPABASE_DB_URL se define en ese mismo environment. Sin secret,
+#    el job corre pero NO hace nada (no-op). Nada apunta a producción salvo que
+#    vos cargues ahí esa connection string.
+#  - Las migraciones son aditivas e idempotentes (re-ejecutarlas es seguro).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "supabase/migrations/20261012120000_carga_historica_saldos_iniciales.sql"
+      - "supabase/migrations/20261012130000_saldo_inicial_caja_bancos.sql"
+      - ".github/workflows/apply-carga-historica-migrations.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: carga-historica-migrations
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    environment: database-migrations
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Instalar dependencias (solo pg)
+        run: npm install --no-save pg@8.20.0
+
+      - name: Aplicar migraciones de carga histórica
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: npm run db:apply-carga-historica-ci

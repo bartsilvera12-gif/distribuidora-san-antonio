@@ -23,7 +23,32 @@ Pasos seguros:
    se expone. En Vercel/Hostinger, cargar la variable como *secret* del entorno
    de Preview/Staging, nunca en el de Production.
 
-## 1. Aplicar migraciones (SOLO staging)
+## 0.b. Aplicación automática al mergear (CI)
+
+Hay un workflow que aplica las 2 migraciones **al mergear a `main`**:
+`.github/workflows/apply-carga-historica-migrations.yml`.
+
+**Setup único (una sola vez, lo hacés vos en GitHub):**
+1. Repo → **Settings → Environments → New environment** → nombre exacto
+   **`database-migrations`**.
+2. En ese environment, **Required reviewers** → agregate vos. Así, aunque el
+   merge ya ocurrió, la aplicación **queda en espera de tu aprobación** (es la
+   autorización de despliegue).
+3. En ese environment, **Secrets → New secret** → `SUPABASE_DB_URL` con la
+   connection string del entorno elegido (staging primero).
+
+Comportamiento:
+- Merge a `main` que toque las migraciones (o **Actions → Run workflow**) dispara
+  el job, que **espera tu aprobación** y recién entonces aplica.
+- Si el secret `SUPABASE_DB_URL` no está cargado, el job **no hace nada** (no-op):
+  nada corre contra ninguna base por accidente.
+- Migraciones aditivas e idempotentes → re-ejecutar es seguro.
+
+> **Orden:** Vercel despliega el código de `main` en paralelo. Como las columnas
+> nuevas son aditivas, aprobá la migración **apenas** se dispare el job para que
+> las columnas existan antes de que el tráfico use el código nuevo.
+
+## 1. Aplicar migraciones manualmente (SOLO staging)
 
 > **Requisito:** `SUPABASE_DB_URL` de **STAGING** en `.env.local` (ver arriba).
 
