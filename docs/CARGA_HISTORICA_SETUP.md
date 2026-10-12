@@ -4,12 +4,31 @@
 
 ## 1. Aplicar migraciones (staging)
 
+> **Requisito:** `SUPABASE_DB_URL` en `.env.local` apuntando a **STAGING** (no producción).
+> El repo no incluye credenciales; sin esa variable el script no conecta.
+
 ```bash
 npm run db:apply-sql-file supabase/migrations/20261012120000_carga_historica_saldos_iniciales.sql
 npm run db:apply-sql-file supabase/migrations/20261012130000_saldo_inicial_caja_bancos.sql
 ```
 
 Son **aditivas e idempotentes**: agregan tablas/columnas, no modifican datos existentes.
+
+**Validación de sintaxis ya realizada:** ambas migraciones y sus 13 fragmentos de DDL
+dinámico (dentro de `format(...)`) se parsearon con el grammar real de PostgreSQL
+(libpg_query) sin errores. Falta únicamente ejecutarlas contra una base de staging real.
+
+### Verificación post-aplicación (staging)
+
+```sql
+-- Debe listar las columnas/tablas nuevas en el schema del tenant:
+SELECT table_name, column_name
+  FROM information_schema.columns
+ WHERE table_schema = '<schema>'
+   AND (column_name = 'es_historico'
+        OR table_name IN ('empresa_carga_historica', 'empresa_saldo_inicial'))
+ ORDER BY table_name, column_name;
+```
 
 ## 2. Configurar la fecha de corte (provisional: 01/10/2026)
 

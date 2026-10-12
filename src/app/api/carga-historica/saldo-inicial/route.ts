@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
+import { getAuthWithRol, isAdmin } from "@/lib/middleware/auth";
 import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
@@ -27,8 +28,11 @@ export async function GET(request: NextRequest) {
  */
 export async function PUT(request: NextRequest) {
   try {
-    const ctx = await getTenantSupabaseFromAuth(request);
-    if (!ctx) return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
+    const auth = await getAuthWithRol(request);
+    if (!auth?.empresa_id) return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
+    if (!isAdmin(auth)) {
+      return NextResponse.json(errorResponse("Solo un administrador puede configurar los saldos iniciales."), { status: 403 });
+    }
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
 
     const fechaCorte = toCalendarDateStr(String(body.fechaCorte ?? ""));
@@ -58,8 +62,8 @@ export async function PUT(request: NextRequest) {
 
     const observaciones = typeof body.observaciones === "string" ? body.observaciones.slice(0, 2000) : null;
 
-    const schema = await fetchDataSchemaForEmpresaId(ctx.auth.empresa_id);
-    await upsertSaldoInicial(schema, ctx.auth.empresa_id, { fechaCorte, cajaInicial, bancos, observaciones });
+    const schema = await fetchDataSchemaForEmpresaId(auth.empresa_id);
+    await upsertSaldoInicial(schema, auth.empresa_id, { fechaCorte, cajaInicial, bancos, observaciones });
     return NextResponse.json(successResponse({ fechaCorte, cajaInicial, bancos, observaciones }));
   } catch (err) {
     console.error("[/api/carga-historica/saldo-inicial PUT]", err instanceof Error ? err.message : err);
